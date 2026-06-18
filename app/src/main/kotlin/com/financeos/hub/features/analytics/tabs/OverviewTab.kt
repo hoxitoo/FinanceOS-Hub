@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
+import com.financeos.hub.ui.components.ExpensePyramid
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.WhatIfSimulator
 import com.financeos.hub.ui.theme.FosColors
@@ -89,6 +90,17 @@ fun OverviewTab(state: AnalyticsState) {
                         color = FosColors.Negative,
                     )
                 }
+            }
+        }
+
+        // Expense pyramid
+        if (state.categoryExpenses.isNotEmpty()) {
+            item {
+                ExpensePyramid(
+                    categoryExpenses = state.categoryExpenses,
+                    categoryNames    = state.categoryNames,
+                    modifier         = Modifier.fillMaxWidth(),
+                )
             }
         }
 

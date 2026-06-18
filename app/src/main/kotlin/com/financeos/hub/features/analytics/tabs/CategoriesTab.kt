@@ -38,6 +38,9 @@ fun CategoriesTab(state: AnalyticsState) {
     ) {
         item { Spacer(Modifier.height(FosDimens.ItemGap)) }
         items(sorted) { (catId, kopecks) ->
+            val isFixed   = state.fixedVariable?.fixed?.contains(catId) == true
+            val isVariable= state.fixedVariable?.variable?.contains(catId) == true
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -53,10 +56,15 @@ fun CategoriesTab(state: AnalyticsState) {
                         style = FosType.BodySemi,
                         color = FosColors.TextPrimary,
                     )
+                    val tag = when {
+                        isFixed    -> "постоянные · "
+                        isVariable -> "переменные · "
+                        else       -> ""
+                    }
                     Text(
-                        "${(kopecks.toFloat() / total * 100).toInt()}% от расходов",
+                        "$tag${(kopecks.toFloat() / total * 100).toInt()}% от расходов",
                         style = FosType.Micro,
-                        color = FosColors.TextSecondary,
+                        color = if (isFixed) FosColors.Info else FosColors.TextSecondary,
                     )
                 }
                 Text(
