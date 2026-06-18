@@ -16,8 +16,5 @@ class AccountRepository @Inject constructor(
 
     suspend fun updateBalance(id: String, kopecks: Long) = dao.updateBalance(id, kopecks)
 
-    suspend fun totalBalance(): Long {
-        // summed by observeAll() collector; expose for one-shot reads
-        return 0L
-    }
+    suspend fun deactivate(id: String) = dao.deactivate(id)
 }

@@ -9,10 +9,11 @@ import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 data class DashboardState(
@@ -28,9 +29,9 @@ data class DashboardState(
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    txRepo       : TransactionRepository,
-    accountRepo  : AccountRepository,
-    categoryRepo : CategoryRepository,
+    txRepo                   : TransactionRepository,
+    private val accountRepo  : AccountRepository,
+    categoryRepo             : CategoryRepository,
 ) : ViewModel() {
 
     val state = combine(
@@ -54,4 +55,31 @@ class DashboardViewModel @Inject constructor(
             categories         = catMap,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
+
+    fun createAccount(name: String, bank: String, cardMask: String?, balanceKopecks: Long) {
+        viewModelScope.launch {
+            accountRepo.upsert(
+                AccountEntity(
+                    id             = UUID.randomUUID().toString(),
+                    name           = name,
+                    bank           = bank,
+                    cardMask       = cardMask,
+                    balanceKopecks = balanceKopecks,
+                )
+            )
+        }
+    }
+
+    fun updateAccountBalance(account: AccountEntity, newBalanceKopecks: Long) {
+        viewModelScope.launch {
+            accountRepo.upsert(account.copy(
+                balanceKopecks = newBalanceKopecks,
+                updatedAt      = System.currentTimeMillis(),
+            ))
+        }
+    }
+
+    fun deleteAccount(id: String) {
+        viewModelScope.launch { accountRepo.deactivate(id) }
+    }
 }

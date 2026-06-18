@@ -154,10 +154,14 @@ Full audit performed; 9 issues found and fixed:
 | LOW | Multiple screens | Added `key = { it.id }` to all `LazyColumn items()` calls — prevents item reuse bugs during list updates |
 | LOW | `AnalyticsEngine.kt` | Added missing `import kotlinx.coroutines.flow.first` |
 
+## Post-Audit Features
+- [x] **Account management UI** — AddAccountSheet (bank picker, name, card mask, initial balance), tap-to-edit account balance, delete via AlertDialog in DashboardScreen
+- [x] **InsightGeneratorTest** — 28 unit tests covering all 6 rules + edge cases + sort order
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
-- Unit tests for edge cases in InsightGenerator
+- CSV export for transactions
 
 ## Key File Locations
 | Layer | Path |
