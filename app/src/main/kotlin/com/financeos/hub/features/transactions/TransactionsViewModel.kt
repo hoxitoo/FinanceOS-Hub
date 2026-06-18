@@ -91,6 +91,27 @@ class TransactionsViewModel @Inject constructor(
     fun setFilter(filter: TxFilter) { _filter.value = filter }
     fun setSearch(query: String)    { _search.value = query }
 
+    fun updateTransaction(
+        tx         : TransactionEntity,
+        merchant   : String,
+        categoryId : String?,
+        note       : String?,
+    ) {
+        viewModelScope.launch {
+            txRepo.update(
+                tx.copy(
+                    merchant    = merchant.ifBlank { null },
+                    categoryId  = categoryId,
+                    description = note,
+                )
+            )
+        }
+    }
+
+    fun deleteTransaction(id: String) {
+        viewModelScope.launch { txRepo.softDelete(id) }
+    }
+
     fun insertManual(
         type       : TransactionType,
         amountKopecks: Long,

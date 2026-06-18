@@ -49,14 +49,17 @@ import com.financeos.hub.ui.theme.FosType
 @Composable
 fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     val state      by vm.state.collectAsState()
-    var showSheet  by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    var showAddSheet  by remember { mutableStateOf(false) }
+    val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+
+    var selectedTx  by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
+    val detailSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
 
     Scaffold(
         containerColor = FosColors.Background,
         floatingActionButton = {
             FloatingActionButton(
-                onClick          = { showSheet = true },
+                onClick          = { showAddSheet = true },
                 containerColor   = FosColors.Positive,
                 contentColor     = FosColors.Background,
                 shape            = CircleShape,
@@ -163,6 +166,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                                 TransactionRow(
                                     transaction  = tx,
                                     categoryName = state.categoryName(tx.categoryId),
+                                    onClick      = { selectedTx = tx },
                                 )
                             }
                         }
@@ -171,14 +175,28 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
             }
         }
 
-        if (showSheet) {
+        if (showAddSheet) {
             AddTransactionSheet(
-                sheetState = sheetState,
+                sheetState = addSheetState,
                 categories = state.categories,
-                onDismiss  = { showSheet = false },
+                onDismiss  = { showAddSheet = false },
                 onSave     = { type, kopecks, merchant, catId, note ->
                     vm.insertManual(type, kopecks, merchant, catId, note)
                 },
+            )
+        }
+
+        selectedTx?.let { tx ->
+            TransactionDetailSheet(
+                transaction  = tx,
+                categories   = state.categories,
+                categoryName = state.categoryName(tx.categoryId),
+                sheetState   = detailSheetState,
+                onDismiss    = { selectedTx = null },
+                onSave       = { merchant, catId, note ->
+                    vm.updateTransaction(tx, merchant, catId, note)
+                },
+                onDelete     = { vm.deleteTransaction(tx.id) },
             )
         }
     }

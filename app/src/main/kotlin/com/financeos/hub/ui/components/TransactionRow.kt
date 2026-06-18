@@ -1,6 +1,7 @@
 package com.financeos.hub.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,12 +28,14 @@ fun TransactionRow(
     transaction  : TransactionEntity,
     categoryName : String,
     modifier     : Modifier = Modifier,
+    onClick      : (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
             .background(FosColors.Surface)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(FosDimens.CardPaddingSmall),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment     = Alignment.CenterVertically,
