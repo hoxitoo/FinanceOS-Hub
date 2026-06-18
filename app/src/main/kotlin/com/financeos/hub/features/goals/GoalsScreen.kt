@@ -87,7 +87,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                     )
                 }
             } else {
-                items(state.goals) { goal ->
+                items(state.goals, key = { it.id }) { goal ->
                     GoalCard(
                         goal              = goal,
                         onAddContribution = {

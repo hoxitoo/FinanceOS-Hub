@@ -83,7 +83,7 @@ fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
                     )
                 }
             } else {
-                items(state.envelopes) { env ->
+                items(state.envelopes, key = { it.budgetId }) { env ->
                     BudgetEnvelopeCard(
                         envelope = env,
                         onDelete = { vm.deleteBudget(env.budgetId) },

@@ -9,6 +9,7 @@ import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.ml.BehavioralCluster
 import com.financeos.hub.core.ml.SpendingPredictor
 import java.time.Instant
+import kotlinx.coroutines.flow.first
 import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
@@ -329,9 +330,6 @@ class AnalyticsEngine @Inject constructor(
         )
     }
 
-    private suspend fun getTxSync(from: Long, to: Long): List<TransactionEntity> {
-        var result = emptyList<TransactionEntity>()
-        txDao.observeByPeriod(from, to).collect { result = it; return@collect }
-        return result
-    }
+    private suspend fun getTxSync(from: Long, to: Long): List<TransactionEntity> =
+        txDao.observeByPeriod(from, to).first()
 }

@@ -1,12 +1,16 @@
 package com.financeos.hub.core.notifications
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.financeos.hub.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -68,7 +72,15 @@ class NotificationHelper @Inject constructor(
         )
     }
 
+    private fun hasNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
+            context, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     fun sendBudgetAlert(categoryName: String, spentPercent: Int) {
+        if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("Бюджет: $categoryName")
@@ -83,8 +95,9 @@ class NotificationHelper @Inject constructor(
 
     fun sendWeeklySummary(
         totalSpentKopecks : Long,
-        comparedToLastWeek: Int,   // percent change, negative = less
+        comparedToLastWeek: Int,
     ) {
+        if (!hasNotificationPermission()) return
         val direction = if (comparedToLastWeek >= 0) "больше" else "меньше"
         val abs       = kotlin.math.abs(comparedToLastWeek)
         val body      = "Расходы за неделю: ${formatCompact(totalSpentKopecks)}" +
@@ -103,6 +116,7 @@ class NotificationHelper @Inject constructor(
     }
 
     fun sendInsightNotification(id: Int, text: String) {
+        if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Финансовый инсайт")

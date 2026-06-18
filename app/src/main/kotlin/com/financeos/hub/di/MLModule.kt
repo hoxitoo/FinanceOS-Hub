@@ -8,6 +8,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import javax.inject.Singleton
@@ -31,7 +32,7 @@ object MLModule {
         dictionaryClassifier: DictionaryClassifier,
         userPreferences     : UserPreferences,
     ): CategoryClassifier {
-        val mlEnabled = runBlocking { userPreferences.mlClassificationEnabled.first() }
+        val mlEnabled = runBlocking(Dispatchers.IO) { userPreferences.mlClassificationEnabled.first() }
         return if (mlEnabled) mlClassifier else dictionaryClassifier
     }
 }

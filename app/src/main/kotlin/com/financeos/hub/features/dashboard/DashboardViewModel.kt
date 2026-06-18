@@ -42,7 +42,7 @@ class DashboardViewModel @Inject constructor(
         val income   = txList.filter { it.type == TransactionType.INCOME }
             .sumOf { it.amountKopecks }
         val expense  = txList.filter { it.type == TransactionType.EXPENSE }
-            .sumOf { it.amountKopecks }   // stored negative
+            .sumOf { kotlin.math.abs(it.amountKopecks) }
         val netWorth = accounts.sumOf { it.balanceKopecks }
 
         DashboardState(

@@ -48,7 +48,7 @@ fun InsightsTab(state: AnalyticsState) {
             item {
                 Text("ОПОВЕЩЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.insights) { insight ->
+            items(state.insights, key = { it.title }) { insight ->
                 InsightCard(insight = insight)
             }
         }
@@ -59,7 +59,7 @@ fun InsightsTab(state: AnalyticsState) {
                 Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
                 Text("АНОМАЛИИ РАСХОДОВ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.categoryAnomalies) { anomaly ->
+            items(state.categoryAnomalies, key = { it.categoryId }) { anomaly ->
                 AnomalyCard(
                     anomaly  = anomaly,
                     catName  = state.categoryNames[anomaly.categoryId] ?: "Другое",
@@ -73,7 +73,7 @@ fun InsightsTab(state: AnalyticsState) {
                 Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
                 Text("НАБЛЮДЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.narratives) { narrative ->
+            items(state.narratives, key = { it }) { narrative ->
                 NarrativeCard(narrative = narrative)
             }
         }

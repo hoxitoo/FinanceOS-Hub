@@ -70,10 +70,10 @@ abstract class FosDatabase : RoomDatabase() {
                 "#E879F9", "#2DD4BF", "#94A3B8",
             )
             cats.forEachIndexed { i, (id, name, emoji) ->
-                db.execSQL("""
-                    INSERT OR IGNORE INTO categories(id, name, emoji, color, is_system, is_active, sort_order)
-                    VALUES('$id', '$name', '$emoji', '${colors[i]}', 1, 1, $i)
-                """.trimIndent())
+                db.execSQL(
+                    "INSERT OR IGNORE INTO categories(id, name, emoji, color, is_system, is_active, sort_order) VALUES(?, ?, ?, ?, 1, 1, ?)",
+                    arrayOf(id, name, emoji, colors[i], i),
+                )
             }
         }
 
@@ -159,10 +159,10 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r103", "салон красоты", "cat_beauty"),
             )
             rules.forEach { (id, pattern, catId) ->
-                db.execSQL("""
-                    INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex)
-                    VALUES('$id', '$pattern', '$catId', 0, 0)
-                """.trimIndent())
+                db.execSQL(
+                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, 0, 0)",
+                    arrayOf(id, pattern, catId),
+                )
             }
         }
     }

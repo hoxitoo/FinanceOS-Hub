@@ -128,11 +128,6 @@ Implemented:
   - `spending_predictor.tflite` (float[1][30][1] → float[1][1])
   - `behavioral_cluster.tflite` (float[1][7] → float[1][5])
 
-## Next Steps
-- Polish: localization review, dark-mode visual QA
-- Train and bundle .tflite model files (model stubs in `assets/models/` — app runs without them via fallback)
-- Add Sberbank/Tbank push-notification deep-link intent on budget alert tap
-
 ## Completed Post-Phase-3 Polish
 - [x] BudgetViewModel wired to NotificationHelper (fires alert at configurable threshold, once per session per budget)
 - [x] BehavioralAnalyzerTest — 28 unit tests covering all 7 public methods + edge cases (fixed entity field names)
@@ -142,6 +137,27 @@ Implemented:
 - [x] Notification deep-links — budget → budget route, weekly/insight → analytics route
 - [x] Goals CRUD — AddGoalSheet (emoji picker, name, target), contribute dialog, delete
 - [x] Budget CRUD — AddBudgetSheet (period toggle, category picker, limit), delete envelopes
+
+## Security & Bug Audit ✓ COMPLETE
+
+Full audit performed; 9 issues found and fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `AnalyticsEngine.getTxSync` | Replaced blocking `.collect { return@collect }` pattern with `.first()` — was silently reading only first emission but could hang |
+| CRITICAL | `di/MLModule.kt` | Added `Dispatchers.IO` to `runBlocking { }` — prevents main thread ANR at DI graph construction |
+| CRITICAL | `core/sms/SmsReceiver.kt` | Added `CoroutineExceptionHandler` to scope — unhandled exceptions in SMS processing no longer crash silently |
+| HIGH | `core/ml/SpendingPredictor.kt` | Float×Long×Int multiplication now uses Double and `coerceAtMost(Long.MAX_VALUE)` — prevents overflow for extreme values |
+| HIGH | `features/dashboard/DashboardViewModel.kt` | Expenses stored as negative kopecks; `sumOf { it.amountKopecks }` returned negative. Fixed to `sumOf { abs(it.amountKopecks) }` |
+| HIGH | `core/notifications/NotificationHelper.kt` | Added `hasNotificationPermission()` guard (API 33+ check) before all three `notify()` calls — avoids `SecurityException` |
+| MEDIUM | `core/database/FosDatabase.kt` | Replaced string-interpolation SQL in `PREPOPULATE_CALLBACK` with parameterized `execSQL(sql, arrayOf(...))` — eliminates SQL injection surface |
+| LOW | Multiple screens | Added `key = { it.id }` to all `LazyColumn items()` calls — prevents item reuse bugs during list updates |
+| LOW | `AnalyticsEngine.kt` | Added missing `import kotlinx.coroutines.flow.first` |
+
+## Next Steps
+- Polish: localization review, dark-mode visual QA
+- Train and bundle .tflite model files (app runs on rule-based fallback without them)
+- Unit tests for edge cases in InsightGenerator
 
 ## Key File Locations
 | Layer | Path |

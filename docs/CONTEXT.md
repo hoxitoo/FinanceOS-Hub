@@ -245,3 +245,34 @@ val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positiv
 7. What-if simulator → `WhatIfSimulator.kt`
 8. Savings projection → extend `AnalyticsEngine`
 9. Expense pyramid + fixed/variable → `StructuralAnalyzer`
+
+---
+
+## Architecture Decisions (Post-Audit)
+
+### Amount sign convention
+- `EXPENSE` transactions are stored with **negative** `amountKopecks` in Room
+- When computing totals for UI display, always apply `abs()`: `sumOf { abs(it.amountKopecks) }`
+- `FosFormatter` handles sign display — do not negate twice
+
+### Flow.first() vs blocking collect
+- Use `flow.first()` inside `suspend fun` to read a single snapshot — never use `flow.collect { result = it; return@collect }` which is a broken pattern that only coincidentally reads the first element in a cold flow
+- In Hilt `@Provides` functions (which cannot be `suspend`), use `runBlocking(Dispatchers.IO) { pref.first() }` — never `runBlocking` without a dispatcher on the main thread
+
+### Coroutine safety in BroadcastReceiver
+- `SmsReceiver` uses a `CoroutineScope` with `SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler`
+- The `CoroutineExceptionHandler` logs to `android.util.Log.e` — exceptions do not propagate and crash the app
+- `goAsync()` is NOT used because each SMS is processed independently and the receiver returns quickly
+
+### SQL injection surface
+- All `db.execSQL()` calls in `FosDatabase.PREPOPULATE_CALLBACK` use the parameterized two-arg form: `execSQL(sql, arrayOf(...))`
+- No user input is ever interpolated into SQL strings anywhere in the codebase
+
+### Notification permission guard (API 33+)
+- `NotificationHelper.hasNotificationPermission()` checks `Manifest.permission.POST_NOTIFICATIONS` on API ≥ TIRAMISU
+- All three `notify()` entry points call this guard — budget alert, weekly summary, insight notification
+- Onboarding requests the permission at launch; if denied, the app still works but sends no notifications
+
+### LazyColumn key stability
+- All `items()` calls use `key = { it.id }` or equivalent unique key
+- This prevents Compose from reusing wrong item composables when the list is filtered/sorted

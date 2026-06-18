@@ -60,7 +60,8 @@ class SpendingPredictor @Inject constructor(
             interp.run(inputBuf, output)
 
             val normalizedPrediction = output[0][0].coerceIn(0f, 10f)
-            (normalizedPrediction * maxVal * daysRemaining).toLong()
+            (normalizedPrediction.toDouble() * maxVal.toDouble() * daysRemaining)
+                .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
         } catch (e: Exception) {
             linearFallback(dailyExpenses, daysRemaining)
         }

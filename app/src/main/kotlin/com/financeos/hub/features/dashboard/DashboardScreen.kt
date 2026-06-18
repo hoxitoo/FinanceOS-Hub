@@ -117,7 +117,7 @@ fun DashboardScreen(
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
-                    items(state.accounts) { account ->
+                    items(state.accounts, key = { it.id }) { account ->
                         AccountChipItem(
                             name    = account.name,
                             balance = FosFormatter.compact(account.balanceKopecks),
@@ -133,7 +133,7 @@ fun DashboardScreen(
                 Spacer(Modifier.height(FosDimens.ItemGap))
                 Text("Недавние", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.recentTransactions) { tx ->
+            items(state.recentTransactions, key = { it.id }) { tx ->
                 TransactionRow(transaction = tx, categoryName = state.categoryName(tx.categoryId))
             }
         }

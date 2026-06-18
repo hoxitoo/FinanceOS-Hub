@@ -154,7 +154,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                     state.grouped.entries
                         .sortedByDescending { it.key }
                         .forEach { (day, txList) ->
-                            item {
+                            item(key = "header_$day") {
                                 Text(
                                     text     = FosFormatter.dayLabel(day),
                                     style    = FosType.SectionCap,
@@ -162,7 +162,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                                     modifier = Modifier.padding(top = FosDimens.ItemGap, bottom = 4.dp),
                                 )
                             }
-                            items(txList.sortedByDescending { it.timestamp }) { tx ->
+                            items(txList.sortedByDescending { it.timestamp }, key = { it.id }) { tx ->
                                 TransactionRow(
                                     transaction  = tx,
                                     categoryName = state.categoryName(tx.categoryId),
