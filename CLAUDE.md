@@ -80,6 +80,7 @@ app/
 - [x] Parser unit tests (5 banks × 6 tests)
 - [x] **Phase 2A behavioral analytics** (all 13 items complete)
 - [x] **Phase 3 TFLite ML layer + Settings + Notifications** (committed `d6d2111`)
+- [x] **Subscriptions screen** — recurring expense detection via BehavioralAnalyzer, missed-payment alerts, monthly total; accessible from Budget screen "↻ Подписки" button
 
 ## Phase 2A — Behavioral Analytics ✓ COMPLETE
 All pure Kotlin, no TFLite. Committed in 3 batches.
@@ -163,7 +164,7 @@ Full audit performed; 9 issues found and fixed:
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
-- Subscription/recurring expense management screen
+- Deep-link from Subscriptions screen to filtered TransactionsScreen by category
 
 ## Key File Locations
 | Layer | Path |

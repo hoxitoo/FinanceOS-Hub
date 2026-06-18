@@ -24,6 +24,7 @@ import com.financeos.hub.features.analytics.AnalyticsScreen
 import com.financeos.hub.features.budget.BudgetScreen
 import com.financeos.hub.features.categories.CategoriesScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
+import com.financeos.hub.features.subscriptions.SubscriptionsScreen
 import com.financeos.hub.features.goals.GoalsScreen
 import com.financeos.hub.features.onboarding.OnboardingScreen
 import com.financeos.hub.features.settings.SettingsScreen
@@ -92,7 +93,11 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             }
             composable(FosRoute.Transactions.route) { TransactionsScreen() }
             composable(FosRoute.Analytics.route)    { AnalyticsScreen() }
-            composable(FosRoute.Budget.route)       { BudgetScreen() }
+            composable(FosRoute.Budget.route) {
+                BudgetScreen(
+                    onSubscriptionsClick = { navController.navigate(FosRoute.Subscriptions.route) },
+                )
+            }
             composable(FosRoute.Goals.route)        { GoalsScreen() }
             composable(FosRoute.Settings.route)     {
                 SettingsScreen(
@@ -102,6 +107,9 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             }
             composable(FosRoute.Categories.route) {
                 CategoriesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(FosRoute.Subscriptions.route) {
+                SubscriptionsScreen(onBack = { navController.popBackStack() })
             }
         }
     }

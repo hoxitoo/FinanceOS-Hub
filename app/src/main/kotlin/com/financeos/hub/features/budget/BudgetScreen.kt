@@ -41,7 +41,10 @@ import com.financeos.hub.ui.theme.FosType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
+fun BudgetScreen(
+    onSubscriptionsClick: () -> Unit = {},
+    vm: BudgetViewModel = hiltViewModel(),
+) {
     val state        by vm.state.collectAsState()
     var showAddSheet  by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
@@ -70,7 +73,19 @@ fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
         ) {
             item { Spacer(Modifier.height(16.dp)) }
             item {
-                Text("Бюджет", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text("Бюджет", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+                    TextButton(
+                        onClick        = onSubscriptionsClick,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("↻ Подписки", style = FosType.Label, color = FosColors.TextSecondary)
+                    }
+                }
             }
 
             if (state.envelopes.isEmpty()) {
