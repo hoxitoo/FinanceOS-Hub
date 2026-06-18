@@ -2,6 +2,9 @@ package com.financeos.hub.features.budget
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.database.entities.BudgetEntity
+import com.financeos.hub.core.database.entities.BudgetPeriod
+import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.BudgetRepository
@@ -15,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.YearMonth
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 
 data class BudgetEnvelope(
@@ -28,7 +32,8 @@ data class BudgetEnvelope(
 }
 
 data class BudgetState(
-    val envelopes: List<BudgetEnvelope> = emptyList(),
+    val envelopes : List<BudgetEnvelope> = emptyList(),
+    val categories: List<CategoryEntity> = emptyList(),
 )
 
 @HiltViewModel
@@ -66,8 +71,25 @@ class BudgetViewModel @Inject constructor(
         }
 
         checkAndFireAlerts(envelopes)
-        BudgetState(envelopes = envelopes)
+        BudgetState(envelopes = envelopes, categories = categories)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetState())
+
+    fun createBudget(categoryId: String, limitKopecks: Long, period: BudgetPeriod) {
+        viewModelScope.launch {
+            budgetRepo.upsert(
+                BudgetEntity(
+                    id           = UUID.randomUUID().toString(),
+                    categoryId   = categoryId,
+                    limitKopecks = limitKopecks,
+                    period       = period,
+                )
+            )
+        }
+    }
+
+    fun deleteBudget(id: String) {
+        viewModelScope.launch { budgetRepo.deactivate(id) }
+    }
 
     private fun checkAndFireAlerts(envelopes: List<BudgetEnvelope>) {
         viewModelScope.launch {
