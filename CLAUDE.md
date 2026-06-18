@@ -78,8 +78,8 @@ app/
 - [x] ScoreRing component (Canvas DrawScope)
 - [x] LineChart component (SVG Canvas, bezier curve ✓)
 - [x] Parser unit tests (5 banks × 6 tests)
-- [x] **Phase 2A behavioral analytics** (all 11 items complete)
-- [ ] Phase 3 TFLite ML models
+- [x] **Phase 2A behavioral analytics** (all 13 items complete)
+- [x] **Phase 3 TFLite ML layer + Settings + Notifications** (committed `d6d2111`)
 
 ## Phase 2A — Behavioral Analytics ✓ COMPLETE
 All pure Kotlin, no TFLite. Committed in 3 batches.
@@ -95,21 +95,44 @@ Implemented:
 8. `WhatIfSimulator.kt` — interactive sliders, 6/12/24-month projection ✓
 9. `ExpensePyramid.kt` — 3-tier mandatory/regular/discretionary ✓
 10. InsightsTab — ОПОВЕЩЕНИЯ + АНОМАЛИИ + НАБЛЮДЕНИЯ sections ✓
-11. OverviewTab — pyramid + WhatIfSimulator sections ✓
+11. OverviewTab — pyramid + WhatIfSimulator + archetype card ✓
 12. CategoriesTab — fixed/variable badge per category ✓
 13. TrendsTab — 5 sections: daily chart, heatmap, fatigue, waterfall, impulse stats ✓
 
+## Phase 3 — TFLite ML + Settings + Notifications ✓ COMPLETE
+
+### ML Layer (`core/ml/`)
+- `ModelLoader.kt` — loads .tflite from `assets/models/`, returns null if absent (graceful fallback)
+- `TextFeatureExtractor.kt` — 256-dim char n-gram embedding, Fibonacci hash, L2 norm
+- `MLCategoryClassifier.kt` — 256→13 softmax; falls back to DictionaryClassifier below 40% confidence
+- `SpendingPredictor.kt` — LSTM end-of-month forecast; falls back to linear extrapolation
+- `BehavioralCluster.kt` — 5-archetype K-means (Плановик/Импульсивный/Гурман/Экономный/Путешественник); rule-based fallback
+
+### Settings (`features/settings/`)
+- `SettingsViewModel.kt` — SettingsState: heroVariant, biometric, notifications, ML toggle, budget threshold
+- `SettingsScreen.kt` — hero variant chips, notification toggle + budget threshold slider (50-95%), biometric toggle, ML toggle, info section
+
+### Notifications (`core/notifications/NotificationHelper.kt`)
+- 3 channels: fos_budget (HIGH), fos_weekly (DEFAULT), fos_insight (LOW)
+- CRITICAL insights sent as push notifications from AnalyticsWorker
+
+### Infrastructure
+- `di/MLModule.kt` — injects MLCategoryClassifier or DictionaryClassifier based on preference
+- TFLite deps: `org.tensorflow:tensorflow-lite:2.14.0` in libs.versions.toml + build.gradle.kts
+- `noCompress += "tflite"` in androidResources
+- Settings route wired in FosNavHost; gear icon in DashboardScreen
+
+### Requires (to activate ML)
+- Place trained model files in `app/src/main/assets/models/`:
+  - `category_classifier.tflite` (256 input → 13 output)
+  - `spending_predictor.tflite` (float[1][30][1] → float[1][1])
+  - `behavioral_cluster.tflite` (float[1][7] → float[1][5])
+
 ## Next Steps
-- Phase 3 TFLite (requires pre-trained models, separate phase)
 - Unit tests for BehavioralAnalyzer edge cases
 - Polish: localization review, dark-mode visual QA
-
-## Phase 3 — TFLite (requires pre-trained models)
-- Behavioral clustering (hour/day/category/amount features)
-- Predictive spending (LSTM time series)
-- Smart merchant categorization (text embedding)
-- Dependency: `org.tensorflow:tensorflow-lite:2.14.0`
-- Models bundled as `assets/models/*.tflite`
+- Wire budget overspend → NotificationHelper.sendBudgetAlert() in BudgetViewModel
+- Train and bundle .tflite model files
 
 ## Key File Locations
 | Layer | Path |
