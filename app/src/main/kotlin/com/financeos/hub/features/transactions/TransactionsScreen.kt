@@ -137,6 +137,30 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                     .padding(bottom = 8.dp),
             )
 
+            // Active category filter banner
+            if (state.categoryFilter != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FosDimens.ScreenPadding)
+                        .padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Категория: ${state.categoryName(state.categoryFilter)}",
+                        style = FosType.Label,
+                        color = FosColors.Info,
+                    )
+                    TextButton(
+                        onClick        = { vm.clearCategoryFilter() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    ) {
+                        Text("× Сбросить", style = FosType.Micro, color = FosColors.TextMuted)
+                    }
+                }
+            }
+
             // Filter chips
             LazyRow(
                 contentPadding        = PaddingValues(horizontal = FosDimens.ScreenPadding),

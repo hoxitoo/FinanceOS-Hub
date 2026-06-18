@@ -1,5 +1,6 @@
 package com.financeos.hub.features.transactions
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.database.entities.CategoryEntity
@@ -26,11 +27,12 @@ enum class TxFilter(val label: String) {
 }
 
 data class TransactionsState(
-    val grouped      : Map<Long, List<TransactionEntity>> = emptyMap(),
-    val activeFilter : TxFilter                           = TxFilter.ALL,
-    val searchQuery  : String                             = "",
-    val categories   : List<CategoryEntity>               = emptyList(),
-    private val categoryMap: Map<String, String>          = emptyMap(),
+    val grouped        : Map<Long, List<TransactionEntity>> = emptyMap(),
+    val activeFilter   : TxFilter                           = TxFilter.ALL,
+    val searchQuery    : String                             = "",
+    val categories     : List<CategoryEntity>               = emptyList(),
+    val categoryFilter : String?                            = null,
+    private val categoryMap: Map<String, String>            = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categoryMap[it] } ?: "Другое"
 }
@@ -39,18 +41,21 @@ data class TransactionsState(
 class TransactionsViewModel @Inject constructor(
     private val txRepo      : TransactionRepository,
     private val categoryRepo: CategoryRepository,
+    savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
 
-    private val _filter = MutableStateFlow(TxFilter.ALL)
-    private val _search = MutableStateFlow("")
+    private val _filter         = MutableStateFlow(TxFilter.ALL)
+    private val _search         = MutableStateFlow("")
+    private val _categoryFilter = MutableStateFlow<String?>(savedStateHandle["categoryId"])
+
+    fun clearCategoryFilter() { _categoryFilter.value = null }
 
     val state = combine(
         txRepo.observeAll(),
         categoryRepo.observeAll(),
-        _filter,
-        _search,
-    ) { txList, categories, filter, query ->
-        val catMap   = categories.associate { it.id to it.name }
+        combine(_filter, _search, _categoryFilter) { f, s, c -> Triple(f, s, c) },
+    ) { txList, categories, (filter, query, catFilter) ->
+        val catMap = categories.associate { it.id to it.name }
 
         val filtered = txList
             .filter { tx ->
@@ -59,6 +64,9 @@ class TransactionsViewModel @Inject constructor(
                     TxFilter.EXPENSE -> tx.type == TransactionType.EXPENSE
                     TxFilter.INCOME  -> tx.type == TransactionType.INCOME
                 }
+            }
+            .filter { tx ->
+                if (catFilter == null) true else tx.categoryId == catFilter
             }
             .filter { tx ->
                 if (query.isBlank()) true
@@ -80,11 +88,12 @@ class TransactionsViewModel @Inject constructor(
         }
 
         TransactionsState(
-            grouped    = grouped,
-            activeFilter = filter,
-            searchQuery  = query,
-            categories   = categories,
-            categoryMap  = catMap,
+            grouped        = grouped,
+            activeFilter   = filter,
+            searchQuery    = query,
+            categories     = categories,
+            categoryFilter = catFilter,
+            categoryMap    = catMap,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionsState())
 

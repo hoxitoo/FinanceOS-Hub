@@ -1,6 +1,7 @@
 package com.financeos.hub.features.subscriptions
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,8 +32,9 @@ import com.financeos.hub.ui.theme.FosType
 
 @Composable
 fun SubscriptionsScreen(
-    onBack: () -> Unit = {},
-    vm    : SubscriptionsViewModel = hiltViewModel(),
+    onBack         : () -> Unit = {},
+    onCategoryClick: (String) -> Unit = {},
+    vm             : SubscriptionsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
 
@@ -95,7 +97,7 @@ fun SubscriptionsScreen(
                 )
             }
             items(state.missed, key = { it.categoryId }) { sub ->
-                SubscriptionCard(sub = sub, isMissed = true)
+                SubscriptionCard(sub = sub, isMissed = true, onClick = { onCategoryClick(sub.categoryId) })
             }
         }
 
@@ -105,7 +107,7 @@ fun SubscriptionsScreen(
                 Text("РЕГУЛЯРНЫЕ РАСХОДЫ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
             items(state.active, key = { it.categoryId }) { sub ->
-                SubscriptionCard(sub = sub, isMissed = false)
+                SubscriptionCard(sub = sub, isMissed = false, onClick = { onCategoryClick(sub.categoryId) })
             }
         }
 
@@ -114,12 +116,13 @@ fun SubscriptionsScreen(
 }
 
 @Composable
-private fun SubscriptionCard(sub: SubscriptionInfo, isMissed: Boolean) {
+private fun SubscriptionCard(sub: SubscriptionInfo, isMissed: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
+            .clickable(onClick = onClick)
             .padding(FosDimens.CardPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment     = Alignment.CenterVertically,

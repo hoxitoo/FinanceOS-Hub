@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -49,12 +51,13 @@ fun FosNavHost(initialDeepRoute: String? = null) {
         }
     }
 
-    val showBottomBar = currentRoute in listOf(
-        FosRoute.Dashboard.route,
-        FosRoute.Transactions.route,
-        FosRoute.Analytics.route,
-        FosRoute.Budget.route,
-        FosRoute.Goals.route,
+    // destination.route returns the template string for routes with args
+    val showBottomBar = currentRoute != null && (
+        currentRoute == FosRoute.Dashboard.route ||
+        currentRoute.startsWith(FosRoute.Transactions.route) ||
+        currentRoute == FosRoute.Analytics.route ||
+        currentRoute == FosRoute.Budget.route ||
+        currentRoute == FosRoute.Goals.route
     )
 
     Scaffold(
@@ -91,7 +94,16 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                     navController.navigate(FosRoute.Settings.route)
                 })
             }
-            composable(FosRoute.Transactions.route) { TransactionsScreen() }
+            composable(
+                route     = FosRoute.Transactions.routeWithArgs,
+                arguments = listOf(
+                    navArgument("categoryId") {
+                        type         = NavType.StringType
+                        nullable     = true
+                        defaultValue = null
+                    }
+                ),
+            ) { TransactionsScreen() }
             composable(FosRoute.Analytics.route)    { AnalyticsScreen() }
             composable(FosRoute.Budget.route) {
                 BudgetScreen(
@@ -109,7 +121,16 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                 CategoriesScreen(onBack = { navController.popBackStack() })
             }
             composable(FosRoute.Subscriptions.route) {
-                SubscriptionsScreen(onBack = { navController.popBackStack() })
+                SubscriptionsScreen(
+                    onBack         = { navController.popBackStack() },
+                    onCategoryClick = { catId ->
+                        navController.navigate(FosRoute.Transactions.withCategory(catId)) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState    = true
+                        }
+                    },
+                )
             }
         }
     }
@@ -132,7 +153,8 @@ private fun FosBottomBar(currentRoute: String?, onNavigate: (String) -> Unit) {
         tonalElevation = 0.dp,
     ) {
         NAV_ITEMS.forEach { item ->
-            val selected = currentRoute == item.route
+            val selected = currentRoute == item.route ||
+                currentRoute?.startsWith(item.route + "?") == true
             NavigationBarItem(
                 selected = selected,
                 onClick  = { onNavigate(item.route) },

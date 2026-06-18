@@ -161,11 +161,15 @@ Full audit performed; 9 issues found and fixed:
 - [x] **Category management** — CategoriesScreen (system=read-only, custom=deletable), AddCategorySheet (emoji picker, 12-color swatch picker, name), wired from Settings → "Категории" row; FosRoute.Categories added
 - [x] **CSV export** — "↑ CSV" button in TransactionsScreen header; shares current view as `.csv` via FileProvider (provider_paths.xml + manifest provider entry)
 - [x] **Push notification listener** — `PushNotificationListener` (NotificationListenerService + @AndroidEntryPoint); maps 9 banking app package names → parser senders; `TransactionSource.PUSH` added; toggle + permission status in Settings "УВЕДОМЛЕНИЯ ОТ БАНКОВ" section
+- [x] **Deep-link: Subscriptions → Transactions** — optional `categoryId` nav arg on Transactions route; tapping a subscription card pre-filters the list; dismissible banner with "× Сбросить"
+- [x] **P2 bank parsers** — RaiffeisenParser, RosbankParser, OtkritieParser; registered in ParserModule; push packages added (14 total package mappings)
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
-- Deep-link from Subscriptions screen to filtered TransactionsScreen by category
+- P3 banks: Райффайзен Сельхоз, МТС Банк, Почта Банк
+- Localization: move hardcoded strings to strings.xml
+- Home-screen widget (balance + today's expenses)
 
 ## Key File Locations
 | Layer | Path |

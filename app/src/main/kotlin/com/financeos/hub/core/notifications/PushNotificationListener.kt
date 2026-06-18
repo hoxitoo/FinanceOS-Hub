@@ -77,6 +77,7 @@ class PushNotificationListener : NotificationListenerService() {
     companion object {
         /** Banking app package names → synthetic sender id recognised by each BankParser */
         val PACKAGE_TO_SENDER: Map<String, String> = mapOf(
+            // P1
             "ru.sberbankmobile"                 to "SBERBANK",
             "ru.sberbank.sbbol"                 to "SBERBANK",
             "ru.tinkoff.cardsnew"               to "TINKOFF",
@@ -86,6 +87,12 @@ class PushNotificationListener : NotificationListenerService() {
             "ru.alfabank.mobile.android"         to "ALFABANK",
             "ru.alfabank.oavdo.amc"             to "ALFABANK",
             "ru.gazprombank.android.mobilebank"  to "GAZPROMBANK",
+            // P2
+            "ru.raiffeisenmobile.android"        to "RAIFFEISEN",
+            "com.raiffeisenmobile.android"       to "RAIFFEISEN",
+            "ru.rosbank.android"                 to "ROSBANK",
+            "ru.ftc.otkritie"                   to "OTKRITIE",
+            "ru.openbank.mobile"                 to "OTKRITIE",
         )
 
         fun isPermissionGranted(context: Context): Boolean =
