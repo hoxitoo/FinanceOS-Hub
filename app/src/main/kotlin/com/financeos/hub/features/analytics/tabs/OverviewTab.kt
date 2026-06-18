@@ -10,14 +10,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
+import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -34,7 +37,61 @@ fun OverviewTab(state: AnalyticsState) {
     ) {
         item { Spacer(Modifier.height(FosDimens.ItemGap)) }
 
-        // Top 5 categories by expense
+        // Score card
+        state.score?.let { score ->
+            item {
+                Text("ФИНАНСОВОЕ ЗДОРОВЬЕ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
+                        .background(FosColors.Surface)
+                        .padding(FosDimens.CardPadding),
+                    horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    ScoreRing(
+                        score    = score.total,
+                        modifier = Modifier.size(80.dp),
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ScoreRow("Сбережения",  score.savings,   30)
+                        ScoreRow("Стабильность",score.stability, 20)
+                        ScoreRow("Обязательные",score.mandatory, 25)
+                        ScoreRow("Подушка",     score.cushion,   25)
+                    }
+                }
+            }
+        }
+
+        // Forecast
+        if (state.forecastKopecks > 0) {
+            item {
+                Text("ПРОГНОЗ НА КОНЕЦ МЕСЯЦА", style = FosType.SectionCap, color = FosColors.TextMuted)
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
+                        .background(FosColors.Surface)
+                        .padding(FosDimens.CardPadding),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text("Расходы к концу месяца", style = FosType.Body, color = FosColors.TextSecondary)
+                    Text(
+                        FosFormatter.compact(state.forecastKopecks),
+                        style = FosType.SmallBold,
+                        color = FosColors.Negative,
+                    )
+                }
+            }
+        }
+
+        // Top 5 categories
         item {
             Text("ТОП КАТЕГОРИИ", style = FosType.SectionCap, color = FosColors.TextMuted)
         }
@@ -62,6 +119,17 @@ fun OverviewTab(state: AnalyticsState) {
         }
 
         item { Spacer(Modifier.height(80.dp)) }
+    }
+}
+
+@Composable
+private fun ScoreRow(label: String, value: Int, max: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
+        Text("$value/$max", style = FosType.Micro, color = FosColors.TextPrimary)
     }
 }
 

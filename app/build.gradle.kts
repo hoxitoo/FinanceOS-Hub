@@ -102,8 +102,10 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
-    // WorkManager
+    // WorkManager + Hilt integration
     implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.compiler)
 
     // Biometric
     implementation(libs.biometric)
