@@ -118,6 +118,11 @@ class AnalyticsEngine @Inject constructor(
         return behavioralAnalyzer.classifyFixedVariable(history)
     }
 
+    suspend fun currentMonthCategoryExpenses(): Map<String, Long> {
+        val (from, to) = monthBounds(YearMonth.now())
+        return expenseByCat(getTxSync(from, to))
+    }
+
     suspend fun computeWaterfallBars(): List<WaterfallBar> {
         val month = YearMonth.now()
         val catNames  = categoryDao.getAll().associate { it.id to it.name }

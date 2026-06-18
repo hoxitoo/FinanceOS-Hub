@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.ScoreRing
+import com.financeos.hub.ui.components.WhatIfSimulator
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -115,6 +116,20 @@ fun OverviewTab(state: AnalyticsState) {
                             ratio   = kopecks.toFloat() / total,
                         )
                     }
+            }
+        }
+
+        // What-if simulator
+        if (state.categoryExpenses.isNotEmpty()) {
+            item {
+                Text("ЧТО ЕСЛИ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            }
+            item {
+                WhatIfSimulator(
+                    categoryExpenses = state.categoryExpenses,
+                    categoryNames    = state.categoryNames,
+                    modifier         = Modifier.fillMaxWidth(),
+                )
             }
         }
 

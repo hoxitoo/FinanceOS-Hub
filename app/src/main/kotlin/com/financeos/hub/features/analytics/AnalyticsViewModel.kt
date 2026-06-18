@@ -5,13 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.analytics.AnalyticsEngine
 import com.financeos.hub.core.analytics.CategoryAnomaly
 import com.financeos.hub.core.analytics.FatigueCurve
+import com.financeos.hub.core.analytics.FixedVariableResult
 import com.financeos.hub.core.analytics.HeatmapData
 import com.financeos.hub.core.analytics.Insight
 import com.financeos.hub.core.analytics.ImpulseStats
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.core.analytics.ScoreCalculator
 import com.financeos.hub.core.analytics.WaterfallBar
-import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -46,6 +46,7 @@ data class AnalyticsState(
     val categoryAnomalies: List<CategoryAnomaly>           = emptyList(),
     val waterfallBars    : List<WaterfallBar>              = emptyList(),
     val narratives       : List<NarrativeInsight>          = emptyList(),
+    val fixedVariable    : FixedVariableResult?            = null,
 )
 
 @HiltViewModel
@@ -70,6 +71,7 @@ class AnalyticsViewModel @Inject constructor(
     private val _anomalies   = MutableStateFlow<List<CategoryAnomaly>>(emptyList())
     private val _waterfall   = MutableStateFlow<List<WaterfallBar>>(emptyList())
     private val _narratives  = MutableStateFlow<List<NarrativeInsight>>(emptyList())
+    private val _fixedVar    = MutableStateFlow<FixedVariableResult?>(null)
 
     init {
         viewModelScope.launch {
@@ -84,6 +86,7 @@ class AnalyticsViewModel @Inject constructor(
             val anomaliesD  = async { analyticsEngine.detectCategoryAnomalies() }
             val waterfallD  = async { analyticsEngine.computeWaterfallBars() }
             val narrativesD = async { analyticsEngine.generateNarratives() }
+            val fixedVarD   = async { analyticsEngine.classifyFixedVariable() }
 
             _score.value      = scoreD.await()
             _insights.value   = insightsD.await()
@@ -95,6 +98,7 @@ class AnalyticsViewModel @Inject constructor(
             _anomalies.value  = anomaliesD.await()
             _waterfall.value  = waterfallD.await()
             _narratives.value = narrativesD.await()
+            _fixedVar.value   = fixedVarD.await()
         }
     }
 
@@ -107,7 +111,7 @@ class AnalyticsViewModel @Inject constructor(
         combine(_heatmap, _fatigue, _impulse, _anomalies) { a, b, c, d ->
             listOf(a, b, c, d)
         },
-        combine(_waterfall, _narratives) { a, b -> listOf(a, b) },
+        combine(_waterfall, _narratives, _fixedVar) { a, b, c -> listOf(a, b, c) },
     ) { txList, categories, scores, behavioral, extras ->
         val catMap = categories.associate { it.id to it.name }
 
@@ -142,6 +146,7 @@ class AnalyticsViewModel @Inject constructor(
             categoryAnomalies = (behavioral[3] as List<*>).filterIsInstance<CategoryAnomaly>(),
             waterfallBars     = (extras[0] as List<*>).filterIsInstance<WaterfallBar>(),
             narratives        = (extras[1] as List<*>).filterIsInstance<NarrativeInsight>(),
+            fixedVariable     = extras[2] as FixedVariableResult?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }
