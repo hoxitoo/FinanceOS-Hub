@@ -25,7 +25,8 @@ class UserPreferences @Inject constructor(
         val LAST_IMPORT_AT            = stringPreferencesKey("last_import_at")
         val NOTIFICATIONS_ENABLED     = booleanPreferencesKey("notifications_enabled")
         val BUDGET_ALERT_THRESHOLD    = stringPreferencesKey("budget_alert_threshold") // "80" default
-        val ML_CLASSIFICATION_ENABLED = booleanPreferencesKey("ml_classification_enabled")
+        val ML_CLASSIFICATION_ENABLED  = booleanPreferencesKey("ml_classification_enabled")
+        val PUSH_LISTENER_ENABLED      = booleanPreferencesKey("push_listener_enabled")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -45,6 +46,9 @@ class UserPreferences @Inject constructor(
 
     val mlClassificationEnabled: Flow<Boolean> = context.dataStore.data
         .map { it[ML_CLASSIFICATION_ENABLED] ?: false }
+
+    val pushListenerEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[PUSH_LISTENER_ENABLED] ?: false }
 
     val lastImportAt: Flow<String?> = context.dataStore.data
         .map { it[LAST_IMPORT_AT] }
@@ -71,6 +75,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setMlClassificationEnabled(enabled: Boolean) {
         context.dataStore.edit { it[ML_CLASSIFICATION_ENABLED] = enabled }
+    }
+
+    suspend fun setPushListenerEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PUSH_LISTENER_ENABLED] = enabled }
     }
 
     suspend fun setLastImportAt(iso: String) {

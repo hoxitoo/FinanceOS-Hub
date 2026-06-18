@@ -160,6 +160,7 @@ Full audit performed; 9 issues found and fixed:
 - [x] **InsightGeneratorTest** — 28 unit tests covering all 6 rules + edge cases + sort order
 - [x] **Category management** — CategoriesScreen (system=read-only, custom=deletable), AddCategorySheet (emoji picker, 12-color swatch picker, name), wired from Settings → "Категории" row; FosRoute.Categories added
 - [x] **CSV export** — "↑ CSV" button in TransactionsScreen header; shares current view as `.csv` via FileProvider (provider_paths.xml + manifest provider entry)
+- [x] **Push notification listener** — `PushNotificationListener` (NotificationListenerService + @AndroidEntryPoint); maps 9 banking app package names → parser senders; `TransactionSource.PUSH` added; toggle + permission status in Settings "УВЕДОМЛЕНИЯ ОТ БАНКОВ" section
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA

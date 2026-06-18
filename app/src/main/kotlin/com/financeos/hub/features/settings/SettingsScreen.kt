@@ -17,7 +17,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,8 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.notifications.PushNotificationListener
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosType
@@ -37,7 +42,8 @@ fun SettingsScreen(
     onCategoriesClick : () -> Unit = {},
     viewModel         : SettingsViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state   by viewModel.state.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -114,6 +120,53 @@ fun SettingsScreen(
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )
+            }
+        }
+
+        // ── Push notification reader ─────────────────────────────────────────────
+        SettingsSection(title = "УВЕДОМЛЕНИЯ ОТ БАНКОВ") {
+            val pushGranted = PushNotificationListener.isPermissionGranted(context)
+            ToggleRow(
+                label    = "Читать уведомления банков",
+                sublabel = "Т-Банк, Сбербанк, ВТБ, Альфа-Банк, Газпромбанк",
+                checked  = state.pushListenerEnabled,
+                onToggle = viewModel::setPushListenerEnabled,
+            )
+            if (state.pushListenerEnabled) {
+                Spacer(Modifier.height(8.dp))
+                if (pushGranted) {
+                    Text(
+                        "Доступ разрешён — уведомления обрабатываются",
+                        style = FosType.Micro,
+                        color = FosColors.Positive,
+                    )
+                } else {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Требуется доступ к уведомлениям",
+                            style    = FosType.Micro,
+                            color    = FosColors.Negative,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick        = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                horizontal = 8.dp, vertical = 0.dp
+                            ),
+                        ) {
+                            Text("Открыть", style = FosType.Label, color = FosColors.Info)
+                        }
+                    }
+                }
             }
         }
 

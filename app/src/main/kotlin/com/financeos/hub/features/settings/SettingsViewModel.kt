@@ -11,12 +11,13 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsState(
-    val heroVariant           : String  = "CALM",
-    val biometricEnabled      : Boolean = false,
-    val notificationsEnabled  : Boolean = true,
-    val budgetAlertThreshold  : Int     = 80,
+    val heroVariant            : String  = "CALM",
+    val biometricEnabled       : Boolean = false,
+    val notificationsEnabled   : Boolean = true,
+    val budgetAlertThreshold   : Int     = 80,
     val mlClassificationEnabled: Boolean = false,
-    val lastImportAt          : String? = null,
+    val pushListenerEnabled    : Boolean = false,
+    val lastImportAt           : String? = null,
 )
 
 @HiltViewModel
@@ -31,16 +32,20 @@ class SettingsViewModel @Inject constructor(
         combine(
             prefs.budgetAlertThreshold,
             prefs.mlClassificationEnabled,
+            prefs.pushListenerEnabled,
             prefs.lastImportAt,
-        ) { threshold, ml, last -> Triple(threshold, ml, last) },
+        ) { threshold, ml, push, last ->
+            listOf<Any?>(threshold, ml, push, last)
+        },
     ) { hero, bio, notif, rest ->
         SettingsState(
             heroVariant             = hero,
             biometricEnabled        = bio,
             notificationsEnabled    = notif,
-            budgetAlertThreshold    = rest.first,
-            mlClassificationEnabled = rest.second,
-            lastImportAt            = rest.third,
+            budgetAlertThreshold    = rest[0] as Int,
+            mlClassificationEnabled = rest[1] as Boolean,
+            pushListenerEnabled     = rest[2] as Boolean,
+            lastImportAt            = rest[3] as String?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
 
@@ -62,5 +67,9 @@ class SettingsViewModel @Inject constructor(
 
     fun setMlClassificationEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setMlClassificationEnabled(enabled)
+    }
+
+    fun setPushListenerEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setPushListenerEnabled(enabled)
     }
 }

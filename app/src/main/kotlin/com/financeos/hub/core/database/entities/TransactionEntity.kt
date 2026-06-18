@@ -7,7 +7,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 enum class TransactionType { EXPENSE, INCOME, TRANSFER }
-enum class TransactionSource { SMS, MANUAL }
+enum class TransactionSource { SMS, MANUAL, PUSH }
 
 @Entity(
     tableName = "transactions",
