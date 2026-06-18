@@ -135,7 +135,13 @@ Implemented:
 
 ## Completed Post-Phase-3 Polish
 - [x] BudgetViewModel wired to NotificationHelper (fires alert at configurable threshold, once per session per budget)
-- [x] BehavioralAnalyzerTest — 28 unit tests covering all 7 public methods + edge cases
+- [x] BehavioralAnalyzerTest — 28 unit tests covering all 7 public methods + edge cases (fixed entity field names)
+- [x] Manual transaction entry — AddTransactionSheet (FAB in TransactionsScreen)
+- [x] Transaction search — search bar filters by merchant, category, description
+- [x] Transaction detail/edit sheet — tap row → edit merchant, category, note; soft-delete with confirmation
+- [x] Notification deep-links — budget → budget route, weekly/insight → analytics route
+- [x] Goals CRUD — AddGoalSheet (emoji picker, name, target), contribute dialog, delete
+- [x] Budget CRUD — AddBudgetSheet (period toggle, category picker, limit), delete envelopes
 
 ## Key File Locations
 | Layer | Path |
