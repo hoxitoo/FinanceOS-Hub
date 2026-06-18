@@ -1,0 +1,29 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.jks
+*.keystore
+google-services.json
+fabric.properties
+# Generated files
+app/src/main/assets/
+# Lint
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+# Android studio 3.1+ serialized cache file
+.idea/deploymentTargetDropDown.xml
+.idea/render.experimental.xml

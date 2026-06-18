@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash screen theme — background matches app Background color -->
+    <style name="Theme.FinanceOSHub" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0A0D12</item>
+        <item name="postSplashScreenTheme">@style/Theme.FinanceOSHub.Main</item>
+    </style>
+
+    <style name="Theme.FinanceOSHub.Main" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0A0D12</item>
+        <item name="android:statusBarColor">#0A0D12</item>
+        <item name="android:navigationBarColor">#111620</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

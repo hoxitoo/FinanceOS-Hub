@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FinanceOS</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_sms_title">Читаем SMS от банков</string>
+    <string name="onboarding_sms_body">Так мы находим ваши транзакции автоматически. SMS никуда не отправляются — всё остаётся на телефоне.</string>
+    <string name="onboarding_sms_button">Дать доступ</string>
+    <string name="onboarding_skip">Пропустить</string>
+
+    <!-- Permissions -->
+    <string name="permission_sms_rationale">FinanceOS читает SMS от банков прямо на устройстве, чтобы автоматически отслеживать транзакции. Сообщения никуда не отправляются — вся обработка локально.</string>
+</resources>
