@@ -22,6 +22,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.financeos.hub.features.analytics.AnalyticsScreen
 import com.financeos.hub.features.budget.BudgetScreen
+import com.financeos.hub.features.categories.CategoriesScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
 import com.financeos.hub.features.goals.GoalsScreen
 import com.financeos.hub.features.onboarding.OnboardingScreen
@@ -94,7 +95,13 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             composable(FosRoute.Budget.route)       { BudgetScreen() }
             composable(FosRoute.Goals.route)        { GoalsScreen() }
             composable(FosRoute.Settings.route)     {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onBack            = { navController.popBackStack() },
+                    onCategoriesClick = { navController.navigate(FosRoute.Categories.route) },
+                )
+            }
+            composable(FosRoute.Categories.route) {
+                CategoriesScreen(onBack = { navController.popBackStack() })
             }
         }
     }

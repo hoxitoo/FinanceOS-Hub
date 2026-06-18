@@ -140,4 +140,27 @@ class TransactionsViewModel @Inject constructor(
             )
         }
     }
+
+    fun buildCsvString(): String {
+        val s    = state.value
+        val zone = ZoneId.systemDefault()
+        val sb   = StringBuilder()
+        sb.appendLine("Дата,Тип,Сумма (₽),Получатель,Категория,Примечание")
+
+        s.grouped.entries
+            .sortedByDescending { it.key }
+            .forEach { (_, txList) ->
+                txList.sortedByDescending { it.timestamp }.forEach { tx ->
+                    val date     = Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
+                    val type     = if (tx.type == TransactionType.EXPENSE) "Расход" else "Доход"
+                    val amount   = kotlin.math.abs(tx.amountKopecks) / 100.0
+                    val merchant = tx.merchant?.replace(",", ";") ?: ""
+                    val category = s.categoryName(tx.categoryId).replace(",", ";")
+                    val note     = tx.description?.replace(",", ";") ?: ""
+                    sb.appendLine("$date,$type,$amount,$merchant,$category,$note")
+                }
+            }
+
+        return sb.toString()
+    }
 }

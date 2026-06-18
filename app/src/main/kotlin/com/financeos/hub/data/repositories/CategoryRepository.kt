@@ -15,4 +15,10 @@ class CategoryRepository @Inject constructor(
     suspend fun getAll(): List<CategoryEntity> = dao.getAll()
 
     suspend fun getById(id: String): CategoryEntity? = dao.getById(id)
+
+    suspend fun create(category: CategoryEntity) = dao.insert(category)
+
+    suspend fun update(category: CategoryEntity) = dao.update(category)
+
+    suspend fun deactivate(id: String) = dao.deactivate(id)
 }

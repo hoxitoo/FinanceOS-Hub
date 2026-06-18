@@ -33,8 +33,9 @@ import com.financeos.hub.ui.theme.FosType
 
 @Composable
 fun SettingsScreen(
-    onBack       : () -> Unit,
-    viewModel    : SettingsViewModel = hiltViewModel(),
+    onBack            : () -> Unit,
+    onCategoriesClick : () -> Unit = {},
+    viewModel         : SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -141,6 +142,24 @@ fun SettingsScreen(
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )
+            }
+        }
+
+        // ── Data ────────────────────────────────────────────────────────────────
+        SettingsSection(title = "ДАННЫЕ") {
+            Row(
+                modifier              = Modifier
+                    .fillMaxWidth()
+                    .clickable { onCategoriesClick() }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Категории", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text("Создавать и удалять категории", style = FosType.Micro, color = FosColors.TextMuted)
+                }
+                Text("›", style = FosType.BodySemi, color = FosColors.TextSecondary)
             }
         }
 

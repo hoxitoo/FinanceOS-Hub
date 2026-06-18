@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -35,11 +36,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.ui.components.TransactionRow
+import java.io.File
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -49,6 +54,7 @@ import com.financeos.hub.ui.theme.FosType
 @Composable
 fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     val state      by vm.state.collectAsState()
+    val context    = LocalContext.current
     var showAddSheet  by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
 
@@ -84,6 +90,27 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
                 Text("Операции", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+                TextButton(
+                    onClick = {
+                        runCatching {
+                            val csv  = vm.buildCsvString()
+                            val file = File(context.cacheDir, "financeos_export.csv")
+                            file.writeText(csv, Charsets.UTF_8)
+                            val uri  = FileProvider.getUriForFile(
+                                context, "${context.packageName}.provider", file
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/csv"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("↑ CSV", style = FosType.Label, color = FosColors.TextSecondary)
+                }
             }
 
             // Search bar

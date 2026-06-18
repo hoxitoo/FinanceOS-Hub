@@ -157,11 +157,13 @@ Full audit performed; 9 issues found and fixed:
 ## Post-Audit Features
 - [x] **Account management UI** — AddAccountSheet (bank picker, name, card mask, initial balance), tap-to-edit account balance, delete via AlertDialog in DashboardScreen
 - [x] **InsightGeneratorTest** — 28 unit tests covering all 6 rules + edge cases + sort order
+- [x] **Category management** — CategoriesScreen (system=read-only, custom=deletable), AddCategorySheet (emoji picker, 12-color swatch picker, name), wired from Settings → "Категории" row; FosRoute.Categories added
+- [x] **CSV export** — "↑ CSV" button in TransactionsScreen header; shares current view as `.csv` via FileProvider (provider_paths.xml + manifest provider entry)
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
-- CSV export for transactions
+- Subscription/recurring expense management screen
 
 ## Key File Locations
 | Layer | Path |

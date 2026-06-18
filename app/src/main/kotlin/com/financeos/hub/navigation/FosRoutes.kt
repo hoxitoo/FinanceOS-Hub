@@ -8,4 +8,5 @@ sealed class FosRoute(val route: String) {
     object Budget       : FosRoute("budget")
     object Goals        : FosRoute("goals")
     object Settings     : FosRoute("settings")
+    object Categories   : FosRoute("categories")
 }
