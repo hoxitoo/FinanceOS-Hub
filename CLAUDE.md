@@ -78,24 +78,31 @@ app/
 - [x] ScoreRing component (Canvas DrawScope)
 - [x] LineChart component (SVG Canvas, bezier curve ✓)
 - [x] Parser unit tests (5 banks × 6 tests)
-- [ ] **Phase 2A behavioral analytics** (see below — pure Kotlin, no ML)
+- [x] **Phase 2A behavioral analytics** (all 11 items complete)
 - [ ] Phase 3 TFLite ML models
 
-## Phase 2A — Behavioral Analytics (next to implement)
-All pure Kotlin, no TFLite needed. See `docs/CONTEXT.md` for full spec.
+## Phase 2A — Behavioral Analytics ✓ COMPLETE
+All pure Kotlin, no TFLite. Committed in 3 batches.
 
-Priority order:
-1. `HeatmapGrid.kt` — 7×24 Canvas grid (day of week × hour, spend intensity)
-2. Payday effect detection → `AnalyticsEngine.paydayEffect()`
-3. Budget fatigue curve → day-of-month average spending chart
-4. Impulse vs planned classification → `TransactionAnalyzer.kt` (time + amount heuristics)
-5. Category anomaly alerts (rolling avg + stdDev) → extend `InsightGenerator`
-6. Waterfall chart (MoM delta) → `WaterfallChart.kt`
-7. Narrative insights engine → `NarrativeEngine.kt` (template system, stored in DB)
-8. What-if simulator → `WhatIfSimulator.kt`
-9. Savings projection (6/12/24 months)
-10. Expense pyramid (3-tier: mandatory/regular/discretionary)
-11. Fixed vs variable expense detection
+Implemented:
+1. `HeatmapGrid.kt` — 7×24 Canvas grid ✓
+2. `BehavioralAnalyzer.kt` — payday effect, fatigue curve, impulse classification ✓
+3. Category anomaly detection (rolling avg + stdDev) ✓
+4. Subscription gap detection ✓
+5. Fixed vs variable expense classification (CV ≤ 15%) ✓
+6. `WaterfallChart.kt` — running-baseline MoM waterfall ✓
+7. `NarrativeEngine.kt` — 8 Russian narrative templates ✓
+8. `WhatIfSimulator.kt` — interactive sliders, 6/12/24-month projection ✓
+9. `ExpensePyramid.kt` — 3-tier mandatory/regular/discretionary ✓
+10. InsightsTab — ОПОВЕЩЕНИЯ + АНОМАЛИИ + НАБЛЮДЕНИЯ sections ✓
+11. OverviewTab — pyramid + WhatIfSimulator sections ✓
+12. CategoriesTab — fixed/variable badge per category ✓
+13. TrendsTab — 5 sections: daily chart, heatmap, fatigue, waterfall, impulse stats ✓
+
+## Next Steps
+- Phase 3 TFLite (requires pre-trained models, separate phase)
+- Unit tests for BehavioralAnalyzer edge cases
+- Polish: localization review, dark-mode visual QA
 
 ## Phase 3 — TFLite (requires pre-trained models)
 - Behavioral clustering (hour/day/category/amount features)
