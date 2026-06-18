@@ -12,6 +12,7 @@ import com.financeos.hub.core.analytics.ImpulseStats
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.core.analytics.ScoreCalculator
 import com.financeos.hub.core.analytics.WaterfallBar
+import com.financeos.hub.core.ml.BehavioralCluster
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -47,6 +48,7 @@ data class AnalyticsState(
     val waterfallBars    : List<WaterfallBar>              = emptyList(),
     val narratives       : List<NarrativeInsight>          = emptyList(),
     val fixedVariable    : FixedVariableResult?            = null,
+    val userArchetype    : BehavioralCluster.ClusterResult? = null,
 )
 
 @HiltViewModel
@@ -72,6 +74,7 @@ class AnalyticsViewModel @Inject constructor(
     private val _waterfall   = MutableStateFlow<List<WaterfallBar>>(emptyList())
     private val _narratives  = MutableStateFlow<List<NarrativeInsight>>(emptyList())
     private val _fixedVar    = MutableStateFlow<FixedVariableResult?>(null)
+    private val _archetype   = MutableStateFlow<BehavioralCluster.ClusterResult?>(null)
 
     init {
         viewModelScope.launch {
@@ -87,6 +90,7 @@ class AnalyticsViewModel @Inject constructor(
             val waterfallD  = async { analyticsEngine.computeWaterfallBars() }
             val narrativesD = async { analyticsEngine.generateNarratives() }
             val fixedVarD   = async { analyticsEngine.classifyFixedVariable() }
+            val archetypeD  = async { analyticsEngine.classifyBehavior() }
 
             _score.value      = scoreD.await()
             _insights.value   = insightsD.await()
@@ -99,6 +103,7 @@ class AnalyticsViewModel @Inject constructor(
             _waterfall.value  = waterfallD.await()
             _narratives.value = narrativesD.await()
             _fixedVar.value   = fixedVarD.await()
+            _archetype.value  = archetypeD.await()
         }
     }
 
@@ -111,7 +116,11 @@ class AnalyticsViewModel @Inject constructor(
         combine(_heatmap, _fatigue, _impulse, _anomalies) { a, b, c, d ->
             listOf(a, b, c, d)
         },
-        combine(_waterfall, _narratives, _fixedVar) { a, b, c -> listOf(a, b, c) },
+        combine(
+            _waterfall,
+            _narratives,
+            combine(_fixedVar, _archetype) { fv, arch -> listOf(fv, arch) },
+        ) { w, n, tail -> listOf(w, n) + tail },
     ) { txList, categories, scores, behavioral, extras ->
         val catMap = categories.associate { it.id to it.name }
 
@@ -147,6 +156,7 @@ class AnalyticsViewModel @Inject constructor(
             waterfallBars     = (extras[0] as List<*>).filterIsInstance<WaterfallBar>(),
             narratives        = (extras[1] as List<*>).filterIsInstance<NarrativeInsight>(),
             fixedVariable     = extras[2] as FixedVariableResult?,
+            userArchetype     = extras[3] as BehavioralCluster.ClusterResult?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }

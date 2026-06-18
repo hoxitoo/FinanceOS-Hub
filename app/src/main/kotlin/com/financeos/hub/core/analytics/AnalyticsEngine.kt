@@ -6,6 +6,8 @@ import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.ml.BehavioralCluster
+import com.financeos.hub.core.ml.SpendingPredictor
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
@@ -23,6 +25,8 @@ class AnalyticsEngine @Inject constructor(
     private val insightGenerator  : InsightGenerator,
     private val behavioralAnalyzer: BehavioralAnalyzer,
     private val narrativeEngine   : NarrativeEngine,
+    private val behavioralCluster : BehavioralCluster,
+    private val spendingPredictor : SpendingPredictor,
 ) {
     private val zone = ZoneId.systemDefault()
 
@@ -63,12 +67,27 @@ class AnalyticsEngine @Inject constructor(
         val month = YearMonth.now()
         val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val now   = System.currentTimeMillis()
-        val spent = getTxSync(from, now)
-            .filter { it.type == TransactionType.EXPENSE }
-            .sumOf { abs(it.amountKopecks) }
-        val daysPassed  = ((now - from) / (24 * 60 * 60 * 1000)).coerceAtLeast(1)
-        val daysInMonth = month.lengthOfMonth().toLong()
-        return if (daysPassed > 0) spent * daysInMonth / daysPassed else 0L
+
+        val txs = getTxSync(from, now).filter { it.type == TransactionType.EXPENSE }
+        val daily = txs
+            .groupBy { tx -> Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
+                .atStartOfDay(zone).toInstant().toEpochMilli() }
+            .map { (day, list) -> day to list.sumOf { abs(it.amountKopecks) } }
+            .sortedBy { it.first }
+
+        val daysPassed   = ((now - from) / (24 * 60 * 60 * 1000)).coerceAtLeast(1).toInt()
+        val daysInMonth  = month.lengthOfMonth()
+        val daysRemaining = (daysInMonth - daysPassed).coerceAtLeast(0)
+
+        val spentSoFar   = txs.sumOf { abs(it.amountKopecks) }
+        val mlForecast   = spendingPredictor.predict(daily, daysRemaining)
+        return spentSoFar + mlForecast
+    }
+
+    suspend fun classifyBehavior(): BehavioralCluster.ClusterResult {
+        val now  = System.currentTimeMillis()
+        val from = now - 90L * 24 * 60 * 60 * 1000
+        return behavioralCluster.classify(getTxSync(from, now))
     }
 
     // ── Behavioral Analytics ─────────────────────────────────────────────────

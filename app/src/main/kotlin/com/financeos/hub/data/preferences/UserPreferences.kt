@@ -18,11 +18,14 @@ class UserPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     companion object Keys {
-        val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
-        val HERO_VARIANT        = stringPreferencesKey("hero_variant")  // CALM | CONTRAST | MINIMAL
-        val BIOMETRIC_ENABLED   = booleanPreferencesKey("biometric_enabled")
-        val DEFAULT_CURRENCY    = stringPreferencesKey("default_currency")
-        val LAST_IMPORT_AT      = stringPreferencesKey("last_import_at")
+        val ONBOARDING_COMPLETE       = booleanPreferencesKey("onboarding_complete")
+        val HERO_VARIANT              = stringPreferencesKey("hero_variant")  // CALM | CONTRAST | MINIMAL
+        val BIOMETRIC_ENABLED         = booleanPreferencesKey("biometric_enabled")
+        val DEFAULT_CURRENCY          = stringPreferencesKey("default_currency")
+        val LAST_IMPORT_AT            = stringPreferencesKey("last_import_at")
+        val NOTIFICATIONS_ENABLED     = booleanPreferencesKey("notifications_enabled")
+        val BUDGET_ALERT_THRESHOLD    = stringPreferencesKey("budget_alert_threshold") // "80" default
+        val ML_CLASSIFICATION_ENABLED = booleanPreferencesKey("ml_classification_enabled")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -34,6 +37,18 @@ class UserPreferences @Inject constructor(
     val biometricEnabled: Flow<Boolean> = context.dataStore.data
         .map { it[BIOMETRIC_ENABLED] ?: false }
 
+    val notificationsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[NOTIFICATIONS_ENABLED] ?: true }
+
+    val budgetAlertThreshold: Flow<Int> = context.dataStore.data
+        .map { it[BUDGET_ALERT_THRESHOLD]?.toIntOrNull() ?: 80 }
+
+    val mlClassificationEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[ML_CLASSIFICATION_ENABLED] ?: false }
+
+    val lastImportAt: Flow<String?> = context.dataStore.data
+        .map { it[LAST_IMPORT_AT] }
+
     suspend fun setOnboardingComplete(done: Boolean) {
         context.dataStore.edit { it[ONBOARDING_COMPLETE] = done }
     }
@@ -44,6 +59,18 @@ class UserPreferences @Inject constructor(
 
     suspend fun setBiometricEnabled(enabled: Boolean) {
         context.dataStore.edit { it[BIOMETRIC_ENABLED] = enabled }
+    }
+
+    suspend fun setNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[NOTIFICATIONS_ENABLED] = enabled }
+    }
+
+    suspend fun setBudgetAlertThreshold(pct: Int) {
+        context.dataStore.edit { it[BUDGET_ALERT_THRESHOLD] = pct.toString() }
+    }
+
+    suspend fun setMlClassificationEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[ML_CLASSIFICATION_ENABLED] = enabled }
     }
 
     suspend fun setLastImportAt(iso: String) {

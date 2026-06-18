@@ -65,6 +65,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -109,6 +113,11 @@ dependencies {
 
     // Biometric
     implementation(libs.biometric)
+
+    // TFLite — ML inference for merchant classification and spending prediction
+    implementation(libs.tflite.core)
+    implementation(libs.tflite.support)
+    implementation(libs.tflite.metadata)
 
     // Debug
     debugImplementation(libs.androidx.compose.ui.tooling)

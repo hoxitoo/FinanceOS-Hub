@@ -28,6 +28,7 @@ import com.financeos.hub.features.budget.BudgetScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
 import com.financeos.hub.features.goals.GoalsScreen
 import com.financeos.hub.features.onboarding.OnboardingScreen
+import com.financeos.hub.features.settings.SettingsScreen
 import com.financeos.hub.features.transactions.TransactionsScreen
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosType
@@ -75,11 +76,18 @@ fun FosNavHost() {
                     }
                 })
             }
-            composable(FosRoute.Dashboard.route)    { DashboardScreen() }
+            composable(FosRoute.Dashboard.route)    {
+                DashboardScreen(onSettingsClick = {
+                    navController.navigate(FosRoute.Settings.route)
+                })
+            }
             composable(FosRoute.Transactions.route) { TransactionsScreen() }
             composable(FosRoute.Analytics.route)    { AnalyticsScreen() }
             composable(FosRoute.Budget.route)       { BudgetScreen() }
             composable(FosRoute.Goals.route)        { GoalsScreen() }
+            composable(FosRoute.Settings.route)     {
+                SettingsScreen(onBack = { navController.popBackStack() })
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.financeos.hub.features.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +31,10 @@ import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
-fun DashboardScreen(vm: DashboardViewModel = hiltViewModel()) {
+fun DashboardScreen(
+    onSettingsClick: () -> Unit = {},
+    vm             : DashboardViewModel = hiltViewModel(),
+) {
     val state by vm.state.collectAsState()
 
     LazyColumn(
@@ -57,6 +61,15 @@ fun DashboardScreen(vm: DashboardViewModel = hiltViewModel()) {
                         color = FosColors.TextSecondary,
                     )
                 }
+                Text(
+                    text     = "⚙",
+                    style    = FosType.SubHeader,
+                    color    = FosColors.TextMuted,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(FosDimens.RadiusIcon))
+                        .clickable { onSettingsClick() }
+                        .padding(8.dp),
+                )
             }
         }
 

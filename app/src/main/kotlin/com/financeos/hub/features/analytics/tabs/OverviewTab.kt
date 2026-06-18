@@ -68,6 +68,38 @@ fun OverviewTab(state: AnalyticsState) {
             }
         }
 
+        // User archetype (ML)
+        state.userArchetype?.let { archetype ->
+            item {
+                Text("ВАШ ФИНАНСОВЫЙ ПРОФИЛЬ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
+                        .background(FosColors.Surface)
+                        .padding(FosDimens.CardPadding),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(archetype.archetype, style = FosType.BodySemi, color = FosColors.Positive)
+                        Text(
+                            "Уверенность: ${(archetype.confidence * 100).toInt()}%",
+                            style = FosType.Micro,
+                            color = FosColors.TextMuted,
+                        )
+                    }
+                    Text(
+                        archetypeEmoji(archetype.clusterIdx),
+                        style = FosType.CardAmount,
+                        color = FosColors.Positive,
+                    )
+                }
+            }
+        }
+
         // Forecast
         if (state.forecastKopecks > 0) {
             item {
@@ -158,6 +190,15 @@ private fun ScoreRow(label: String, value: Int, max: Int) {
         Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
         Text("$value/$max", style = FosType.Micro, color = FosColors.TextPrimary)
     }
+}
+
+private fun archetypeEmoji(idx: Int): String = when (idx) {
+    0 -> "📊"  // Плановик
+    1 -> "🌙"  // Импульсивный
+    2 -> "🍽"  // Гурман
+    3 -> "💰"  // Экономный
+    4 -> "✈"  // Путешественник
+    else -> "👤"
 }
 
 @Composable

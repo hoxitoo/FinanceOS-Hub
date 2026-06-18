@@ -7,4 +7,5 @@ sealed class FosRoute(val route: String) {
     object Analytics    : FosRoute("analytics")
     object Budget       : FosRoute("budget")
     object Goals        : FosRoute("goals")
+    object Settings     : FosRoute("settings")
 }
