@@ -4,19 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -34,10 +31,21 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
-fun FosNavHost() {
+fun FosNavHost(initialDeepRoute: String? = null) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+
+    // Navigate to deep-link target once nav graph is ready
+    LaunchedEffect(initialDeepRoute) {
+        if (initialDeepRoute != null) {
+            navController.navigate(initialDeepRoute) {
+                popUpTo(FosRoute.Dashboard.route) { saveState = true }
+                launchSingleTop = true
+                restoreState    = true
+            }
+        }
+    }
 
     val showBottomBar = currentRoute in listOf(
         FosRoute.Dashboard.route,

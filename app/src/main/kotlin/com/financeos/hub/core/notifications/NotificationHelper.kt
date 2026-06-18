@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.financeos.hub.MainActivity
@@ -22,10 +21,23 @@ class NotificationHelper @Inject constructor(
         const val CHANNEL_WEEKLY  = "fos_weekly"
         const val CHANNEL_INSIGHT = "fos_insight"
 
+        const val EXTRA_ROUTE = "fos_route"
+
         private const val ID_BUDGET_ALERT = 1001
         private const val ID_WEEKLY       = 1002
         private const val ID_INSIGHT_BASE = 2000
     }
+
+    private fun deepLinkIntent(route: String): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            route.hashCode(),
+            Intent(context, MainActivity::class.java).apply {
+                putExtra(EXTRA_ROUTE, route)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     fun createChannels() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
@@ -57,18 +69,13 @@ class NotificationHelper @Inject constructor(
     }
 
     fun sendBudgetAlert(categoryName: String, spentPercent: Int) {
-        val intent = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("Бюджет: $categoryName")
             .setContentText("Использовано $spentPercent% лимита")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .setContentIntent(intent)
+            .setContentIntent(deepLinkIntent("budget"))
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_BUDGET_ALERT, notification)
@@ -83,29 +90,19 @@ class NotificationHelper @Inject constructor(
         val body      = "Расходы за неделю: ${formatCompact(totalSpentKopecks)}" +
                         if (abs > 0) " ($abs% $direction прошлой недели)" else ""
 
-        val intent = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
         val notification = NotificationCompat.Builder(context, CHANNEL_WEEKLY)
             .setSmallIcon(android.R.drawable.ic_menu_report_image)
             .setContentTitle("Еженедельный отчёт")
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setContentIntent(intent)
+            .setContentIntent(deepLinkIntent("analytics"))
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_WEEKLY, notification)
     }
 
     fun sendInsightNotification(id: Int, text: String) {
-        val intent = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Финансовый инсайт")
@@ -113,7 +110,7 @@ class NotificationHelper @Inject constructor(
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
-            .setContentIntent(intent)
+            .setContentIntent(deepLinkIntent("analytics"))
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_INSIGHT_BASE + id, notification)
