@@ -48,12 +48,12 @@ TextDark      = #3A4358
 id: String (UUID)
 accountId: String
 categoryId: String?
-amount: Long          ← kopecks! negative=expense, positive=income
+amountKopecks: Long   ← negative=expense, positive=income
 type: TransactionType (INCOME/EXPENSE/TRANSFER)
-source: TransactionSource (SMS/PUSH/MANUAL)
+source: TransactionSource (SMS/MANUAL)
 merchant: String?
-rawSmsBody: String?   ← preserved for re-parsing
-transactionDate: Long (epoch ms)
+description: String?
+timestamp: Long (epoch ms)
 smsId: String?        ← "${sender}_${timestamp}_${body.hashCode()}"
 isDeleted: Boolean    ← soft delete
 deletedAt: Long?
@@ -61,19 +61,17 @@ deletedAt: Long?
 
 ### AccountEntity
 ```
-id, bankId, bankName, lastFour, displayName
+id, name, bank, cardMask (last 4)
 balanceKopecks: Long
 currency: String
 isActive: Boolean
-updatedAt: Long
 ```
 
-### CategoryEntity (system + user)
+### CategoryEntity (13 system categories)
 ```
-id, name, icon (Material Symbols), colorHex
-type: TransactionType
-parentId: String?     ← sub-categories
-isSystem: Boolean     ← system categories can't be deleted
+id, name, emoji, color (hex)
+isSystem: Boolean
+isActive: Boolean
 sortOrder: Int
 ```
 
@@ -81,91 +79,169 @@ sortOrder: Int
 ```
 id, categoryId, limitKopecks: Long
 period: BudgetPeriod (MONTHLY/WEEKLY)
-month: Int, year: Int
-rollover: Boolean     ← accumulative envelope
+isActive: Boolean
 ```
 
 ### GoalEntity
 ```
-id, name, icon, colorHex
+id, name, emoji
 targetKopecks, savedKopecks: Long
-monthlyRate: Long     ← how much to save per month
-deadline: Long?
-linkedAccountId: String?
+deadlineAt: Long?
 isCompleted: Boolean
 ```
 
 ## Default Categories (13)
 ```
-EXPENSE: groceries(#4DFFA0), transport(#4D9FFF), cafe(#FFB84D), shopping(#C18CFF),
-         health(#FF6B6B), entertainment(#FF8FB1), utilities(#5AC8FF),
-         subscriptions(#9AA7FF), family(#FF8C42), other(#7A8499)
-INCOME:  salary(#4DFFA0), transfer_in(#4D9FFF), other_income(#4DFFA0)
+cat_food, cat_grocery, cat_transport, cat_housing, cat_health,
+cat_shopping, cat_telecom, cat_entertain, cat_education, cat_travel,
+cat_beauty, cat_pets, cat_other
 ```
 
 ## SMS Parsers (P1 Banks)
-
-### Pattern matching
-Each `BankParser` declares `senderPatterns: List<String>` matched against SMS sender.
+Each `BankParser` declares `senderPatterns: List<Regex>`.
 `ParserEngine` uses Hilt `@IntoSet` multibinding — add new bank = new class + 1 `@Binds` line.
 
-### Sberbank examples (Appendix B)
+### Sberbank examples
 ```
-SBERBANK: "Покупка. Карта *8830. 1500р. Баланс: 22329.61р. Пятёрочка"
-900:      "Зачисление 62000р. Карта *8830. Баланс: 84329р."
-SBERBANK: "Перевод 6000р. Карта *8830. Баланс: 16329р. Иванов И.И."
-900:      "Оплата 299р. Карта *8830. Баланс: 16030р."
+"VISA1234 18.06.25 12:34 Оплата 1 500р МАГАЗИН Баланс: 12 345,67р"
+"VISA1234 18.06.25 10:00 Зачисление 50 000р"
 ```
 
-## Financial Score Formula (Appendix C)
+## Financial Score Formula
 ```kotlin
-savings_score   = (savingsRate.coerceIn(0,40) / 40.0 * 30).toInt()   // max 30
-stability_score = ((1 - expenseVariability.coerceIn(0,1)) * 20).toInt() // max 20
-mandatory_score = ((1 - mandatoryRatio.coerceIn(0,1)) * 25).toInt()   // max 25
-cushion_score   = (cushionMonths.coerceIn(0,6) / 6.0 * 25).toInt()   // max 25
-// Total max = 100
+// ScoreCalculator.kt — max 100 pts
+savings   = min(30, (savingsRate / 0.20 * 30))   // target ≥ 20% savings rate
+stability = (monthsWithIncome / 3) * 20           // income in last 3 months
+mandatory = 25 if mandatoryRatio ≤ 50%            // housing + telecom + health
+cushion   = min(25, (balanceMonths / 3.0) * 25)  // target ≥ 3 months buffer
 
-// Thresholds:
-// 75-100 → Positive color, "Хорошее здоровье"
-// 50-74  → Warning color,  "Есть над чем работать"
-// 0-49   → Negative color, "Требует внимания"
+// Color thresholds:
+// 70–100 → Positive   "Хорошее здоровье"
+// 40–69  → Warning    "Есть над чем работать"
+// 0–39   → Negative   "Требует внимания"
 ```
 
 ## Navigation Routes
 ```
-onboarding/welcome
-onboarding/permissions
-onboarding/setup
-dashboard
-transactions
-analytics
-budget
-goals
-transaction/{id}   ← detail sheet
-settings
+onboarding → dashboard (after onboarding_complete = true)
+dashboard | transactions | analytics | budget | goals  ← bottom nav
 ```
 
 ## DataStore Keys (UserPreferences)
 ```
-hero_variant: Int       (0/1/2 — dashboard hero style)
-biometric: Boolean
-onboarding_done: Boolean
-sms_import_done: Boolean
-currency: String        ("RUB")
-analytics_tab: String   (last open tab)
-trends_mode: String     ("bar"/"line")
+onboarding_complete: Boolean
+hero_variant: String      ("CALM" | "CONTRAST" | "MINIMAL")
+biometric_enabled: Boolean
+default_currency: String  ("RUB")
+last_import_at: String
 ```
 
-## Screen: Transactions (Critical Fix)
-expense amount color = `FosColors.Negative` (#FF6B6B), NOT TextPrimary
+## Screen: Transactions (Critical rule)
 ```kotlin
-val amtColor = if (transaction.amount > 0) FosColors.Positive else FosColors.Negative
+val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positive
 ```
 
-## Screen: Analytics — Trends Tab (Critical Fix)
-- SVG line chart (two lines: income/expense) as PRIMARY display
-- Bar chart as secondary (toggle via icon in header)
-- Implementation: Compose `Canvas` DrawScope — zero external dependencies
-```kotlin
-enum class TrendsChartMode { LINE, BAR }
-```
+## Screen: Analytics — Trends Tab
+- SVG line chart (Compose Canvas, cubic bezier) as PRIMARY
+- `LineChart.kt` — fill area + stroke + dot at last point
+
+---
+
+## Behavioral Analytics Vision (Phase 2)
+
+> Source: product spec. Most features implemented in pure Kotlin. TFLite only for Phase 3 ML clustering.
+
+### Phase 2A — Pure Kotlin (no ML, implement next)
+
+#### Spending Heatmap
+- 7×24 grid (X = day of week, Y = hour of day)
+- Cell color intensity = sum of expenses at that slot / max slot
+- Component: `HeatmapGrid.kt` (Canvas DrawScope)
+- Data: `groupBy { dayOfWeek, hourOfDay }` from TransactionEntity.timestamp
+
+#### Payday Effect Detection
+- Find income transactions (type=INCOME, amount > median income)
+- Compare spending sum in D+1..D+3 vs baseline (same 3-day window in other weeks)
+- Alert if ratio > 1.3: "После зарплаты ты тратишь на X% больше в первые 3 дня"
+
+#### Budget Fatigue Curve
+- Group expenses by `dayOfMonth` (1..31), average across last 3 months
+- Line chart showing discipline decay curve
+- Visible in Trends tab as secondary chart
+
+#### Impulse vs Planned Classification
+- Heuristic rules (no ML needed):
+  - Impulse: amount < 2000₽ AND hour ∈ [22..23, 0..5]
+  - Planned: amount > 3000₽ AND hour ∈ [8..12] AND dayOfWeek ∈ WEEKDAY
+- Metric: impulse% = impulseCount / totalCount, tracked monthly
+
+#### Smart Category Anomaly Alerts
+- Per-category rolling 3-month average (avgKopecks, stdDev)
+- Alert if currentMonth > avg * 1.3: "Продукты на 34% выше среднего. Пик — 3 покупки 12 июня."
+- Also: subscription gap detection — if category had ≥1 tx/month for 3+ months but 0 this month
+
+#### Waterfall Chart (Month-over-Month)
+- Bars: income delta, each expense category delta, net result
+- Visual: green bars up (savings/income), red bars down (expense growth)
+- Shows exactly WHAT changed between months
+
+#### Rolling 3-Month Average
+- Per-category, displayed as dashed reference line on bar/line charts
+- Removes noise, shows real trend
+
+#### What-If Simulator
+- Inputs: category delta (e.g. "food −3000/mo"), income delta
+- Output: projected annual savings delta, progress toward active goals
+- Pure arithmetic — no ML
+
+#### Savings Projection
+- Formula: `(currentIncome - currentExpense) * months`
+- Show 6 / 12 / 24 month projections with goal milestones highlighted
+
+#### Narrative Insights (Personal)
+- Generated monthly/weekly, stored in local DB:
+  - "Твой самый дорогой день — 14 марта, 47 800 ₽"
+  - "За 3 месяца ты тратишь на еду в среднем N ₽ в день"
+  - "Savings rate вырос с 8% до 26% за 3 месяца"
+- Template-based, filled from analytics engine output
+
+#### Expense Pyramid
+- Tier 1 (Обязательные): housing, telecom, transport, health
+- Tier 2 (Регулярные необязательные): grocery, subscriptions, cafe
+- Tier 3 (Дискреционные): shopping, entertainment, travel
+- If Tier 1 > 60% income → critical insight
+- Component: vertical stacked bar with 3 colors
+
+#### Fixed vs Variable Expenses
+- Fixed: same merchant/category ±10% for 3+ consecutive months
+- Variable: everything else
+- Ratio shown as metric: "Вы контролируете X% расходов"
+
+### Phase 3 — TFLite ML (requires pre-trained model)
+
+#### Behavioral Clustering
+- Input features: hour-of-day, day-of-week, category, amount bucket, merchant frequency
+- Goal: cluster transactions into behavioral patterns (e.g. "weekly grocery run", "evening impulse")
+- Model: TFLite classification model bundled as asset
+- Dependency to add: `org.tensorflow:tensorflow-lite:2.14.0`
+
+#### Predictive Spending
+- Time series model: 30-day expense history → next 7-day forecast
+- More accurate than simple linear extrapolation
+- TFLite LSTM or MobileNet-based regressor
+
+#### Smart Merchant Categorization
+- Embedding-based: merchant name → category vector similarity
+- Better than dictionary lookup for unknown merchants
+- TFLite text embedding model
+
+### Implementation priority order (Phase 2A)
+1. `HeatmapGrid.kt` — visual impact, pure Canvas
+2. Payday effect + budget fatigue → `AnalyticsEngine` methods
+3. Category anomaly alerts → `InsightGenerator` rules
+4. Impulse classification → `TransactionAnalyzer` (new class)
+5. Waterfall chart → `WaterfallChart.kt` (Canvas)
+6. Narrative insights → `NarrativeEngine` (template system)
+7. What-if simulator → `WhatIfSimulator.kt`
+8. Savings projection → extend `AnalyticsEngine`
+9. Expense pyramid + fixed/variable → `StructuralAnalyzer`
