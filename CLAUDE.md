@@ -129,10 +129,13 @@ Implemented:
   - `behavioral_cluster.tflite` (float[1][7] → float[1][5])
 
 ## Next Steps
-- Unit tests for BehavioralAnalyzer edge cases
 - Polish: localization review, dark-mode visual QA
-- Wire budget overspend → NotificationHelper.sendBudgetAlert() in BudgetViewModel
-- Train and bundle .tflite model files
+- Train and bundle .tflite model files (model stubs in `assets/models/` — app runs without them via fallback)
+- Add Sberbank/Tbank push-notification deep-link intent on budget alert tap
+
+## Completed Post-Phase-3 Polish
+- [x] BudgetViewModel wired to NotificationHelper (fires alert at configurable threshold, once per session per budget)
+- [x] BehavioralAnalyzerTest — 28 unit tests covering all 7 public methods + edge cases
 
 ## Key File Locations
 | Layer | Path |
