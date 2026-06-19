@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.TransactionRow
 import com.financeos.hub.ui.theme.bankBrand
 import com.financeos.hub.ui.theme.FosColors
@@ -94,42 +96,8 @@ fun DashboardScreen(
             }
         }
 
-        // Hero — net worth card
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                    .background(FosColors.Surface)
-                    .padding(FosDimens.CardPadding),
-            ) {
-                Column {
-                    Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
-                    Spacer(Modifier.height(4.dp))
-                    val netWorth = state.netWorthKopecks
-                    Text(
-                        text  = FosFormatter.amount(netWorth),
-                        style = FosType.HeroAmount,
-                        color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
-                    )
-                    Spacer(Modifier.height(FosDimens.ItemGap))
-                    Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
-                        MetricChip(
-                            label    = "Доходы",
-                            value    = FosFormatter.compact(state.incomeKopecks),
-                            color    = FosColors.Positive,
-                            modifier = Modifier.weight(1f),
-                        )
-                        MetricChip(
-                            label    = "Расходы",
-                            value    = FosFormatter.compact(state.expenseKopecks),
-                            color    = FosColors.Negative,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-        }
+        // Hero — variant-based (CALM / CONTRAST / MINIMAL)
+        item { HeroBlock(state = state) }
 
         // Accounts section — always shown
         item {
@@ -279,39 +247,172 @@ private fun AccountCard(account: AccountEntity, onClick: () -> Unit = {}) {
             .clickable { onClick() }
             .padding(16.dp),
     ) {
-        // Top row — bank name + card number
         Row(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically,
         ) {
-            Text(
-                account.bank,
-                style = FosType.BodySemi,
-                color = brand.onBg,
-            )
+            Text(account.bank, style = FosType.BodySemi, color = brand.onBg)
             account.cardMask?.takeIf { it.isNotBlank() }?.let { mask ->
-                Text(
-                    "•• $mask",
-                    style = FosType.Label,
-                    color = brand.onBg.copy(alpha = 0.75f),
-                )
+                Text("•• $mask", style = FosType.Label, color = brand.onBg.copy(alpha = 0.75f))
             }
         }
 
         Spacer(Modifier.weight(1f))
 
-        // Balance
-        Text(
-            FosFormatter.amount(account.balanceKopecks),
-            style = FosType.CardAmount,
-            color = brand.onBg,
-        )
+        Text(FosFormatter.amount(account.balanceKopecks), style = FosType.CardAmount, color = brand.onBg)
         Spacer(Modifier.height(2.dp))
-        Text(
-            account.name,
-            style = FosType.Micro,
-            color = brand.onBg.copy(alpha = 0.8f),
-        )
+        Text(account.name, style = FosType.Micro, color = brand.onBg.copy(alpha = 0.8f))
+    }
+}
+
+// ── Hero variant composables ──────────────────────────────────────────────────
+
+@Composable
+private fun HeroBlock(state: DashboardState) {
+    when (state.heroVariant) {
+        "CONTRAST" -> ContrastHero(state)
+        "MINIMAL"  -> MinimalHero(state)
+        else       -> CalmHero(state)   // "CALM" + default
+    }
+}
+
+/** CALM: ScoreRing + net worth + metric chips */
+@Composable
+private fun CalmHero(state: DashboardState) {
+    val scoreColor = when {
+        state.financialScore >= 70 -> FosColors.Positive
+        state.financialScore >= 40 -> FosColors.Warning
+        else                       -> FosColors.Negative
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(FosDimens.RadiusCard))
+            .background(FosColors.Surface)
+            .padding(FosDimens.CardPadding),
+    ) {
+        Column {
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                ScoreRing(score = state.financialScore, modifier = Modifier.size(100.dp))
+                Column {
+                    Text("Финансовое здоровье", style = FosType.Micro, color = FosColors.TextMuted)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${state.financialScore} / 100", style = FosType.BodySemi, color = scoreColor)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Состояние", style = FosType.Micro, color = FosColors.TextSecondary)
+                    Spacer(Modifier.height(2.dp))
+                    val netWorth = state.netWorthKopecks
+                    Text(
+                        FosFormatter.amount(netWorth),
+                        style = FosType.HeroAmount,
+                        color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+                    )
+                }
+            }
+            Spacer(Modifier.height(FosDimens.ItemGap))
+            Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
+                MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))
+                MetricChip("Расходы", FosFormatter.compact(state.expenseKopecks), FosColors.Negative, Modifier.weight(1f))
+                if (state.forecastKopecks > 0) {
+                    MetricChip("Прогноз", FosFormatter.compact(state.forecastKopecks), FosColors.Warning, Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+/** CONTRAST: bold income/expense side-by-side, net worth + forecast below */
+@Composable
+private fun ContrastHero(state: DashboardState) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(FosDimens.RadiusCard))
+            .background(FosColors.Surface)
+            .padding(FosDimens.CardPadding),
+    ) {
+        Column {
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Доходы", style = FosType.Label, color = FosColors.TextMuted)
+                    Spacer(Modifier.height(2.dp))
+                    Text(FosFormatter.compact(state.incomeKopecks), style = FosType.HeroLarge, color = FosColors.Positive)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Расходы", style = FosType.Label, color = FosColors.TextMuted)
+                    Spacer(Modifier.height(2.dp))
+                    Text(FosFormatter.compact(state.expenseKopecks), style = FosType.HeroLarge, color = FosColors.Negative)
+                }
+            }
+            Spacer(Modifier.height(FosDimens.ItemGap))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(FosColors.Border),
+            )
+            Spacer(Modifier.height(FosDimens.ItemGap))
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Состояние", style = FosType.Micro, color = FosColors.TextMuted)
+                    val netWorth = state.netWorthKopecks
+                    Text(
+                        FosFormatter.amount(netWorth),
+                        style = FosType.CardAmount,
+                        color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+                    )
+                }
+                if (state.forecastKopecks > 0) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Прогноз", style = FosType.Micro, color = FosColors.TextMuted)
+                        Text(
+                            "−${FosFormatter.compact(state.forecastKopecks)}",
+                            style = FosType.CardAmount,
+                            color = FosColors.Warning,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** MINIMAL: compact net worth + income/expense chips */
+@Composable
+private fun MinimalHero(state: DashboardState) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(FosDimens.RadiusCard))
+            .background(FosColors.Surface)
+            .padding(FosDimens.CardPadding),
+    ) {
+        Column {
+            Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
+            Spacer(Modifier.height(4.dp))
+            val netWorth = state.netWorthKopecks
+            Text(
+                FosFormatter.amount(netWorth),
+                style = FosType.HeroMinimal,
+                color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+            )
+            Spacer(Modifier.height(FosDimens.ItemGap))
+            Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
+                MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))
+                MetricChip("Расходы", FosFormatter.compact(state.expenseKopecks), FosColors.Negative, Modifier.weight(1f))
+            }
+        }
     }
 }
