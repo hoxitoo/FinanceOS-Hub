@@ -20,7 +20,7 @@ object AmountParser {
             .replace(',', '.')
         val value = cleaned.toDoubleOrNull() ?: return 0L
         if (value.isNaN() || value.isInfinite() || value <= 0.0) return 0L
-        // Double.toLong() already saturates to Long.MAX_VALUE for huge values.
-        return (value * 100.0).toLong().coerceAtLeast(0L)
+        // Math.round avoids truncation errors (e.g. 299.90 * 100 = 29989.9999... would truncate to 29989).
+        return Math.round(value * 100.0).coerceAtLeast(0L)
     }
 }
