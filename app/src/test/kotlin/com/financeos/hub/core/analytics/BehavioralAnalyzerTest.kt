@@ -292,7 +292,7 @@ class BehavioralAnalyzerTest {
         // Not asserting value since baseline windows may be empty; just assert no exception
     }
 
-    @Test fun `isSignificant true when ratio >= 1_20`() {
+    @Test fun `isSignificant true when ratio is at least 1_20`() {
         val effect = PaydayEffect(avgBaselineKopecks = 1_000_00L, avgPostPaydayKopecks = 1_500_00L, ratio = 1.5f)
         assertTrue(effect.isSignificant)
         assertEquals(50, effect.deltaPercent)
