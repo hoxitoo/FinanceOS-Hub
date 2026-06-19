@@ -217,7 +217,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                         .forEach { (day, txList) ->
                             item(key = "header_$day") {
                                 Text(
-                                    text     = FosFormatter.dayLabel(day),
+                                    text     = FosFormatter.dayLabelYear(day),
                                     style    = FosType.SectionCap,
                                     color    = FosColors.TextMuted,
                                     modifier = Modifier.padding(top = FosDimens.ItemGap, bottom = 4.dp),

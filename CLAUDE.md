@@ -209,11 +209,18 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 - `TextFeatureExtractor.extract` — removed unnecessary `Double→Float→Double` roundtrip in norm computation
 
 ## PDF Import (`core/pdf/`)
-- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0
-- `PdfTransactionParser.kt` — line-by-line parser: DD.MM.YYYY date + signed amount regex; dedup key = `pdf_{ts}_{kopecks}_{merchant.hashCode()}`
+- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0; `sortByPosition = true` keeps tabular statements in visual reading order
+- `PdfTransactionParser.kt` — **logical-row** parser (rewritten): reconstructs each statement row from wrapped physical lines (row starts at `DD.MM.YYYY`, absorbs continuation lines), then extracts posting date (4-digit year), posting amount (comma-decimal + currency suffix → distinguishes from inner dot-decimal `на сумму:`), sign, op code, and a cleaned merchant; dedup key = `pdf_{opCode}` (unique) with `pdf_{ts}_{kopecks}_{merchant.hashCode()}` fallback
+- `PdfTransactionParserTest.kt` — 7 tests against real Alfa-Bank "Операции по счету" layout
 - `TransactionSource.PDF` added to enum (stored as string → no Room migration)
 - `TransactionsViewModel.importPdf(uri)` — IO-dispatched; auto-classifies via CategoryClassifier; returns found/inserted counts
 - `ImportPdfSheet.kt` — bottom sheet with idle/loading/success/error states; "↓ PDF" button in TransactionsScreen header
+
+### PDF parser bug fixes (this session)
+- **Sign bug (critical)**: old parser passed the signed token to `AmountParser.toKopecks`, which returns `0` for negatives (`value <= 0`) → **every expense was silently dropped**, only income survived (all imports looked green/`+`). Now the sign is detected separately and only the unsigned magnitude is parsed.
+- **Multi-line layout**: old parser required date + amount on the *same physical line*; Alfa descriptions wrap across lines, so it latched onto stray fragments. Now rows are reconstructed before extraction.
+- **Inner-value confusion**: card rows contain `на сумму: 40.00 RUR` (dot) and `дата совершения операции: 19.12.25` (2-digit year). These are now excluded by construction (posting amount = comma-decimal, posting date = 4-digit year).
+- **Date display**: `FosFormatter.dayLabelYear()` added — transaction history (row meta, day header, detail sheet) now shows the year ("19 декабря 2025") instead of "19 декабря".
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
