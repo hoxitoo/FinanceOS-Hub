@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
@@ -58,6 +57,13 @@ android {
     buildFeatures {
         compose     = true
         buildConfig = true
+    }
+
+    // Kotlin 1.9.x configures Compose via the compiler extension (the standalone
+    // org.jetbrains.kotlin.plugin.compose only exists from Kotlin 2.0+).
+    // Compose Compiler 1.5.14 is the version matched to Kotlin 1.9.24.
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     packaging {
