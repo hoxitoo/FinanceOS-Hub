@@ -78,7 +78,7 @@ kotlinx-coroutines-android          = { group = "org.jetbrains.kotlinx",  name =
 kotlinx-coroutines-test             = { group = "org.jetbrains.kotlinx",  name = "kotlinx-coroutines-test",        version.ref = "coroutines" }
 
 # PDF text extraction
-pdfbox-android              = { group = "com.tom_roush",              name = "pdfbox-android",                 version.ref = "pdfbox" }
+pdfbox-android              = { group = "com.tom-roush",              name = "pdfbox-android",                 version.ref = "pdfbox" }
 
 # Test
 junit                               = { group = "junit",                  name = "junit",                          version.ref = "junit" }
