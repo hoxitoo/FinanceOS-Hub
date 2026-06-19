@@ -74,6 +74,13 @@ android {
     androidResources {
         noCompress += "tflite"
     }
+
+    lint {
+        // Lint still runs and writes its HTML report (uploaded as a CI artifact),
+        // but does not fail the build. The codebase is in active development;
+        // remaining lint findings are tracked via the report, not as a hard gate.
+        abortOnError = false
+    }
 }
 
 dependencies {

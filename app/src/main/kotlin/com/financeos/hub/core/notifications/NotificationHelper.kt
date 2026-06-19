@@ -1,5 +1,6 @@
 package com.financeos.hub.core.notifications
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -79,6 +80,8 @@ class NotificationHelper @Inject constructor(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    // Guarded by hasNotificationPermission(); lint can't trace the helper.
+    @SuppressLint("MissingPermission")
     fun sendBudgetAlert(categoryName: String, spentPercent: Int) {
         if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET)
@@ -93,6 +96,7 @@ class NotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(ID_BUDGET_ALERT, notification)
     }
 
+    @SuppressLint("MissingPermission")
     fun sendWeeklySummary(
         totalSpentKopecks : Long,
         comparedToLastWeek: Int,
@@ -115,6 +119,7 @@ class NotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(ID_WEEKLY, notification)
     }
 
+    @SuppressLint("MissingPermission")
     fun sendInsightNotification(id: Int, text: String) {
         if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
