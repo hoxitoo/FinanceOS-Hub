@@ -56,10 +56,10 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     val state      by vm.state.collectAsState()
     val context    = LocalContext.current
     var showAddSheet  by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedTx  by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
-    val detailSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         containerColor = FosColors.Background,

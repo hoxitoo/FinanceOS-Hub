@@ -48,7 +48,7 @@ fun InsightsTab(state: AnalyticsState) {
             item {
                 Text("ОПОВЕЩЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.insights, key = { it.title }) { insight ->
+            items(state.insights, key = { it.id }) { insight ->
                 InsightCard(insight = insight)
             }
         }

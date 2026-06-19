@@ -47,7 +47,7 @@ fun BudgetScreen(
 ) {
     val state        by vm.state.collectAsState()
     var showAddSheet  by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         containerColor = FosColors.Background,

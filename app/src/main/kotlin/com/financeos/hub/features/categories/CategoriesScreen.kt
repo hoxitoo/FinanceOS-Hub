@@ -47,7 +47,7 @@ fun CategoriesScreen(
 ) {
     val categories by vm.categories.collectAsState()
     var showAddSheet  by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val systemCats = categories.filter { it.isSystem }
     val customCats = categories.filter { !it.isSystem }

@@ -52,7 +52,7 @@ fun DashboardScreen(
     val state by vm.state.collectAsState()
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
-    val addAccountSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val addAccountSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedAccount      by remember { mutableStateOf<AccountEntity?>(null) }
     var editBalanceText      by remember { mutableStateOf("") }
 

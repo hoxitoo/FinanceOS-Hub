@@ -45,7 +45,7 @@ import com.financeos.hub.ui.theme.FosType
 fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     val state       by vm.state.collectAsState()
     var showAddSheet by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartialExpansion = true)
+    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var contributeTarget by remember { mutableStateOf<GoalEntity?>(null) }
     var contributeText   by remember { mutableStateOf("") }

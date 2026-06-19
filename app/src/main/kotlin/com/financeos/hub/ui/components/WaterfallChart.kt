@@ -9,14 +9,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.ui.theme.FosColors
 import kotlin.math.abs
-
-data class WaterfallBar(
-    val label    : String,
-    val delta    : Long,       // positive = good (income/savings), negative = bad (expense growth)
-    val isTotal  : Boolean = false,
-)
 
 /**
  * Waterfall chart for month-over-month breakdown.
