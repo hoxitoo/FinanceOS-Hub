@@ -50,6 +50,10 @@ object FosType {
         fontFeatureSettings = "tnum"
     )
     val SubHeader  = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+
+    // Иконки (глифы) — нижняя панель навигации и кнопки-действия в шапке
+    val NavIcon    = TextStyle(fontSize = 21.sp, fontWeight = FontWeight.Medium)
+    val IconAction = TextStyle(fontSize = 23.sp, fontWeight = FontWeight.Bold)
     val HeroLarge  = TextStyle(
         fontSize = 40.sp,
         fontWeight = FontWeight.Black,

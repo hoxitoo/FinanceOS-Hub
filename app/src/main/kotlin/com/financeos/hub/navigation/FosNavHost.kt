@@ -162,7 +162,7 @@ private fun FosBottomBar(currentRoute: String?, onNavigate: (String) -> Unit) {
                 icon     = {
                     Text(
                         text  = navEmoji(item.icon),
-                        style = FosType.Label,
+                        style = FosType.NavIcon,
                     )
                 },
                 label    = {

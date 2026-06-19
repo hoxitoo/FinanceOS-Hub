@@ -158,7 +158,7 @@ fun AddAccountSheet(
 @Composable
 private fun accountSheetFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor   = FosColors.Info,
-    unfocusedBorderColor = FosColors.Border,
+    unfocusedBorderColor = FosColors.BorderStrong,
     focusedLabelColor    = FosColors.Info,
     unfocusedLabelColor  = FosColors.TextMuted,
     cursorColor          = FosColors.Info,

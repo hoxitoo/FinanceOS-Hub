@@ -219,7 +219,7 @@ private fun CategoryCell(cat: CategoryEntity, selected: Boolean, onClick: () -> 
 @Composable
 private fun addSheetTextFieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
     focusedBorderColor   = FosColors.Info,
-    unfocusedBorderColor = FosColors.Border,
+    unfocusedBorderColor = FosColors.BorderStrong,
     focusedLabelColor    = FosColors.Info,
     unfocusedLabelColor  = FosColors.TextMuted,
     cursorColor          = FosColors.Info,

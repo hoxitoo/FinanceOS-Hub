@@ -8,6 +8,7 @@ object FosColors {
     val Surface     = Color(0xFF111620)
     val Surface2    = Color(0xFF181E2A)
     val Border      = Color(0xFF1E2738)
+    val BorderStrong = Color(0xFF3D4860)   // более контрастная граница для полей ввода
 
     // Акценты — строго семантические
     val Positive    = Color(0xFF4DFFA0)   // доход, рост, успех, savings
