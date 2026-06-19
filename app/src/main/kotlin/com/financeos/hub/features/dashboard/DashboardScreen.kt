@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.TransactionRow
 import com.financeos.hub.ui.theme.bankBrand
@@ -350,6 +351,23 @@ private fun ContrastHero(state: DashboardState) {
                     Text("Расходы", style = FosType.Label, color = FosColors.TextMuted)
                     Spacer(Modifier.height(2.dp))
                     Text(FosFormatter.compact(state.expenseKopecks), style = FosType.HeroLarge, color = FosColors.Negative)
+                }
+            }
+            // Sparkline — 30-day expense trend
+            if (state.sparkline.size >= 2) {
+                Spacer(Modifier.height(FosDimens.ItemGap))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                        .background(FosColors.Surface2),
+                ) {
+                    LineChart(
+                        data     = state.sparkline,
+                        color    = FosColors.Negative,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
             Spacer(Modifier.height(FosDimens.ItemGap))

@@ -26,6 +26,7 @@ data class DashboardState(
     val expenseKopecks      : Long                      = 0L,
     val forecastKopecks     : Long                      = 0L,
     val financialScore      : Int                       = 0,
+    val sparkline           : List<Float>               = emptyList(),
     val accounts            : List<AccountEntity>       = emptyList(),
     val recentTransactions  : List<TransactionEntity>   = emptyList(),
     private val categories  : Map<String, String>       = emptyMap(),
@@ -42,14 +43,16 @@ class DashboardViewModel @Inject constructor(
     private val engine      : AnalyticsEngine,
 ) : ViewModel() {
 
-    private val _score    = MutableStateFlow(0)
-    private val _forecast = MutableStateFlow(0L)
+    private val _score     = MutableStateFlow(0)
+    private val _forecast  = MutableStateFlow(0L)
+    private val _sparkline = MutableStateFlow<List<Float>>(emptyList())
 
     init {
         viewModelScope.launch {
             txRepo.observeCurrentMonth().collect {
-                runCatching { engine.computeScore().total }.onSuccess { _score.value = it }
-                runCatching { engine.forecastMonthEnd() }.onSuccess { _forecast.value = it }
+                runCatching { engine.computeScore().total }.onSuccess  { _score.value     = it }
+                runCatching { engine.forecastMonthEnd() }.onSuccess    { _forecast.value  = it }
+                runCatching { engine.sparkline30Days() }.onSuccess     { _sparkline.value = it }
             }
         }
     }
@@ -64,8 +67,19 @@ class DashboardViewModel @Inject constructor(
             prefs.heroVariant,
             _score,
             _forecast,
-        ) { hero, score, forecast -> Triple(hero, score, forecast) },
-    ) { (txList, accounts, categories), (heroVariant, score, forecast) ->
+            _sparkline,
+        ) { hero, score, forecast, sparkline ->
+            listOf<Any?>(hero, score, forecast, sparkline)
+        },
+    ) { txTriple, meta ->
+        val (txList, accounts, categories) = txTriple
+        @Suppress("UNCHECKED_CAST")
+        val heroVariant = meta[0] as String
+        val score       = meta[1] as Int
+        val forecast    = meta[2] as Long
+        @Suppress("UNCHECKED_CAST")
+        val sparkline   = meta[3] as List<Float>
+
         val catMap   = categories.associate { it.id to it.name }
         val income   = txList.filter { it.type == TransactionType.INCOME }
             .sumOf { it.amountKopecks }
@@ -80,6 +94,7 @@ class DashboardViewModel @Inject constructor(
             expenseKopecks     = expense,
             forecastKopecks    = forecast,
             financialScore     = score,
+            sparkline          = sparkline,
             accounts           = accounts,
             recentTransactions = txList.take(5),
             categories         = catMap,

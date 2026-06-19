@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,7 +74,7 @@ fun InsightsTab(state: AnalyticsState) {
                 Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
                 Text("НАБЛЮДЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            items(state.narratives, key = { it }) { narrative ->
+            itemsIndexed(state.narratives) { i, narrative ->
                 NarrativeCard(narrative = narrative)
             }
         }

@@ -60,6 +60,9 @@ interface TransactionDao {
     """)
     suspend fun softDelete(id: String, now: Long = System.currentTimeMillis())
 
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAll()
+
     @Query("""
         SELECT SUM(amount_kopecks) FROM transactions
         WHERE is_deleted = 0
