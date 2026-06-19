@@ -18,6 +18,7 @@ tflite                     = "2.14.0"
 coreKtx                    = "1.13.1"
 activityCompose            = "1.9.0"
 splashscreen               = "1.0.1"
+pdfbox                     = "2.0.27.0"
 junit                      = "4.13.2"
 androidxTestExtJunit       = "1.2.1"
 espressoCore               = "3.6.1"
@@ -75,6 +76,9 @@ tflite-core                         = { group = "org.tensorflow",         name =
 # Coroutines
 kotlinx-coroutines-android          = { group = "org.jetbrains.kotlinx",  name = "kotlinx-coroutines-android",     version.ref = "coroutines" }
 kotlinx-coroutines-test             = { group = "org.jetbrains.kotlinx",  name = "kotlinx-coroutines-test",        version.ref = "coroutines" }
+
+# PDF text extraction
+pdfbox-android              = { group = "com.tom_roush",              name = "pdfbox-android",                 version.ref = "pdfbox" }
 
 # Test
 junit                               = { group = "junit",                  name = "junit",                          version.ref = "junit" }

@@ -1,20 +1,28 @@
 package com.financeos.hub.features.transactions
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.pdf.PdfImporter
+import com.financeos.hub.core.pdf.PdfTransactionParser
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -37,12 +45,28 @@ data class TransactionsState(
     fun categoryName(id: String?): String = id?.let { categoryMap[it] } ?: "Другое"
 }
 
+data class PdfImportResult(val found: Int, val inserted: Int)
+
+sealed interface PdfImportState {
+    object Idle    : PdfImportState
+    object Loading : PdfImportState
+    data class Success(val result: PdfImportResult) : PdfImportState
+    data class Error(val message: String)           : PdfImportState
+}
+
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
     private val txRepo      : TransactionRepository,
     private val categoryRepo: CategoryRepository,
+    private val pdfImporter : PdfImporter,
+    private val classifier  : CategoryClassifier,
     savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
+
+    private val _pdfState = MutableStateFlow<PdfImportState>(PdfImportState.Idle)
+    val pdfImportState: StateFlow<PdfImportState> = _pdfState.asStateFlow()
+
+    fun dismissPdfResult() { _pdfState.value = PdfImportState.Idle }
 
     private val _filter         = MutableStateFlow(TxFilter.ALL)
     private val _search         = MutableStateFlow("")
@@ -147,6 +171,54 @@ class TransactionsViewModel @Inject constructor(
                     deletedAt     = null,
                 )
             )
+        }
+    }
+
+    fun importPdf(uri: Uri) {
+        viewModelScope.launch {
+            _pdfState.value = PdfImportState.Loading
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val text        = pdfImporter.extractText(uri)
+                    val parsed      = PdfTransactionParser.parse(text)
+                    val existingIds = txRepo.getAllSmsHashes().toHashSet()
+
+                    var inserted = 0
+                    val now = System.currentTimeMillis()
+
+                    parsed.forEach { raw ->
+                        if (raw.dedupKey in existingIds) return@forEach
+                        val catId = runCatching {
+                            classifier.classify(raw.merchant, null)
+                        }.getOrNull()
+                        txRepo.insert(
+                            TransactionEntity(
+                                id            = UUID.randomUUID().toString(),
+                                smsId         = raw.dedupKey,
+                                accountId     = null,
+                                categoryId    = catId,
+                                type          = raw.type,
+                                source        = TransactionSource.PDF,
+                                amountKopecks = if (raw.type == TransactionType.EXPENSE)
+                                                    -raw.amountKopecks else raw.amountKopecks,
+                                merchant      = raw.merchant,
+                                description   = null,
+                                timestamp     = raw.timestampMillis,
+                                isDeleted     = false,
+                                deletedAt     = null,
+                                createdAt     = now,
+                                updatedAt     = now,
+                            )
+                        )
+                        inserted++
+                    }
+                    PdfImportResult(found = parsed.size, inserted = inserted)
+                }
+            }.onSuccess { result ->
+                _pdfState.value = PdfImportState.Success(result)
+            }.onFailure { e ->
+                _pdfState.value = PdfImportState.Error(e.message ?: "Ошибка импорта PDF")
+            }
         }
     }
 

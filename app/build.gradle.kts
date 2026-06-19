@@ -129,6 +129,9 @@ dependencies {
     // Biometric
     implementation(libs.biometric)
 
+    // PDF text extraction — Apache PDFBox Android port (SAF-compatible, no permissions needed)
+    implementation(libs.pdfbox.android)
+
     // TFLite — ML inference for merchant classification and spending prediction.
     // Only the core runtime (org.tensorflow.lite.Interpreter) is used; the support and
     // metadata artifacts are versioned independently (never published at 2.14.0) and are

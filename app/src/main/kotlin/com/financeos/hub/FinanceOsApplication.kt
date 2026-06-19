@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.financeos.hub.core.analytics.AnalyticsWorker
 import com.financeos.hub.core.notifications.NotificationHelper
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -16,6 +17,7 @@ class FinanceOsApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        PDFBoxResourceLoader.init(applicationContext)
         notificationHelper.createChannels()
         AnalyticsWorker.schedule(this)
     }

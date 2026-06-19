@@ -28,6 +28,8 @@ class TransactionRepository @Inject constructor(
     fun observeExpensesByCategory(from: Long, to: Long) =
         dao.getExpensesByCategory(from, to)
 
+    suspend fun getAllSmsHashes(): List<String> = dao.getAllSmsHashes()
+
     suspend fun insert(tx: TransactionEntity) = dao.insertAll(listOf(tx))
 
     suspend fun update(tx: TransactionEntity) = dao.update(tx)

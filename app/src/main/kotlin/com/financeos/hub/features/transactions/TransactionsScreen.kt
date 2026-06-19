@@ -58,8 +58,10 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     var showAddSheet  by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var selectedTx  by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
+    var selectedTx   by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
+    var showPdfSheet by remember { mutableStateOf(false) }
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val pdfSheetState    = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         containerColor = FosColors.Background,
@@ -90,26 +92,34 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
                 Text("Операции", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
-                TextButton(
-                    onClick = {
-                        runCatching {
-                            val csv  = vm.buildCsvString()
-                            val file = File(context.cacheDir, "financeos_export.csv")
-                            file.writeText(csv, Charsets.UTF_8)
-                            val uri  = FileProvider.getUriForFile(
-                                context, "${context.packageName}.provider", file
-                            )
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/csv"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick        = { showPdfSheet = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("↓ PDF", style = FosType.Label, color = FosColors.Info)
+                    }
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                val csv  = vm.buildCsvString()
+                                val file = File(context.cacheDir, "financeos_export.csv")
+                                file.writeText(csv, Charsets.UTF_8)
+                                val uri  = FileProvider.getUriForFile(
+                                    context, "${context.packageName}.provider", file
+                                )
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/csv"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(intent, null))
                             }
-                            context.startActivity(Intent.createChooser(intent, null))
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                ) {
-                    Text("↑ CSV", style = FosType.Label, color = FosColors.TextSecondary)
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("↑ CSV", style = FosType.Label, color = FosColors.TextSecondary)
+                    }
                 }
             }
 
@@ -224,6 +234,14 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                     item { Spacer(Modifier.height(80.dp)) }
                 }
             }
+        }
+
+        if (showPdfSheet) {
+            ImportPdfSheet(
+                vm         = vm,
+                sheetState = pdfSheetState,
+                onDismiss  = { showPdfSheet = false },
+            )
         }
 
         if (showAddSheet) {

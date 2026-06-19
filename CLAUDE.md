@@ -199,8 +199,8 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 
 ## ML Model Files
 - [x] `merchant_classifier.tflite` — bundled in `app/src/main/assets/models/` (256→128→64→13 softmax, 49KB)
-- [ ] `spending_predictor.tflite` — not yet trained; app uses linear extrapolation fallback
-- [ ] `behavioral_cluster.tflite` — not yet trained; app uses rule-based archetype fallback
+- [x] `spending_predictor.tflite` — trained on 20K synthetic sequences; Dense(30→16→8→1), 4.6KB
+- [x] `behavioral_cluster.tflite` — trained on 10K synthetic samples (2K/archetype); Dense(7→32→16→5 softmax), 5.7KB
 
 ## ML Audit Fixes (this session)
 - `BehavioralCluster.classify` / `SpendingPredictor.predict` — made `suspend`; added `Mutex` guard around `interp.run()` (Interpreter is not thread-safe)
@@ -208,9 +208,15 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 - `BehavioralCluster.extractFeatures` — guard against empty expenses list to prevent `NaN` feature vector
 - `TextFeatureExtractor.extract` — removed unnecessary `Double→Float→Double` roundtrip in norm computation
 
+## PDF Import (`core/pdf/`)
+- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0
+- `PdfTransactionParser.kt` — line-by-line parser: DD.MM.YYYY date + signed amount regex; dedup key = `pdf_{ts}_{kopecks}_{merchant.hashCode()}`
+- `TransactionSource.PDF` added to enum (stored as string → no Room migration)
+- `TransactionsViewModel.importPdf(uri)` — IO-dispatched; auto-classifies via CategoryClassifier; returns found/inserted counts
+- `ImportPdfSheet.kt` — bottom sheet with idle/loading/success/error states; "↓ PDF" button in TransactionsScreen header
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Train spending_predictor.tflite and behavioral_cluster.tflite; bundle in assets/models/
 
 ## Key File Locations
 | Layer | Path |
