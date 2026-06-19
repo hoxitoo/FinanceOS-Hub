@@ -1,6 +1,7 @@
 package com.financeos.hub.core.parser.banks
 
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import javax.inject.Inject
@@ -57,8 +58,5 @@ class PostaBankParser @Inject constructor() : BankParser {
         return null
     }
 
-    private fun parseAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "").replace(',', '.')
-        return (cleaned.toDouble() * 100).toLong()
-    }
+    private fun parseAmount(s: String): Long = AmountParser.toKopecks(s)
 }

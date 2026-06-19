@@ -19,11 +19,11 @@ import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
@@ -49,6 +49,7 @@ data class AnalyticsState(
     val narratives       : List<NarrativeInsight>          = emptyList(),
     val fixedVariable    : FixedVariableResult?            = null,
     val userArchetype    : BehavioralCluster.ClusterResult? = null,
+    val isLoading        : Boolean                         = true,
 )
 
 @HiltViewModel
@@ -58,105 +59,81 @@ class AnalyticsViewModel @Inject constructor(
     private val analyticsEngine: AnalyticsEngine,
 ) : ViewModel() {
 
-    private val zone  = ZoneId.systemDefault()
-    private val month = YearMonth.now()
-    private val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-    private val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+    private val zone = ZoneId.systemDefault()
 
-    private val _score       = MutableStateFlow<ScoreCalculator.ScoreBreakdown?>(null)
-    private val _insights    = MutableStateFlow<List<Insight>>(emptyList())
-    private val _sparkline   = MutableStateFlow<List<Float>>(emptyList())
-    private val _forecast    = MutableStateFlow(0L)
-    private val _heatmap     = MutableStateFlow<HeatmapData?>(null)
-    private val _fatigue     = MutableStateFlow<FatigueCurve?>(null)
-    private val _impulse     = MutableStateFlow<ImpulseStats?>(null)
-    private val _anomalies   = MutableStateFlow<List<CategoryAnomaly>>(emptyList())
-    private val _waterfall   = MutableStateFlow<List<WaterfallBar>>(emptyList())
-    private val _narratives  = MutableStateFlow<List<NarrativeInsight>>(emptyList())
-    private val _fixedVar    = MutableStateFlow<FixedVariableResult?>(null)
-    private val _archetype   = MutableStateFlow<BehavioralCluster.ClusterResult?>(null)
-
-    init {
-        viewModelScope.launch {
-            // Launch all analytics computations concurrently
-            val scoreD      = async { analyticsEngine.computeScore() }
-            val insightsD   = async { analyticsEngine.generateInsights() }
-            val sparklineD  = async { analyticsEngine.sparkline30Days() }
-            val forecastD   = async { analyticsEngine.forecastMonthEnd() }
-            val heatmapD    = async { analyticsEngine.computeHeatmap() }
-            val fatigueD    = async { analyticsEngine.computeFatigueCurve() }
-            val impulseD    = async { analyticsEngine.computeImpulseStats() }
-            val anomaliesD  = async { analyticsEngine.detectCategoryAnomalies() }
-            val waterfallD  = async { analyticsEngine.computeWaterfallBars() }
-            val narrativesD = async { analyticsEngine.generateNarratives() }
-            val fixedVarD   = async { analyticsEngine.classifyFixedVariable() }
-            val archetypeD  = async { analyticsEngine.classifyBehavior() }
-
-            _score.value      = scoreD.await()
-            _insights.value   = insightsD.await()
-            _sparkline.value  = sparklineD.await()
-            _forecast.value   = forecastD.await()
-            _heatmap.value    = heatmapD.await()
-            _fatigue.value    = fatigueD.await()
-            _impulse.value    = impulseD.await()
-            _anomalies.value  = anomaliesD.await()
-            _waterfall.value  = waterfallD.await()
-            _narratives.value = narrativesD.await()
-            _fixedVar.value   = fixedVarD.await()
-            _archetype.value  = archetypeD.await()
-        }
+    // Current-month window, recomputed on each emission so a long-lived process that
+    // crosses a month boundary does not keep showing the previous month.
+    private fun monthWindow(): Pair<Long, Long> {
+        val month = YearMonth.now()
+        val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+        return from to to
     }
 
+    /**
+     * The analytics screen recomputes whenever the underlying transactions or categories
+     * change (mapLatest cancels any in-flight computation, so we never show stale numbers).
+     * Every engine call is individually guarded with runCatching so that a failure in one
+     * computation leaves the others intact instead of cancelling the whole pipeline.
+     */
     val state = combine(
-        txRepo.observeByPeriod(from, to),
+        txRepo.observeAll(),
         categoryRepo.observeAll(),
-        combine(_score, _insights, _sparkline, _forecast) { a, b, c, d ->
-            listOf(a, b, c, d)
-        },
-        combine(_heatmap, _fatigue, _impulse, _anomalies) { a, b, c, d ->
-            listOf(a, b, c, d)
-        },
-        combine(
-            _waterfall,
-            _narratives,
-            combine(_fixedVar, _archetype) { fv, arch -> listOf(fv, arch) },
-        ) { w, n, tail -> listOf(w, n) + tail },
-    ) { txList, categories, scores, behavioral, extras ->
-        val catMap = categories.associate { it.id to it.name }
+    ) { txList, categories -> txList to categories }
+        .mapLatest { (allTx, categories) ->
+            val (from, to) = monthWindow()
+            val monthTx = allTx.filter { it.timestamp in from..to }
+            val catMap  = categories.associate { it.id to it.name }
 
-        @Suppress("UNCHECKED_CAST")
-        val catExpenses = txList
-            .filter { it.type == TransactionType.EXPENSE }
-            .groupBy { it.categoryId ?: "cat_other" }
-            .mapValues { (_, list) -> list.sumOf { kotlin.math.abs(it.amountKopecks) } }
+            val catExpenses = monthTx
+                .filter { it.type == TransactionType.EXPENSE }
+                .groupBy { it.categoryId ?: "cat_other" }
+                .mapValues { (_, list) -> list.sumOf { kotlin.math.abs(it.amountKopecks) } }
 
-        val daily = txList
-            .filter { it.type == TransactionType.EXPENSE }
-            .groupBy { tx ->
-                Instant.ofEpochMilli(tx.timestamp)
-                    .atZone(zone).toLocalDate()
-                    .atStartOfDay(zone).toInstant().toEpochMilli()
+            val daily = monthTx
+                .filter { it.type == TransactionType.EXPENSE }
+                .groupBy { tx ->
+                    Instant.ofEpochMilli(tx.timestamp)
+                        .atZone(zone).toLocalDate()
+                        .atStartOfDay(zone).toInstant().toEpochMilli()
+                }
+                .map { (day, list) -> day to list.sumOf { kotlin.math.abs(it.amountKopecks) } }
+                .sortedBy { it.first }
+
+            coroutineScope {
+                val scoreD     = async { runCatching { analyticsEngine.computeScore() }.getOrNull() }
+                val insightsD  = async { runCatching { analyticsEngine.generateInsights() }.getOrDefault(emptyList()) }
+                val sparklineD = async { runCatching { analyticsEngine.sparkline30Days() }.getOrDefault(emptyList()) }
+                val forecastD  = async { runCatching { analyticsEngine.forecastMonthEnd() }.getOrDefault(0L) }
+                val heatmapD   = async { runCatching { analyticsEngine.computeHeatmap() }.getOrNull() }
+                val fatigueD   = async { runCatching { analyticsEngine.computeFatigueCurve() }.getOrNull() }
+                val impulseD   = async { runCatching { analyticsEngine.computeImpulseStats() }.getOrNull() }
+                val anomaliesD = async { runCatching { analyticsEngine.detectCategoryAnomalies() }.getOrDefault(emptyList()) }
+                val waterfallD = async { runCatching { analyticsEngine.computeWaterfallBars() }.getOrDefault(emptyList()) }
+                val narrativesD= async { runCatching { analyticsEngine.generateNarratives() }.getOrDefault(emptyList()) }
+                val fixedVarD  = async { runCatching { analyticsEngine.classifyFixedVariable() }.getOrNull() }
+                val archetypeD = async { runCatching { analyticsEngine.classifyBehavior() }.getOrNull() }
+
+                AnalyticsState(
+                    transactions      = monthTx,
+                    categoryExpenses  = catExpenses,
+                    categoryNames     = catMap,
+                    dailyExpenses     = daily,
+                    score             = scoreD.await(),
+                    insights          = insightsD.await(),
+                    sparkline         = sparklineD.await(),
+                    forecastKopecks   = forecastD.await(),
+                    heatmap           = heatmapD.await(),
+                    fatigueCurve      = fatigueD.await(),
+                    impulseStats      = impulseD.await(),
+                    categoryAnomalies = anomaliesD.await(),
+                    waterfallBars     = waterfallD.await(),
+                    narratives        = narrativesD.await(),
+                    fixedVariable     = fixedVarD.await(),
+                    userArchetype     = archetypeD.await(),
+                    isLoading         = false,
+                )
             }
-            .map { (day, list) -> Pair(day, list.sumOf { kotlin.math.abs(it.amountKopecks) }) }
-            .sortedBy { it.first }
-
-        AnalyticsState(
-            transactions      = txList,
-            categoryExpenses  = catExpenses,
-            categoryNames     = catMap,
-            dailyExpenses     = daily,
-            score             = scores[0] as ScoreCalculator.ScoreBreakdown?,
-            insights          = (scores[1] as List<*>).filterIsInstance<Insight>(),
-            sparkline         = (scores[2] as List<*>).filterIsInstance<Float>(),
-            forecastKopecks   = scores[3] as Long,
-            heatmap           = behavioral[0] as HeatmapData?,
-            fatigueCurve      = behavioral[1] as FatigueCurve?,
-            impulseStats      = behavioral[2] as ImpulseStats?,
-            categoryAnomalies = (behavioral[3] as List<*>).filterIsInstance<CategoryAnomaly>(),
-            waterfallBars     = (extras[0] as List<*>).filterIsInstance<WaterfallBar>(),
-            narratives        = (extras[1] as List<*>).filterIsInstance<NarrativeInsight>(),
-            fixedVariable     = extras[2] as FixedVariableResult?,
-            userArchetype     = extras[3] as BehavioralCluster.ClusterResult?,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }

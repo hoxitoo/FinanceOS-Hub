@@ -31,11 +31,8 @@ class AnalyticsWorker @AssistedInject constructor(
 
             if (notificationsEnabled) {
                 // Send top CRITICAL insight as notification
-                insights.filter { it.severity.name == "CRITICAL" }
-                    .take(1)
-                    .forEachIndexed { i, insight ->
-                        notificationHelper.sendInsightNotification(i, insight.text)
-                    }
+                insights.firstOrNull { it.severity == InsightSeverity.CRITICAL }
+                    ?.let { insight -> notificationHelper.sendInsightNotification(0, insight.text) }
             }
 
             Result.success()

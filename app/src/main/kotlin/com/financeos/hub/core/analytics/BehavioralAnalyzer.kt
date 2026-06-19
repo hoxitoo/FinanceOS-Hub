@@ -184,7 +184,8 @@ class BehavioralAnalyzer @Inject constructor() {
             val historicalVals = history.mapNotNull { it[catId] }.filter { it > 0 }
             if (historicalVals.isEmpty()) return@forEach
             val avg    = historicalVals.average().toLong()
-            val stdDev = historicalVals.map { (it - avg) * (it - avg) }
+            // Square in Double space — (it - avg)² in Long can overflow for large kopeck sums.
+            val stdDev = historicalVals.map { val d = (it - avg).toDouble(); d * d }
                 .average().let { sqrt(it).toLong() }
             if (current > avg * threshold) {
                 anomalies += CategoryAnomaly(

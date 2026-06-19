@@ -1,38 +1,24 @@
 package com.financeos.hub.di
 
 import com.financeos.hub.core.classifier.CategoryClassifier
-import com.financeos.hub.core.classifier.DictionaryClassifier
-import com.financeos.hub.core.ml.MLCategoryClassifier
-import com.financeos.hub.data.preferences.UserPreferences
+import com.financeos.hub.core.classifier.DelegatingCategoryClassifier
+import dagger.Binds
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import javax.inject.Singleton
 
+/**
+ * Binds the single [CategoryClassifier] used across the app.
+ *
+ * [DelegatingCategoryClassifier] picks ML vs dictionary at classification time based on
+ * the user preference, so there is no blocking DataStore read during graph construction.
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object MLModule {
+abstract class MLModule {
 
-    /**
-     * Provides the active CategoryClassifier:
-     *   - MLCategoryClassifier when ml_classification_enabled = true
-     *   - DictionaryClassifier otherwise
-     *
-     * The choice is made at injection time; the app must restart to switch.
-     * In practice, SmsReceiver and ParserEngine are singletons so this is fine.
-     */
-    @Provides
+    @Binds
     @Singleton
-    fun provideCategoryClassifier(
-        mlClassifier        : MLCategoryClassifier,
-        dictionaryClassifier: DictionaryClassifier,
-        userPreferences     : UserPreferences,
-    ): CategoryClassifier {
-        val mlEnabled = runBlocking(Dispatchers.IO) { userPreferences.mlClassificationEnabled.first() }
-        return if (mlEnabled) mlClassifier else dictionaryClassifier
-    }
+    abstract fun bindCategoryClassifier(impl: DelegatingCategoryClassifier): CategoryClassifier
 }

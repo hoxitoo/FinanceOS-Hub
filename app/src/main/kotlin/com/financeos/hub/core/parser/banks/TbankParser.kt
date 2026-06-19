@@ -1,13 +1,15 @@
 package com.financeos.hub.core.parser.banks
 
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import javax.inject.Inject
 
 class TbankParser @Inject constructor() : BankParser {
     override val bankId = "tbank"
-    override val senderPatterns = listOf(Regex("TBANK|TINKOFF|Т-БАНК|900"))
+    // "900" removed — it is Sberbank's short code; sharing it caused non-deterministic routing.
+    override val senderPatterns = listOf(Regex("TBANK|TINKOFF|Т-БАНК"))
 
     // "Оплата 1500,00 RUB. Кафе Урюк. Карта *1234. Баланс: 5000,00 RUB"
     private val expense = Regex(
@@ -16,8 +18,9 @@ class TbankParser @Inject constructor() : BankParser {
     )
 
     // "Пополнение 10000,00 RUB. Карта *1234. Баланс: 15000,00 RUB"
+    // "Перевод" excluded — outgoing transfers would be misread as income.
     private val income = Regex(
-        """(?:Пополнение|Зачисление|Перевод)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽)[.\s]+(?:Карта\s+\*(\d{4}))?""",
+        """(?:Пополнение|Зачисление)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽)[.\s]+(?:Карта\s+\*(\d{4}))?""",
         RegexOption.IGNORE_CASE
     )
 
@@ -57,8 +60,5 @@ class TbankParser @Inject constructor() : BankParser {
         return null
     }
 
-    private fun parseAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "").replace(',', '.')
-        return (cleaned.toDouble() * 100).toLong()
-    }
+    private fun parseAmount(s: String): Long = AmountParser.toKopecks(s)
 }

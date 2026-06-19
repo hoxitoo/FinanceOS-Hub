@@ -1,6 +1,7 @@
 package com.financeos.hub.core.parser.banks
 
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import javax.inject.Inject
@@ -16,8 +17,10 @@ class SberbankParser @Inject constructor() : BankParser {
     )
 
     // "VISA1234 18.06.25 12:34 Зачисление 10 000р"
+    // NOTE: "Перевод" intentionally excluded — a transfer SMS is frequently OUTGOING and
+    // would be misclassified as income (sign inversion), corrupting analytics.
     private val incomeRu = Regex(
-        """(?:VISA|MASTERCARD|МИР|MIR)\s*(\d{4})\s+[\d.]+\s+[\d:]+\s+(?:Зачисление|Пополнение|Перевод)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
+        """(?:VISA|MASTERCARD|МИР|MIR)\s*(\d{4})\s+[\d.]+\s+[\d:]+\s+(?:Зачисление|Пополнение)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
         RegexOption.IGNORE_CASE
     )
 
@@ -34,10 +37,10 @@ class SberbankParser @Inject constructor() : BankParser {
             val (card, amt, merchant, bal) = m.destructured
             return ParsedTransaction(
                 type            = TransactionType.EXPENSE,
-                amountKopecks   = parseRuAmount(amt),
+                amountKopecks   = AmountParser.toKopecks(amt),
                 merchant        = merchant.trim(),
                 cardMask        = card,
-                balanceKopecks  = parseRuAmount(bal),
+                balanceKopecks  = AmountParser.toKopecks(bal),
                 timestamp       = timestampMillis,
                 bankId          = bankId,
                 rawSms          = body,
@@ -49,7 +52,7 @@ class SberbankParser @Inject constructor() : BankParser {
             val (card, amt) = m.destructured
             return ParsedTransaction(
                 type            = TransactionType.INCOME,
-                amountKopecks   = parseRuAmount(amt),
+                amountKopecks   = AmountParser.toKopecks(amt),
                 merchant        = null,
                 cardMask        = card,
                 balanceKopecks  = null,
@@ -64,10 +67,10 @@ class SberbankParser @Inject constructor() : BankParser {
             val (card, amt, merchant, bal) = m.destructured
             return ParsedTransaction(
                 type            = TransactionType.EXPENSE,
-                amountKopecks   = parseEnAmount(amt),
+                amountKopecks   = AmountParser.toKopecks(amt),
                 merchant        = merchant.trim(),
                 cardMask        = card,
-                balanceKopecks  = parseEnAmount(bal),
+                balanceKopecks  = AmountParser.toKopecks(bal),
                 timestamp       = timestampMillis,
                 bankId          = bankId,
                 rawSms          = body,
@@ -76,15 +79,5 @@ class SberbankParser @Inject constructor() : BankParser {
         }
 
         return null
-    }
-
-    private fun parseRuAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "").replace(',', '.')
-        return (cleaned.toDouble() * 100).toLong()
-    }
-
-    private fun parseEnAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "")
-        return (cleaned.toDouble() * 100).toLong()
     }
 }

@@ -1,13 +1,15 @@
 package com.financeos.hub.core.parser.banks
 
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import javax.inject.Inject
 
 class OtkritieParser @Inject constructor() : BankParser {
     override val bankId = "otkritie"
-    override val senderPatterns = listOf(Regex("OTKRITIE|ОТКРЫТИЕ|ФКО|DISCOVERY"))
+    // "DISCOVERY" removed — too generic an English word; matched unrelated senders.
+    override val senderPatterns = listOf(Regex("OTKRITIE|ОТКРЫТИЕ|ФКО|OPENBANK"))
 
     // "Карта *1234: списание 1 500,00 RUB. МАГАЗИН. Остаток: 5 000,00 RUB"
     private val expense = Regex(
@@ -57,8 +59,5 @@ class OtkritieParser @Inject constructor() : BankParser {
         return null
     }
 
-    private fun parseAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "").replace(',', '.')
-        return (cleaned.toDouble() * 100).toLong()
-    }
+    private fun parseAmount(s: String): Long = AmountParser.toKopecks(s)
 }

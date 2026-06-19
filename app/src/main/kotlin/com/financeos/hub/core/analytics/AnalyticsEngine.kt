@@ -10,6 +10,7 @@ import com.financeos.hub.core.ml.BehavioralCluster
 import com.financeos.hub.core.ml.SpendingPredictor
 import java.time.Instant
 import kotlinx.coroutines.flow.first
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
@@ -76,7 +77,9 @@ class AnalyticsEngine @Inject constructor(
             .map { (day, list) -> day to list.sumOf { abs(it.amountKopecks) } }
             .sortedBy { it.first }
 
-        val daysPassed   = ((now - from) / (24 * 60 * 60 * 1000)).coerceAtLeast(1).toInt()
+        // Use the calendar day-of-month, not elapsed milliseconds — the latter mis-scales
+        // the forecast across DST changes and long/short months.
+        val daysPassed   = LocalDate.now(zone).dayOfMonth
         val daysInMonth  = month.lengthOfMonth()
         val daysRemaining = (daysInMonth - daysPassed).coerceAtLeast(0)
 
@@ -119,7 +122,6 @@ class AnalyticsEngine @Inject constructor(
 
     suspend fun detectCategoryAnomalies(): List<CategoryAnomaly> {
         val month = YearMonth.now()
-        val catNames = categoryDao.getAll().associate { it.id to it.name }
         val current  = categoryExpenseMap(month)
         val history  = (1..3).map { offset -> categoryExpenseMap(month.minusMonths(offset.toLong())) }
         return behavioralAnalyzer.detectCategoryAnomalies(current, history)
@@ -187,8 +189,12 @@ class AnalyticsEngine @Inject constructor(
         val zone    = this.zone
         val month   = YearMonth.now()
 
-        // Category avg per day over 90 days
-        val catAvgPerDay = expenseByCat(all).mapValues { (_, total) -> total / 90L }
+        // Category avg per day over the actual data span (≤ 90 days).
+        // Dividing by a fixed 90 understates per-day spend for users with < 90 days of history.
+        val spanDays = all.minOfOrNull { it.timestamp }
+            ?.let { earliest -> ((now - earliest) / (24L * 60 * 60 * 1000)) + 1 }
+            ?.coerceIn(1L, 90L) ?: 1L
+        val catAvgPerDay = expenseByCat(all).mapValues { (_, total) -> total / spanDays }
 
         // Savings rate history (last 3 months)
         val savingsHistory = (0..2).map { offset ->

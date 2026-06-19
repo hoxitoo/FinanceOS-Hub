@@ -57,25 +57,28 @@ class SmsReader @Inject constructor(
                 val body   = it.getString(bodyIdx) ?: continue
                 val ts     = it.getLong(dateIdx)
 
-                val parsed = parserEngine.parse(sender, body, ts)
-                if (parsed != null && parsed.smsId !in knownIds) {
-                    val categoryId = classifier.classify(parsed.merchant, null)
-                    val entity = TransactionEntity(
-                        id            = UUID.randomUUID().toString(),
-                        accountId     = null,
-                        categoryId    = categoryId,
-                        type          = parsed.type,
-                        source        = TransactionSource.SMS,
-                        amountKopecks = if (parsed.type == TransactionType.EXPENSE)
-                            -parsed.amountKopecks else parsed.amountKopecks,
-                        merchant      = parsed.merchant,
-                        description   = null,
-                        timestamp     = parsed.timestamp,
-                        smsId         = parsed.smsId,
-                    )
-                    transactionDao.insertAll(listOf(entity))
-                    knownIds.add(parsed.smsId)
-                    imported++
+                // Guard each row: a single malformed SMS must not abort the whole import.
+                runCatching {
+                    val parsed = parserEngine.parse(sender, body, ts)
+                    if (parsed != null && parsed.smsId !in knownIds) {
+                        val categoryId = classifier.classify(parsed.merchant, null)
+                        val entity = TransactionEntity(
+                            id            = UUID.randomUUID().toString(),
+                            accountId     = null,
+                            categoryId    = categoryId,
+                            type          = parsed.type,
+                            source        = TransactionSource.SMS,
+                            amountKopecks = if (parsed.type == TransactionType.EXPENSE)
+                                -parsed.amountKopecks else parsed.amountKopecks,
+                            merchant      = parsed.merchant,
+                            description   = null,
+                            timestamp     = parsed.timestamp,
+                            smsId         = parsed.smsId,
+                        )
+                        transactionDao.insertAll(listOf(entity))
+                        knownIds.add(parsed.smsId)
+                        imported++
+                    }
                 }
                 processed++
                 emit(ImportProgress(processed, imported, total))

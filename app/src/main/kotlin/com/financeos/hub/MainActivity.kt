@@ -1,9 +1,11 @@
 package com.financeos.hub
 
+import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +17,7 @@ import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.features.auth.LockScreen
 import com.financeos.hub.navigation.FosNavHost
+import com.financeos.hub.navigation.FosRoute
 import com.financeos.hub.ui.theme.FosTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
@@ -26,19 +29,27 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var userPreferences: UserPreferences
 
-    private var pendingDeepRoute: String? = null
     private var isLocked by mutableStateOf(true)
     private var promptActive = false
+    private var pendingDeepRoute by mutableStateOf<String?>(null)
+
+    // Device-credential (PIN/pattern/password) fallback when no biometric is enrolled.
+    private val credentialLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        promptActive = false
+        if (result.resultCode == RESULT_OK) isLocked = false
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        pendingDeepRoute = intent.getStringExtra(NotificationHelper.EXTRA_ROUTE)
+        pendingDeepRoute = FosRoute.sanitizeDeepLink(intent.getStringExtra(NotificationHelper.EXTRA_ROUTE))
         setContent {
             FosTheme {
                 if (isLocked) {
-                    LockScreen(onUnlockRequested = { triggerBiometric() })
+                    LockScreen(onUnlockRequested = { triggerAuth() })
                 } else {
                     FosNavHost(initialDeepRoute = pendingDeepRoute)
                 }
@@ -46,17 +57,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Drive the deep link through state — never call setContent twice (it would leak
+        // and recreate the whole NavHost, losing the back stack).
+        FosRoute.sanitizeDeepLink(intent.getStringExtra(NotificationHelper.EXTRA_ROUTE))?.let {
+            pendingDeepRoute = it
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
-            val bioEnabled = userPreferences.biometricEnabled.first()
-            if (!bioEnabled) {
+            if (!userPreferences.biometricEnabled.first()) {
                 isLocked = false
                 return@launch
             }
-            if (isLocked && !promptActive) {
-                triggerBiometric()
-            }
+            if (isLocked && !promptActive) triggerAuth()
         }
     }
 
@@ -70,32 +88,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        intent.getStringExtra(NotificationHelper.EXTRA_ROUTE)?.let { route ->
-            pendingDeepRoute = route
-            setContent {
-                FosTheme {
-                    if (isLocked) {
-                        LockScreen(onUnlockRequested = { triggerBiometric() })
-                    } else {
-                        FosNavHost(initialDeepRoute = route)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun triggerBiometric() {
-        if (!BiometricHelper.canAuthenticate(this)) {
-            isLocked = false
+    private fun triggerAuth() {
+        if (BiometricHelper.canAuthenticate(this)) {
+            promptActive = true
+            BiometricHelper.showPrompt(
+                activity  = this,
+                onSuccess = { isLocked = false; promptActive = false },
+                onError   = { _ -> promptActive = false },   // stay locked; user can retry
+            )
             return
         }
-        promptActive = true
-        BiometricHelper.showPrompt(
-            activity  = this,
-            onSuccess = { isLocked = false; promptActive = false },
-            onError   = { _ -> promptActive = false },
-        )
+
+        // No usable biometric. Do NOT silently unlock — fall back to the device credential
+        // if the device has a secure lock; only release the lock when the device has none.
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (keyguard != null && keyguard.isDeviceSecure) {
+            @Suppress("DEPRECATION")
+            val intent = keyguard.createConfirmDeviceCredentialIntent(
+                getString(R.string.lock_biometric_prompt_title),
+                getString(R.string.lock_biometric_prompt_subtitle),
+            )
+            if (intent != null) {
+                promptActive = true
+                credentialLauncher.launch(intent)
+            } else {
+                isLocked = false
+            }
+        } else {
+            // Device has no secure lock set — there is nothing for the app lock to enforce.
+            isLocked = false
+        }
     }
 }

@@ -40,10 +40,11 @@ fun FosNavHost(initialDeepRoute: String? = null) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    // Navigate to deep-link target once nav graph is ready
+    // Navigate to deep-link target once nav graph is ready.
+    // Re-validate here too — navigating to an unknown route would crash.
     LaunchedEffect(initialDeepRoute) {
-        if (initialDeepRoute != null) {
-            navController.navigate(initialDeepRoute) {
+        FosRoute.sanitizeDeepLink(initialDeepRoute)?.let { route ->
+            navController.navigate(route) {
                 popUpTo(FosRoute.Dashboard.route) { saveState = true }
                 launchSingleTop = true
                 restoreState    = true

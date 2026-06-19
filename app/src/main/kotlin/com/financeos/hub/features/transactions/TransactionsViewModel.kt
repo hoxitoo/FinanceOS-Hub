@@ -163,13 +163,34 @@ class TransactionsViewModel @Inject constructor(
                     val date     = Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
                     val type     = if (tx.type == TransactionType.EXPENSE) "Расход" else "Доход"
                     val amount   = kotlin.math.abs(tx.amountKopecks) / 100.0
-                    val merchant = tx.merchant?.replace(",", ";") ?: ""
-                    val category = s.categoryName(tx.categoryId).replace(",", ";")
-                    val note     = tx.description?.replace(",", ";") ?: ""
-                    sb.appendLine("$date,$type,$amount,$merchant,$category,$note")
+                    sb.appendLine(
+                        listOf(
+                            date.toString(),
+                            type,
+                            amount.toString(),
+                            csvField(tx.merchant),
+                            csvField(s.categoryName(tx.categoryId)),
+                            csvField(tx.description),
+                        ).joinToString(",")
+                    )
                 }
             }
 
         return sb.toString()
+    }
+
+    /**
+     * Escapes a CSV field per RFC 4180 (quote-wrap when it contains a comma, quote, or
+     * newline; double internal quotes) and neutralises spreadsheet formula injection by
+     * prefixing a leading =, +, -, or @ with a single quote.
+     */
+    private fun csvField(raw: String?): String {
+        if (raw.isNullOrEmpty()) return ""
+        val guarded = if (raw.first() in "=+-@\t\r") "'$raw" else raw
+        return if (guarded.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) {
+            "\"" + guarded.replace("\"", "\"\"") + "\""
+        } else {
+            guarded
+        }
     }
 }

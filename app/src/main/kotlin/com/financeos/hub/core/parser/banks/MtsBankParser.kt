@@ -1,13 +1,15 @@
 package com.financeos.hub.core.parser.banks
 
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import javax.inject.Inject
 
 class MtsBankParser @Inject constructor() : BankParser {
     override val bankId = "mtsbank"
-    override val senderPatterns = listOf(Regex("MTS.?BANK|МТС.?БАНК|MTSB|900"))
+    // "900" removed — it is Sberbank's short code, not MTS Bank's.
+    override val senderPatterns = listOf(Regex("MTS.?BANK|МТС.?БАНК|MTSB"))
 
     // "Покупка 1500.00 RUB по карте *1234. Магазин МАГАЗИН. Баланс: 5000.00 RUB"
     private val expense = Regex(
@@ -57,8 +59,5 @@ class MtsBankParser @Inject constructor() : BankParser {
         return null
     }
 
-    private fun parseAmount(s: String): Long {
-        val cleaned = s.trim().replace("\\s".toRegex(), "").replace(',', '.')
-        return (cleaned.toDouble() * 100).toLong()
-    }
+    private fun parseAmount(s: String): Long = AmountParser.toKopecks(s)
 }

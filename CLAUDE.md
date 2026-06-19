@@ -170,6 +170,33 @@ Full audit performed; 9 issues found and fixed:
 - [x] **Home-screen widget** — BalanceWidget (AppWidgetProvider + EntryPointAccessors), widget_info.xml (2×2 cells, 30min update), widget_balance.xml layout, widget_bg.xml drawable; AndroidManifest receiver registered; `AccountDao.sumAllBalances()` + `TransactionDao.getTodayExpenses()` added
 - [x] **strings.xml** — 60+ strings covering all screens; appcompat dependency added
 
+## Full Audit #2 ✓ COMPLETE (codebase-wide)
+
+Parallel deep audit of all 105 source files. 20 genuine issues fixed:
+
+| Severity | Area | Fix |
+|----------|------|-----|
+| CRITICAL | `di/MLModule` + `di/PreferencesModule` | **Build failure**: two `@Singleton` bindings for `CategoryClassifier` in the same component (Dagger duplicate binding). Removed `PreferencesModule`; `MLModule` now `@Binds` a new `DelegatingCategoryClassifier` |
+| CRITICAL | `di/MLModule` | `runBlocking` DataStore read during graph construction (ANR). Replaced with `DelegatingCategoryClassifier` that reads the pref lazily inside the suspend `classify()` |
+| CRITICAL | `MainActivity.onNewIntent` | Called `setContent` a second time → leaked/recreated the whole NavHost on every notification deep-link. Now state-driven via `mutableStateOf` |
+| CRITICAL | `MainActivity` biometric | Silent-unlock bypass: when biometric enabled but none enrolled, app unlocked with no auth. Now falls back to device-credential (PIN/pattern) via `KeyguardManager`; only releases when device has no secure lock |
+| HIGH | `core/parser/ParserEngine` | `firstOrNull { canHandle }` dropped valid SMS when the first sender-matching parser failed the body. Now tries every matching parser (`firstNotNullOfOrNull`) |
+| HIGH | Parsers (Sberbank/Tbank/Mts) | Shared `900` short code claimed by 3 banks → non-deterministic routing. `900` kept only on Sberbank |
+| HIGH | All parsers | `parseAmount` threw `NumberFormatException` on bad input → aborted the whole 90-day import. New null-safe `AmountParser` (also handles NBSP/narrow-NBSP separators, clamps overflow). `SmsReader` rows now individually guarded |
+| HIGH | `AlfabankParser` | Amount regex lacked `\s` → could not parse any amount ≥ 1000 with a thousands separator. Fixed |
+| HIGH | Sberbank/Tbank income | `Перевод` (transfer) matched as INCOME → sign inversion (outgoing stored as positive). Removed from income patterns |
+| HIGH | `MainActivity` deep link | Exported activity navigated to attacker-controllable route string → crash. Added `FosRoute.sanitizeDeepLink` whitelist (validated in MainActivity + NavHost) |
+| HIGH | `AnalyticsViewModel` | One-shot `init` computation never refreshed; fragile `listOf<Any?>` positional casts (ClassCastException risk); unstructured `async` (one failure blanked all). Rewritten with `mapLatest` off the tx flow + per-call `runCatching` |
+| MEDIUM | `core/parser/ParserEngine` | NBSP/narrow-NBSP thousands separators not matched by `\s`. Normalised to regular space once, centrally |
+| MEDIUM | `BehavioralAnalyzer` | stdDev squared `(it-avg)²` in `Long` → overflow for large kopeck sums. Now squared in `Double` |
+| MEDIUM | `AnalyticsEngine.forecastMonthEnd` | `daysPassed` from elapsed millis mis-scaled the forecast (DST/long months). Uses `LocalDate.dayOfMonth` |
+| MEDIUM | `AnalyticsEngine.generateNarratives` | Per-day category average hard-divided by `90` → understated spend for users with < 90 days. Divides by actual data span |
+| MEDIUM | `BalanceWidget` | Unstructured `CoroutineScope` with no error handling (process crash); no `goAsync` (work killed mid-update); no click intent. Added all three |
+| MEDIUM | `TransactionsViewModel.buildCsvString` | CSV injection: only commas escaped. Now RFC-4180 quoting + formula-injection (`=+-@`) neutralisation |
+| MEDIUM | `DictionaryClassifier` | Re-queried DB and recompiled 60+ regexes per transaction. Now caches compiled rules once (Mutex-guarded) |
+| LOW | `AnalyticsWorker` | Matched severity by `.name == "CRITICAL"` string. Now `== InsightSeverity.CRITICAL` |
+| LOW | Parsers (Raiffeisen/Otkritie) + `AnalyticsEngine` | Over-broad sender aliases (`RSB`, `DISCOVERY`) and a dead `catNames` query removed |
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
