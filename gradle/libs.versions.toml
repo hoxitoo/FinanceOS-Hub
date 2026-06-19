@@ -69,10 +69,8 @@ androidx-appcompat                  = { group = "androidx.appcompat",     name =
 # Biometric
 biometric                           = { group = "androidx.biometric",     name = "biometric",                      version.ref = "biometric" }
 
-# TFLite
+# TFLite (only the core runtime is used; support/metadata are versioned separately)
 tflite-core                         = { group = "org.tensorflow",         name = "tensorflow-lite",                version.ref = "tflite" }
-tflite-support                      = { group = "org.tensorflow",         name = "tensorflow-lite-support",        version.ref = "tflite" }
-tflite-metadata                     = { group = "org.tensorflow",         name = "tensorflow-lite-metadata",       version.ref = "tflite" }
 
 # Coroutines
 kotlinx-coroutines-android          = { group = "org.jetbrains.kotlinx",  name = "kotlinx-coroutines-android",     version.ref = "coroutines" }

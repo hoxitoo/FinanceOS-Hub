@@ -123,10 +123,11 @@ dependencies {
     // Biometric
     implementation(libs.biometric)
 
-    // TFLite — ML inference for merchant classification and spending prediction
+    // TFLite — ML inference for merchant classification and spending prediction.
+    // Only the core runtime (org.tensorflow.lite.Interpreter) is used; the support and
+    // metadata artifacts are versioned independently (never published at 2.14.0) and are
+    // not referenced anywhere, so they are intentionally not included.
     implementation(libs.tflite.core)
-    implementation(libs.tflite.support)
-    implementation(libs.tflite.metadata)
 
     // Debug
     debugImplementation(libs.androidx.compose.ui.tooling)
