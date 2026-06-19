@@ -2,6 +2,8 @@ package com.financeos.hub.core.ml
 
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -46,7 +48,8 @@ class BehavioralCluster @Inject constructor(
         )
     }
 
-    private val zone = ZoneId.systemDefault()
+    private val zone  = ZoneId.systemDefault()
+    private val mutex = Mutex()
 
     private val interpreter: Interpreter? by lazy {
         try {
@@ -62,7 +65,7 @@ class BehavioralCluster @Inject constructor(
         val confidence : Float,
     )
 
-    fun classify(transactions: List<TransactionEntity>): ClusterResult {
+    suspend fun classify(transactions: List<TransactionEntity>): ClusterResult {
         val features = extractFeatures(transactions)
         val interp   = interpreter ?: return ruleBased(features)
 
@@ -73,7 +76,7 @@ class BehavioralCluster @Inject constructor(
             inputBuf.rewind()
 
             val output = Array(1) { FloatArray(ARCHETYPES.size) }
-            interp.run(inputBuf, output)
+            mutex.withLock { interp.run(inputBuf, output) }
 
             val probs  = output[0]
             val maxIdx = probs.indices.maxByOrNull { probs[it] } ?: 0
@@ -92,6 +95,8 @@ class BehavioralCluster @Inject constructor(
 
         val expenses = txs.filter { it.type == TransactionType.EXPENSE }
         val incomes  = txs.filter { it.type == TransactionType.INCOME  }
+
+        if (expenses.isEmpty()) return FloatArray(FEATURE_COUNT)
 
         val avgHour = expenses.map {
             Instant.ofEpochMilli(it.timestamp).atZone(zone).hour

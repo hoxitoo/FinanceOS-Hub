@@ -18,7 +18,6 @@ local.properties
 google-services.json
 fabric.properties
 # Generated files
-app/src/main/assets/
 # Lint
 lint/intermediates/
 lint/generated/

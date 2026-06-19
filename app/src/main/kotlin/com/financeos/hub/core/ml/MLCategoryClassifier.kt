@@ -2,6 +2,8 @@ package com.financeos.hub.core.ml
 
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.classifier.DictionaryClassifier
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -35,6 +37,8 @@ class MLCategoryClassifier @Inject constructor(
         )
     }
 
+    private val mutex = Mutex()
+
     private val interpreter: Interpreter? by lazy {
         try {
             modelLoader.load(MODEL_FILE)?.let { Interpreter(it) }
@@ -59,7 +63,7 @@ class MLCategoryClassifier @Inject constructor(
             inputBuf.rewind()
 
             val output = Array(1) { FloatArray(CATEGORY_IDS.size) }
-            interp.run(inputBuf, output)
+            mutex.withLock { interp.run(inputBuf, output) }
 
             val probabilities = output[0]
             val maxIdx        = probabilities.indices.maxByOrNull { probabilities[it] } ?: -1

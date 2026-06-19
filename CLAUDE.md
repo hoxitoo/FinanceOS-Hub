@@ -197,9 +197,20 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 | LOW | `AnalyticsWorker` | Matched severity by `.name == "CRITICAL"` string. Now `== InsightSeverity.CRITICAL` |
 | LOW | Parsers (Raiffeisen/Otkritie) + `AnalyticsEngine` | Over-broad sender aliases (`RSB`, `DISCOVERY`) and a dead `catNames` query removed |
 
+## ML Model Files
+- [x] `merchant_classifier.tflite` — bundled in `app/src/main/assets/models/` (256→128→64→13 softmax, 49KB)
+- [ ] `spending_predictor.tflite` — not yet trained; app uses linear extrapolation fallback
+- [ ] `behavioral_cluster.tflite` — not yet trained; app uses rule-based archetype fallback
+
+## ML Audit Fixes (this session)
+- `BehavioralCluster.classify` / `SpendingPredictor.predict` — made `suspend`; added `Mutex` guard around `interp.run()` (Interpreter is not thread-safe)
+- `MLCategoryClassifier.classify` — added `Mutex` guard around `interp.run()`
+- `BehavioralCluster.extractFeatures` — guard against empty expenses list to prevent `NaN` feature vector
+- `TextFeatureExtractor.extract` — removed unnecessary `Double→Float→Double` roundtrip in norm computation
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Train and bundle .tflite model files (app runs on rule-based fallback without them)
+- Train spending_predictor.tflite and behavioral_cluster.tflite; bundle in assets/models/
 
 ## Key File Locations
 | Layer | Path |

@@ -34,7 +34,7 @@ class TextFeatureExtractor @Inject constructor() {
         }
 
         // L2 normalise
-        val norm = kotlin.math.sqrt(vector.sumOf { (it * it).toDouble() }.toFloat().toDouble()).toFloat()
+        val norm = kotlin.math.sqrt(vector.sumOf { (it * it).toDouble() }).toFloat()
         if (norm > 0f) {
             for (i in vector.indices) vector[i] /= norm
         }

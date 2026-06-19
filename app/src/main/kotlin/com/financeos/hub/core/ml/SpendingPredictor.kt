@@ -1,5 +1,7 @@
 package com.financeos.hub.core.ml
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -24,6 +26,8 @@ class SpendingPredictor @Inject constructor(
         private const val SEQ_LEN    = 30
     }
 
+    private val mutex = Mutex()
+
     private val interpreter: Interpreter? by lazy {
         try {
             modelLoader.load(MODEL_FILE)?.let { Interpreter(it) }
@@ -38,7 +42,7 @@ class SpendingPredictor @Inject constructor(
      * @param dailyExpenses  List of (dayEpochMs, kopecks) for the current month, sorted ascending
      * @param daysRemaining  How many days are left in the month
      */
-    fun predict(dailyExpenses: List<Pair<Long, Long>>, daysRemaining: Int): Long {
+    suspend fun predict(dailyExpenses: List<Pair<Long, Long>>, daysRemaining: Int): Long {
         if (dailyExpenses.isEmpty() || daysRemaining <= 0) return 0L
 
         val interp = interpreter ?: return linearFallback(dailyExpenses, daysRemaining)
@@ -57,7 +61,7 @@ class SpendingPredictor @Inject constructor(
             inputBuf.rewind()
 
             val output = Array(1) { FloatArray(1) }
-            interp.run(inputBuf, output)
+            mutex.withLock { interp.run(inputBuf, output) }
 
             val normalizedPrediction = output[0][0].coerceIn(0f, 10f)
             (normalizedPrediction.toDouble() * maxVal.toDouble() * daysRemaining)
