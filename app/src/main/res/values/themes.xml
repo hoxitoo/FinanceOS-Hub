@@ -6,7 +6,10 @@
         <item name="postSplashScreenTheme">@style/Theme.FinanceOSHub.Main</item>
     </style>
 
-    <style name="Theme.FinanceOSHub.Main" parent="android:Theme.Material.NoActionBar">
+    <!-- Parent must be an AppCompat descendant: MainActivity is an AppCompatActivity
+         (needed for the biometric FragmentActivity host). A framework Material theme
+         crashes at startup with "You need to use a Theme.AppCompat theme". -->
+    <style name="Theme.FinanceOSHub.Main" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">#0A0D12</item>
         <item name="android:statusBarColor">#0A0D12</item>
         <item name="android:navigationBarColor">#111620</item>
