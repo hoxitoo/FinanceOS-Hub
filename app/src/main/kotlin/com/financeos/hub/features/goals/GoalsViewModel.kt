@@ -52,6 +52,27 @@ class GoalsViewModel @Inject constructor(
         }
     }
 
+    fun updateGoal(
+        goal          : GoalEntity,
+        name          : String,
+        emoji         : String,
+        targetKopecks : Long,
+        deadlineAt    : Long?,
+    ) {
+        viewModelScope.launch {
+            goalRepo.upsert(
+                goal.copy(
+                    name          = name,
+                    emoji         = emoji,
+                    targetKopecks = targetKopecks,
+                    deadlineAt    = deadlineAt,
+                    isCompleted   = goal.savedKopecks >= targetKopecks,
+                    updatedAt     = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
     fun deleteGoal(id: String) {
         viewModelScope.launch { goalRepo.delete(id) }
     }

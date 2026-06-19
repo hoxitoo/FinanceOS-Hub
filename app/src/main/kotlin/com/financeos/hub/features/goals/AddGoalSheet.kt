@@ -7,22 +7,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,8 +40,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
 private val GOAL_EMOJIS = listOf(
@@ -43,18 +51,28 @@ private val GOAL_EMOJIS = listOf(
     "🏖", "🎸", "🏋", "💊", "🛋", "🎁", "💰", "⭐",
 )
 
+/**
+ * Bottom sheet for creating OR editing a goal.
+ * Pass [existing] to pre-fill the fields and switch to edit mode.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddGoalSheet(
     sheetState: SheetState,
+    existing  : GoalEntity? = null,
     onDismiss : () -> Unit,
     onSave    : (name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?) -> Unit,
 ) {
-    var name          by remember { mutableStateOf("") }
-    var targetText    by remember { mutableStateOf("") }
-    var selectedEmoji by remember { mutableStateOf(GOAL_EMOJIS[0]) }
+    val editing = existing != null
 
-    val targetKopecks = targetText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+    var name          by remember { mutableStateOf(existing?.name ?: "") }
+    // Raw digits only (whole rubles); displayed grouped with spaces.
+    var targetDigits  by remember { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
+    var selectedEmoji by remember { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
+    var deadline      by remember { mutableStateOf(existing?.deadlineAt) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val targetKopecks = (targetDigits.toLongOrNull() ?: 0L) * 100L
     val canSave = name.isNotBlank() && targetKopecks > 0
 
     ModalBottomSheet(
@@ -70,7 +88,11 @@ fun AddGoalSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
         ) {
-            Text("Новая цель", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+            Text(
+                if (editing) "Редактировать цель" else "Новая цель",
+                style = FosType.ScreenTitle,
+                color = FosColors.TextPrimary,
+            )
 
             // Emoji picker
             Text("Иконка", style = FosType.SectionCap, color = FosColors.TextMuted)
@@ -92,7 +114,7 @@ fun AddGoalSheet(
                             )
                             .border(
                                 1.dp,
-                                if (selected) FosColors.Positive else FosColors.Border,
+                                if (selected) FosColors.Positive else FosColors.BorderStrong,
                                 RoundedCornerShape(FosDimens.RadiusIcon),
                             )
                             .clickable { selectedEmoji = emoji },
@@ -113,26 +135,61 @@ fun AddGoalSheet(
                 modifier        = Modifier.fillMaxWidth(),
             )
 
-            // Target amount
+            // Target amount — digits grouped live with spaces
             OutlinedTextField(
-                value           = targetText,
-                onValueChange   = { targetText = it },
+                value           = FosFormatter.groupDigits(targetDigits),
+                onValueChange   = { input -> targetDigits = input.filter { it.isDigit() }.take(12) },
                 label           = { Text("Целевая сумма, ₽", style = FosType.Label) },
-                isError         = targetText.isNotBlank() && targetKopecks == 0L,
                 singleLine      = true,
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Decimal,
+                    keyboardType = KeyboardType.Number,
                     imeAction    = ImeAction.Done,
                 ),
                 colors          = sheetFieldColors(),
                 modifier        = Modifier.fillMaxWidth(),
             )
 
+            // Deadline — optional date picker
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                    .border(
+                        1.dp,
+                        FosColors.BorderStrong,
+                        RoundedCornerShape(FosDimens.RadiusButton),
+                    )
+                    .clickable { showDatePicker = true }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+            ) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        deadline?.let { "Срок: ${FosFormatter.date(it)}" } ?: "Срок выполнения (необязательно)",
+                        style = FosType.Body,
+                        color = if (deadline != null) FosColors.TextPrimary else FosColors.TextMuted,
+                    )
+                    if (deadline != null) {
+                        Text(
+                            "× Убрать",
+                            style    = FosType.Label,
+                            color    = FosColors.Negative,
+                            modifier = Modifier.clickable { deadline = null },
+                        )
+                    } else {
+                        Text("📅", style = FosType.Body)
+                    }
+                }
+            }
+
             Spacer(Modifier.height(4.dp))
 
             Button(
                 onClick  = {
-                    onSave(name.trim(), selectedEmoji, targetKopecks, null)
+                    onSave(name.trim(), selectedEmoji, targetKopecks, deadline)
                     onDismiss()
                 },
                 enabled  = canSave,
@@ -143,8 +200,30 @@ fun AddGoalSheet(
                     contentColor   = FosColors.Background,
                 ),
             ) {
-                Text("Создать цель", style = FosType.BodySemi)
+                Text(if (editing) "Сохранить" else "Создать цель", style = FosType.BodySemi)
             }
+        }
+    }
+
+    if (showDatePicker) {
+        val dpState = rememberDatePickerState(
+            initialSelectedDateMillis = deadline ?: System.currentTimeMillis(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    deadline = dpState.selectedDateMillis
+                    showDatePicker = false
+                }) { Text("ОК", color = FosColors.Positive) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Отмена", color = FosColors.TextSecondary)
+                }
+            },
+        ) {
+            DatePicker(state = dpState)
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.financeos.hub.features.goals
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,6 +51,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     var contributeTarget by remember { mutableStateOf<GoalEntity?>(null) }
     var contributeText   by remember { mutableStateOf("") }
 
+    var editTarget    by remember { mutableStateOf<GoalEntity?>(null) }
+    val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     Scaffold(
         containerColor = FosColors.Background,
         floatingActionButton = {
@@ -90,6 +94,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                 items(state.goals, key = { it.id }) { goal ->
                     GoalCard(
                         goal              = goal,
+                        onEdit            = { editTarget = goal },
                         onAddContribution = {
                             contributeTarget = goal
                             contributeText   = ""
@@ -109,6 +114,19 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             onDismiss  = { showAddSheet = false },
             onSave     = { name, emoji, targetKopecks, deadline ->
                 vm.createGoal(name, emoji, targetKopecks, deadline)
+            },
+        )
+    }
+
+    // Edit existing goal
+    editTarget?.let { goal ->
+        AddGoalSheet(
+            sheetState = editSheetState,
+            existing   = goal,
+            onDismiss  = { editTarget = null },
+            onSave     = { name, emoji, targetKopecks, deadline ->
+                vm.updateGoal(goal, name, emoji, targetKopecks, deadline)
+                editTarget = null
             },
         )
     }
@@ -176,6 +194,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 @Composable
 private fun GoalCard(
     goal             : GoalEntity,
+    onEdit           : () -> Unit,
     onAddContribution: () -> Unit,
     onDelete         : () -> Unit,
 ) {
@@ -188,6 +207,7 @@ private fun GoalCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
+            .clickable { onEdit() }
             .padding(FosDimens.CardPadding),
         horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
         verticalAlignment     = Alignment.CenterVertically,

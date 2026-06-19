@@ -76,6 +76,19 @@ object FosFormatter {
         }
     }
 
+    /** Epoch millis → "18 июня 2026" (no relative "Сегодня") — for deadlines. */
+    fun date(epochMillis: Long): String {
+        val date = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+        return date.format(fullDateFmt)
+    }
+
+    /** Groups a raw digit string with NBSP thousands separators: "200000" → "200 000". */
+    fun groupDigits(digits: String): String {
+        val clean = digits.filter { it.isDigit() }.trimStart('0').ifEmpty { if (digits.any { it == '0' }) "0" else "" }
+        if (clean.isEmpty()) return ""
+        return formatInteger(clean.toLong())
+    }
+
     private fun formatInteger(n: Long): String {
         if (n < 1000L) return n.toString()
         val s = n.toString()
