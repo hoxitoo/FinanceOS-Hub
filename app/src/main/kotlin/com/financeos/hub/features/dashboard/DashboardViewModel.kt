@@ -2,13 +2,16 @@ package com.financeos.hub.features.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.analytics.AnalyticsEngine
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -17,28 +20,52 @@ import java.util.UUID
 import javax.inject.Inject
 
 data class DashboardState(
-    val netWorthKopecks     : Long                    = 0L,
-    val incomeKopecks       : Long                    = 0L,
-    val expenseKopecks      : Long                    = 0L,
-    val accounts            : List<AccountEntity>     = emptyList(),
-    val recentTransactions  : List<TransactionEntity> = emptyList(),
-    private val categories  : Map<String, String>     = emptyMap(),
+    val heroVariant         : String                    = "CALM",
+    val netWorthKopecks     : Long                      = 0L,
+    val incomeKopecks       : Long                      = 0L,
+    val expenseKopecks      : Long                      = 0L,
+    val forecastKopecks     : Long                      = 0L,
+    val financialScore      : Int                       = 0,
+    val accounts            : List<AccountEntity>       = emptyList(),
+    val recentTransactions  : List<TransactionEntity>   = emptyList(),
+    private val categories  : Map<String, String>       = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categories[it] } ?: "Другое"
 }
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    txRepo                   : TransactionRepository,
-    private val accountRepo  : AccountRepository,
-    categoryRepo             : CategoryRepository,
+    private val txRepo      : TransactionRepository,
+    private val accountRepo : AccountRepository,
+    categoryRepo            : CategoryRepository,
+    private val prefs       : UserPreferences,
+    private val engine      : AnalyticsEngine,
 ) : ViewModel() {
 
+    private val _score    = MutableStateFlow(0)
+    private val _forecast = MutableStateFlow(0L)
+
+    init {
+        viewModelScope.launch {
+            txRepo.observeCurrentMonth().collect {
+                runCatching { engine.computeScore().total }.onSuccess { _score.value = it }
+                runCatching { engine.forecastMonthEnd() }.onSuccess { _forecast.value = it }
+            }
+        }
+    }
+
     val state = combine(
-        txRepo.observeCurrentMonth(),
-        accountRepo.observeAll(),
-        categoryRepo.observeAll(),
-    ) { txList, accounts, categories ->
+        combine(
+            txRepo.observeCurrentMonth(),
+            accountRepo.observeAll(),
+            categoryRepo.observeAll(),
+        ) { tx, accts, cats -> Triple(tx, accts, cats) },
+        combine(
+            prefs.heroVariant,
+            _score,
+            _forecast,
+        ) { hero, score, forecast -> Triple(hero, score, forecast) },
+    ) { (txList, accounts, categories), (heroVariant, score, forecast) ->
         val catMap   = categories.associate { it.id to it.name }
         val income   = txList.filter { it.type == TransactionType.INCOME }
             .sumOf { it.amountKopecks }
@@ -47,9 +74,12 @@ class DashboardViewModel @Inject constructor(
         val netWorth = accounts.sumOf { it.balanceKopecks }
 
         DashboardState(
+            heroVariant        = heroVariant,
             netWorthKopecks    = netWorth,
             incomeKopecks      = income,
             expenseKopecks     = expense,
+            forecastKopecks    = forecast,
+            financialScore     = score,
             accounts           = accounts,
             recentTransactions = txList.take(5),
             categories         = catMap,
