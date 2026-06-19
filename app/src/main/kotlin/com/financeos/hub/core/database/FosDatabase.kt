@@ -28,7 +28,7 @@ import com.financeos.hub.core.database.entities.TransactionEntity
         MerchantRuleEntity::class,
     ],
     version = 1,
-    exportSchema = true,
+    exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
 abstract class FosDatabase : RoomDatabase() {
