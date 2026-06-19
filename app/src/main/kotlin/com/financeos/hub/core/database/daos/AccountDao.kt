@@ -30,4 +30,7 @@ interface AccountDao {
 
     @Query("UPDATE accounts SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
+
+    @Query("SELECT COALESCE(SUM(balance_kopecks), 0) FROM accounts WHERE is_active = 1")
+    suspend fun sumAllBalances(): Long
 }

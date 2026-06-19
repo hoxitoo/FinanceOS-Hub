@@ -2,12 +2,109 @@
 <resources>
     <string name="app_name">FinanceOS</string>
 
+    <!-- Widget -->
+    <string name="widget_description">Баланс и расходы</string>
+    <string name="widget_label">Баланс</string>
+    <string name="widget_today">Сегодня</string>
+
     <!-- Onboarding -->
     <string name="onboarding_sms_title">Читаем SMS от банков</string>
     <string name="onboarding_sms_body">Так мы находим ваши транзакции автоматически. SMS никуда не отправляются — всё остаётся на телефоне.</string>
     <string name="onboarding_sms_button">Дать доступ</string>
     <string name="onboarding_skip">Пропустить</string>
+    <string name="onboarding_import_title">Импорт истории</string>
+    <string name="onboarding_import_body">Загружаем транзакции за последние 90 дней.</string>
+    <string name="onboarding_done">Готово</string>
 
     <!-- Permissions -->
     <string name="permission_sms_rationale">FinanceOS читает SMS от банков прямо на устройстве, чтобы автоматически отслеживать транзакции. Сообщения никуда не отправляются — вся обработка локально.</string>
+    <string name="permission_notifications_rationale">Уведомления нужны для напоминаний о бюджете и еженедельного отчёта.</string>
+
+    <!-- Common -->
+    <string name="cancel">Отмена</string>
+    <string name="save">Сохранить</string>
+    <string name="delete">Удалить</string>
+    <string name="confirm">Подтвердить</string>
+    <string name="close">Закрыть</string>
+    <string name="loading">Загрузка…</string>
+    <string name="empty_state">Нет данных</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Главная</string>
+    <string name="nav_transactions">Транзакции</string>
+    <string name="nav_analytics">Аналитика</string>
+    <string name="nav_budget">Бюджет</string>
+    <string name="nav_goals">Цели</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_net_worth">Капитал</string>
+    <string name="dashboard_income">Доходы</string>
+    <string name="dashboard_expenses">Расходы</string>
+    <string name="dashboard_forecast">Прогноз</string>
+    <string name="dashboard_recent">Последние транзакции</string>
+    <string name="dashboard_all_transactions">Все транзакции</string>
+    <string name="dashboard_accounts">Счета</string>
+
+    <!-- Transactions -->
+    <string name="transactions_search_hint">Поиск по названию…</string>
+    <string name="transactions_filter_all">Все</string>
+    <string name="transactions_filter_expense">Расходы</string>
+    <string name="transactions_filter_income">Доходы</string>
+    <string name="transactions_empty">Транзакций пока нет</string>
+    <string name="transactions_add">Добавить транзакцию</string>
+    <string name="transactions_export_csv">↑ CSV</string>
+    <string name="transactions_category_reset">× Сбросить</string>
+
+    <!-- Analytics -->
+    <string name="analytics_tab_overview">Обзор</string>
+    <string name="analytics_tab_categories">Категории</string>
+    <string name="analytics_tab_trends">Тренды</string>
+    <string name="analytics_tab_insights">Инсайты</string>
+    <string name="analytics_score_title">Финансовый счёт</string>
+
+    <!-- Budget -->
+    <string name="budget_title">Бюджет</string>
+    <string name="budget_subscriptions">↻ Подписки</string>
+    <string name="budget_add">+ Конверт</string>
+    <string name="budget_spent_of">из</string>
+    <string name="budget_empty">Добавьте бюджетный конверт</string>
+
+    <!-- Goals -->
+    <string name="goals_title">Цели</string>
+    <string name="goals_add">+ Цель</string>
+    <string name="goals_contribute">Пополнить</string>
+    <string name="goals_empty">Добавьте финансовую цель</string>
+
+    <!-- Subscriptions -->
+    <string name="subscriptions_title">Подписки</string>
+    <string name="subscriptions_missed">Пропущены в этом месяце</string>
+    <string name="subscriptions_active">Регулярные расходы</string>
+    <string name="subscriptions_total">Итого в месяц</string>
+    <string name="subscriptions_empty">Регулярных расходов не обнаружено</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_biometric">Биометрическая защита</string>
+    <string name="settings_notifications">Уведомления</string>
+    <string name="settings_ml">ML-классификация</string>
+    <string name="settings_budget_threshold">Порог уведомления о бюджете</string>
+    <string name="settings_hero_variant">Вид главного экрана</string>
+    <string name="settings_categories">Категории</string>
+    <string name="settings_push_listener">Читать уведомления банков</string>
+    <string name="settings_push_granted">Доступ разрешён</string>
+    <string name="settings_push_denied">Доступ не предоставлен</string>
+    <string name="settings_push_open">Открыть</string>
+
+    <!-- Lock screen -->
+    <string name="lock_unlock">Разблокировать</string>
+    <string name="lock_biometric_prompt_title">FinanceOS</string>
+    <string name="lock_biometric_prompt_subtitle">Подтвердите личность для доступа</string>
+    <string name="lock_biometric_negative">Отмена</string>
+
+    <!-- Categories -->
+    <string name="categories_title">Категории</string>
+    <string name="categories_system">Системные</string>
+    <string name="categories_custom">Мои категории</string>
+    <string name="categories_add">+ Категория</string>
+    <string name="categories_delete_confirm">Удалить категорию?</string>
 </resources>

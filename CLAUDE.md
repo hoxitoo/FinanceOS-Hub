@@ -52,8 +52,10 @@ app/
 ## SMS Deduplication
 `smsId = "${sender}_${timestamp}_${body.hashCode()}"` — checked before insert
 
-## Supported Banks (P1)
-Сбербанк, Т-Банк, ВТБ, Альфа-Банк, Газпромбанк
+## Supported Banks
+- **P1:** Сбербанк, Т-Банк, ВТБ, Альфа-Банк, Газпромбанк
+- **P2:** Райффайзен, Росбанк, Открытие
+- **P3:** МТС Банк, Почта Банк, Россельхозбанк
 
 ## Current Phase Status
 - [x] Gradle skeleton + AndroidManifest
@@ -163,13 +165,14 @@ Full audit performed; 9 issues found and fixed:
 - [x] **Push notification listener** — `PushNotificationListener` (NotificationListenerService + @AndroidEntryPoint); maps 9 banking app package names → parser senders; `TransactionSource.PUSH` added; toggle + permission status in Settings "УВЕДОМЛЕНИЯ ОТ БАНКОВ" section
 - [x] **Deep-link: Subscriptions → Transactions** — optional `categoryId` nav arg on Transactions route; tapping a subscription card pre-filters the list; dismissible banner with "× Сбросить"
 - [x] **P2 bank parsers** — RaiffeisenParser, RosbankParser, OtkritieParser; registered in ParserModule; push packages added (14 total package mappings)
+- [x] **P3 bank parsers** — MtsBankParser, PostaBankParser, RosselkhozParser; registered in ParserModule; push packages added (17 total package mappings)
+- [x] **Biometric auth** — BiometricHelper (BIOMETRIC_WEAK, API 26+), LockScreen composable, MainActivity wired (isLocked state, onResume prompt, onStop re-lock, AppCompatActivity base)
+- [x] **Home-screen widget** — BalanceWidget (AppWidgetProvider + EntryPointAccessors), widget_info.xml (2×2 cells, 30min update), widget_balance.xml layout, widget_bg.xml drawable; AndroidManifest receiver registered; `AccountDao.sumAllBalances()` + `TransactionDao.getTodayExpenses()` added
+- [x] **strings.xml** — 60+ strings covering all screens; appcompat dependency added
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Train and bundle .tflite model files (app runs on rule-based fallback without them)
-- P3 banks: Райффайзен Сельхоз, МТС Банк, Почта Банк
-- Localization: move hardcoded strings to strings.xml
-- Home-screen widget (balance + today's expenses)
 
 ## Key File Locations
 | Layer | Path |

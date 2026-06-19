@@ -76,5 +76,13 @@ interface TransactionDao {
     """)
     suspend fun sumIncome(from: Long, to: Long): Long?
 
+    @Query("""
+        SELECT COALESCE(SUM(ABS(amount_kopecks)), 0) FROM transactions
+        WHERE is_deleted = 0
+          AND type = 'EXPENSE'
+          AND timestamp >= :todayStart
+    """)
+    suspend fun getTodayExpenses(todayStart: Long): Long
+
     data class CategorySum(val category_id: String?, val total: Long)
 }

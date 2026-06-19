@@ -93,6 +93,10 @@ class PushNotificationListener : NotificationListenerService() {
             "ru.rosbank.android"                 to "ROSBANK",
             "ru.ftc.otkritie"                   to "OTKRITIE",
             "ru.openbank.mobile"                 to "OTKRITIE",
+            // P3
+            "ru.mtsbank.mobilebank"             to "MTSB",
+            "ru.pochtabank.android"             to "POSTABANK",
+            "ru.rshb.mbank"                     to "RSHB",
         )
 
         fun isPermissionGranted(context: Context): Boolean =

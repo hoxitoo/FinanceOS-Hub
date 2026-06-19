@@ -111,6 +111,9 @@ dependencies {
     implementation(libs.hilt.work)
     ksp(libs.hilt.compiler)
 
+    // AppCompat (required for AppCompatActivity used by BiometricPrompt)
+    implementation(libs.androidx.appcompat)
+
     // Biometric
     implementation(libs.biometric)
 
