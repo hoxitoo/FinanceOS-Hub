@@ -96,6 +96,14 @@ object FosFormatter {
         return date.format(fullDateFmt)
     }
 
+    /** Maps an ISO currency code to a display symbol. */
+    fun currencySymbol(code: String): String = when (code.uppercase()) {
+        "USD" -> "$"
+        "EUR" -> "€"
+        "KGS" -> "сом"
+        else  -> "₽"
+    }
+
     /** Groups a raw digit string with NBSP thousands separators: "200000" → "200 000". */
     fun groupDigits(digits: String): String {
         val clean = digits.filter { it.isDigit() }.trimStart('0').ifEmpty { if (digits.any { it == '0' }) "0" else "" }

@@ -3,16 +3,19 @@ package com.financeos.hub.core.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.financeos.hub.core.database.converters.FosTypeConverters
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.BudgetDao
+import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.MerchantRuleDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.BudgetEntity
+import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.core.database.entities.MerchantRuleEntity
@@ -26,8 +29,9 @@ import com.financeos.hub.core.database.entities.TransactionEntity
         BudgetEntity::class,
         GoalEntity::class,
         MerchantRuleEntity::class,
+        CardEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -38,8 +42,26 @@ abstract class FosDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun goalDao(): GoalDao
     abstract fun merchantRuleDao(): MerchantRuleDao
+    abstract fun cardDao(): CardDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `cards` (
+                        `id` TEXT NOT NULL,
+                        `account_id` TEXT NOT NULL,
+                        `card_mask` TEXT NOT NULL,
+                        `is_active` INTEGER NOT NULL DEFAULT 1,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`account_id`) REFERENCES `accounts`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_account_id` ON `cards`(`account_id`)")
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
