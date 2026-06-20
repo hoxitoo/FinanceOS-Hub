@@ -175,6 +175,7 @@ fun DashboardScreen(
                 vm.createAccount(name, b, mask, kopecks, currency)
             },
             onAddCard    = { card -> vm.addCard(card) },
+            onDeleteCard = { id -> vm.deleteCard(id) },
             onEditBalance = { account, newKopecks ->
                 vm.updateAccountBalance(account, newKopecks)
             },
@@ -196,13 +197,17 @@ private fun BankCard(
         .mapValues { (_, list) -> list.sumOf { it.balanceKopecks } }
 
     Column(modifier = Modifier.width(264.dp)) {
-        // Peek row of card chips
+        // Peek row of card chips — NON-scrolling Row (a nested horizontal scroll inside the
+        // banks' LazyRow would steal the drag and slide the whole carousel). Show up to 4
+        // masks; collapse the rest into a "+N" chip.
         if (allMasks.isNotEmpty()) {
-            LazyRow(
+            val shown    = allMasks.take(4)
+            val overflow = allMasks.size - shown.size
+            Row(
+                modifier              = Modifier.padding(start = 8.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding        = PaddingValues(start = 8.dp, bottom = 4.dp),
             ) {
-                items(allMasks) { mask ->
+                shown.forEach { mask ->
                     Box(
                         modifier = Modifier
                             .height(28.dp)
@@ -212,6 +217,18 @@ private fun BankCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("•• $mask", style = FosType.Micro, color = FosColors.TextSecondary)
+                    }
+                }
+                if (overflow > 0) {
+                    Box(
+                        modifier = Modifier
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(FosColors.Surface2)
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("+$overflow", style = FosType.Micro, color = FosColors.TextMuted)
                     }
                 }
             }

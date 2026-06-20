@@ -1,13 +1,16 @@
 package com.financeos.hub.features.dashboard
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,9 +27,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +61,7 @@ fun AccountDetailSheet(
     onDismiss    : () -> Unit,
     onAddAccount : (name: String, bank: String, cardMask: String?, balanceKopecks: Long, currency: String) -> Unit,
     onAddCard    : (card: CardEntity) -> Unit,
+    onDeleteCard : (cardId: String) -> Unit,
     onEditBalance: (account: AccountEntity, newKopecks: Long) -> Unit,
     onDelete     : (accountId: String) -> Unit,
 ) {
@@ -99,13 +106,27 @@ fun AccountDetailSheet(
 
             items(accounts, key = { it.id }) { account ->
                 val accountCards = cards.filter { it.accountId == account.id }
-                AccountRow(
-                    account       = account,
-                    cards         = accountCards,
-                    onAddCard     = { addCardForAccount = account; cardMaskInput = "" },
-                    onEditBalance = onEditBalance,
-                    onDelete      = onDelete,
+                val dismissState = rememberSwipeToDismissBoxState(
+                    confirmValueChange = { value ->
+                        if (value != SwipeToDismissBoxValue.Settled) {
+                            onDelete(account.id)
+                            true
+                        } else false
+                    },
                 )
+                SwipeToDismissBox(
+                    state             = dismissState,
+                    backgroundContent = { AccountSwipeDeleteBg(dismissState.dismissDirection) },
+                ) {
+                    AccountRow(
+                        account       = account,
+                        cards         = accountCards,
+                        onAddCard     = { addCardForAccount = account; cardMaskInput = "" },
+                        onDeleteCard  = onDeleteCard,
+                        onEditBalance = onEditBalance,
+                        onDelete      = onDelete,
+                    )
+                }
             }
 
             item {
@@ -192,15 +213,33 @@ fun AccountDetailSheet(
 }
 
 @Composable
+private fun AccountSwipeDeleteBg(direction: SwipeToDismissBoxValue) {
+    val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+            .background(FosColors.Negative.copy(alpha = 0.18f))
+            .padding(horizontal = 20.dp),
+        contentAlignment = alignment,
+    ) {
+        Text("🗑  Удалить счёт", style = FosType.Label, color = FosColors.Negative)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun AccountRow(
     account      : AccountEntity,
     cards        : List<CardEntity>,
     onAddCard    : () -> Unit,
+    onDeleteCard : (String) -> Unit,
     onEditBalance: (AccountEntity, Long) -> Unit,
     onDelete     : (String) -> Unit,
 ) {
-    var editText by remember { mutableStateOf("") }
-    var showEdit by remember { mutableStateOf(false) }
+    var editText     by remember { mutableStateOf("") }
+    var showEdit     by remember { mutableStateOf(false) }
+    var cardToDelete by remember { mutableStateOf<CardEntity?>(null) }
 
     Column(
         modifier = Modifier
@@ -235,11 +274,11 @@ private fun AccountRow(
                 Text("+ Карта", style = FosType.Label, color = FosColors.Info)
             }
         }
-        // Card chips
-        val allMasks = listOfNotNull(account.cardMask) + cards.map { it.cardMask }
-        if (allMasks.isNotEmpty()) {
+        // Card chips. Primary (account.cardMask) is part of the account and not deletable here.
+        // Added cards (CardEntity) are long-pressable to delete.
+        if (account.cardMask != null || cards.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                allMasks.forEach { mask ->
+                account.cardMask?.let { mask ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -249,8 +288,48 @@ private fun AccountRow(
                         Text("•• $mask", style = FosType.Micro, color = FosColors.TextMuted)
                     }
                 }
+                cards.forEach { card ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(FosColors.Surface)
+                            .combinedClickable(
+                                onClick     = {},
+                                onLongClick = { cardToDelete = card },
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text("•• ${card.cardMask}", style = FosType.Micro, color = FosColors.TextMuted)
+                    }
+                }
+            }
+            if (cards.isNotEmpty()) {
+                Text(
+                    "Удержите карту, чтобы удалить",
+                    style = FosType.Micro,
+                    color = FosColors.TextDark,
+                )
             }
         }
+    }
+
+    cardToDelete?.let { card ->
+        AlertDialog(
+            onDismissRequest = { cardToDelete = null },
+            containerColor   = FosColors.Surface,
+            title = { Text("Удалить карту?", style = FosType.BodySemi, color = FosColors.TextPrimary) },
+            text  = { Text("Карта •• ${card.cardMask} будет откреплена от счёта.", style = FosType.Body, color = FosColors.TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { onDeleteCard(card.id); cardToDelete = null }) {
+                    Text("Удалить", color = FosColors.Negative)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { cardToDelete = null }) {
+                    Text("Отмена", color = FosColors.TextSecondary)
+                }
+            },
+        )
     }
 
     if (showEdit) {

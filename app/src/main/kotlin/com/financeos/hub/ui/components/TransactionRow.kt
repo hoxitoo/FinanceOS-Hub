@@ -49,9 +49,10 @@ fun TransactionRow(
                 maxLines = 1,
             )
             Text(
-                text  = "${FosFormatter.dayLabelYear(transaction.timestamp)} · $categoryName",
+                text  = "${FosFormatter.dayLabelYear(transaction.timestamp)} · ${transaction.description?.takeIf { it.isNotBlank() } ?: categoryName}",
                 style = FosType.Micro,
                 color = FosColors.TextSecondary,
+                maxLines = 1,
             )
         }
 

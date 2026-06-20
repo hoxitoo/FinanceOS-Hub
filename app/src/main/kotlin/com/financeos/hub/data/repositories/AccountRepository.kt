@@ -12,6 +12,8 @@ class AccountRepository @Inject constructor(
 ) {
     fun observeAll(): Flow<List<AccountEntity>> = dao.observeAll()
 
+    suspend fun getById(id: String): AccountEntity? = dao.getById(id)
+
     suspend fun upsert(account: AccountEntity) = dao.upsert(account)
 
     suspend fun updateBalance(id: String, kopecks: Long) = dao.updateBalance(id, kopecks)

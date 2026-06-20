@@ -160,4 +160,8 @@ class DashboardViewModel @Inject constructor(
     fun addCard(card: CardEntity) {
         viewModelScope.launch { cardRepo.addCard(card) }
     }
+
+    fun deleteCard(id: String) {
+        viewModelScope.launch { cardRepo.deactivate(id) }
+    }
 }
