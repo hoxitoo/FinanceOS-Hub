@@ -9,6 +9,7 @@ import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.parser.ParserEngine
+import com.financeos.hub.core.transfer.TransferRouter
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +24,7 @@ class SmsReceiver : BroadcastReceiver() {
     @Inject lateinit var parserEngine: ParserEngine
     @Inject lateinit var transactionDao: TransactionDao
     @Inject lateinit var classifier: CategoryClassifier
+    @Inject lateinit var transferRouter: TransferRouter
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("SmsReceiver", "SMS processing failed", t)
@@ -54,13 +56,15 @@ class SmsReceiver : BroadcastReceiver() {
             categoryId     = categoryId,
             type           = parsed.type,
             source         = TransactionSource.SMS,
-            amountKopecks  = if (parsed.type == com.financeos.hub.core.database.entities.TransactionType.EXPENSE)
-                -parsed.amountKopecks else parsed.amountKopecks,
+            amountKopecks  = parsed.signedKopecks(),
             merchant       = parsed.merchant,
             description    = null,
             timestamp      = parsed.timestamp,
             smsId          = parsed.smsId,
         )
-        transactionDao.insertAll(listOf(entity))
+        val rowIds = transactionDao.insertAll(listOf(entity))
+        if (rowIds.firstOrNull() != -1L) {
+            transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+        }
     }
 }

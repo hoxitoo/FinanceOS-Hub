@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import com.financeos.hub.core.database.entities.BudgetPeriod
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.database.entities.TransferMatchType
 
 class FosTypeConverters {
     @TypeConverter fun txTypeToString(v: TransactionType): String = v.name
@@ -14,4 +15,7 @@ class FosTypeConverters {
 
     @TypeConverter fun budgetPeriodToString(v: BudgetPeriod): String = v.name
     @TypeConverter fun stringToBudgetPeriod(v: String): BudgetPeriod = BudgetPeriod.valueOf(v)
+
+    @TypeConverter fun transferMatchTypeToString(v: TransferMatchType): String = v.name
+    @TypeConverter fun stringToTransferMatchType(v: String): TransferMatchType = TransferMatchType.valueOf(v)
 }

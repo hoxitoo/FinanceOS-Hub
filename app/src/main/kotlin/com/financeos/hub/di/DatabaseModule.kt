@@ -10,6 +10,7 @@ import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.MerchantRuleDao
 import com.financeos.hub.core.database.daos.TransactionDao
+import com.financeos.hub.core.database.daos.TransferRouteDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,7 +27,7 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext ctx: Context): FosDatabase =
         Room.databaseBuilder(ctx, FosDatabase::class.java, "financeos.db")
             .addCallback(FosDatabase.PREPOPULATE_CALLBACK)
-            .addMigrations(FosDatabase.MIGRATION_1_2)
+            .addMigrations(FosDatabase.MIGRATION_1_2, FosDatabase.MIGRATION_2_3)
             .build()
 
     @Provides fun provideAccountDao(db: FosDatabase): AccountDao             = db.accountDao()
@@ -36,4 +37,5 @@ object DatabaseModule {
     @Provides fun provideGoalDao(db: FosDatabase): GoalDao                   = db.goalDao()
     @Provides fun provideMerchantRuleDao(db: FosDatabase): MerchantRuleDao   = db.merchantRuleDao()
     @Provides fun provideCardDao(db: FosDatabase): CardDao                   = db.cardDao()
+    @Provides fun provideTransferRouteDao(db: FosDatabase): TransferRouteDao = db.transferRouteDao()
 }

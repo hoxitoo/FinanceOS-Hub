@@ -9,8 +9,8 @@ import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
-import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.ParserEngine
+import com.financeos.hub.core.transfer.TransferRouter
 import com.financeos.hub.data.preferences.UserPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -29,6 +29,7 @@ class PushNotificationListener : NotificationListenerService() {
     @Inject lateinit var transactionDao : TransactionDao
     @Inject lateinit var classifier     : CategoryClassifier
     @Inject lateinit var userPreferences: UserPreferences
+    @Inject lateinit var transferRouter : TransferRouter
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("PushListener", "Push processing failed", t)
@@ -55,23 +56,22 @@ class PushNotificationListener : NotificationListenerService() {
         if (pushId in transactionDao.getAllSmsHashes()) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
-        transactionDao.insertAll(
-            listOf(
-                TransactionEntity(
-                    id            = UUID.randomUUID().toString(),
-                    accountId     = null,
-                    categoryId    = categoryId,
-                    type          = parsed.type,
-                    source        = TransactionSource.PUSH,
-                    amountKopecks = if (parsed.type == TransactionType.EXPENSE)
-                        -parsed.amountKopecks else parsed.amountKopecks,
-                    merchant      = parsed.merchant,
-                    description   = null,
-                    timestamp     = ts,
-                    smsId         = pushId,
-                )
-            )
+        val entity = TransactionEntity(
+            id            = UUID.randomUUID().toString(),
+            accountId     = null,
+            categoryId    = categoryId,
+            type          = parsed.type,
+            source        = TransactionSource.PUSH,
+            amountKopecks = parsed.signedKopecks(),
+            merchant      = parsed.merchant,
+            description   = null,
+            timestamp     = ts,
+            smsId         = pushId,
         )
+        val rowIds = transactionDao.insertAll(listOf(entity))
+        if (rowIds.firstOrNull() != -1L) {
+            transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+        }
     }
 
     companion object {

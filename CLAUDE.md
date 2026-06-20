@@ -222,6 +222,41 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 - **Inner-value confusion**: card rows contain `на сумму: 40.00 RUR` (dot) and `дата совершения операции: 19.12.25` (2-digit year). These are now excluded by construction (posting amount = comma-decimal, posting date = 4-digit year).
 - **Date display**: `FosFormatter.dayLabelYear()` added — transaction history (row meta, day header, detail sheet) now shows the year ("19 декабря 2025") instead of "19 декабря".
 
+## Transfer → Savings-Goal Auto-Routing (`core/transfer/`) ✓ COMPLETE
+Bank transfers (перевод / СБП / перечисление) are now first-class `TransactionType.TRANSFER` rows
+instead of being mis-booked as expenses. Because every analytics/aggregation query filters on
+`type='EXPENSE'`/`'INCOME'`, emitting TRANSFER makes them vanish from spend/income automatically.
+
+- **Detection** — `core/parser/TransferPatterns.kt`: conservative Russian keyword recognition (OUTGOING:
+  Перевод/Перечисление/Отправлен перевод/СБП/Списание…перевод; INCOMING: Зачисление перевода/Перевод от/
+  Входящий перевод). Captures destination card last-4 from "на карту/счёт *1234" when present. Wired into
+  **all 11 bank parsers** as the FIRST matcher in `parse()` so a transfer is never read as a purchase or
+  as inverted-sign income (the old "Перевод excluded from income" hack is now handled explicitly).
+- **Signed storage** — `ParsedTransaction` gained `counterpartyMask`, `outgoing`, and `signedKopecks()`
+  (EXPENSE −, INCOME +, TRANSFER ∓ by `outgoing`). All 3 insert sites (SmsReceiver, PushNotificationListener,
+  SmsReader) now use `parsed.signedKopecks()` and call `TransferRouter.onTransactionInserted(...)` only when
+  the row was actually inserted (`insertAll` rowId != -1).
+- **`TransferRouter`** — (@Singleton) for an inserted TRANSFER: (A) outgoing + matching a linked card/keyword
+  → `GoalRepository.contribute(goalId, magnitude)` + `TransactionDao.setGoal`; (B) otherwise pairs an
+  opposite-sign equal-magnitude counterpart within ±10 min via `findTransferCounterpart` +
+  `markAsPairedTransfer` (net worth unchanged); (C) unrouted outgoing ≥ 1000 ₽ → push. Whole body in
+  `runCatching` so routing never breaks ingestion.
+- **DB** — `TransferRouteEntity`/`TransferRouteDao`/`TransferRouteRepository` (`transfer_routes` table,
+  CARD|KEYWORD match, lowercased value). `TransactionEntity` gained `goal_id` + `transfer_pair_id` columns.
+  `FosTypeConverters` handles `TransferMatchType`. **DB bumped v2→v3** with `MIGRATION_2_3` (adds 2 columns +
+  `transfer_routes` table + index); registered in `DatabaseModule.addMigrations(...)` + DAO provider.
+- **Goal linking UI** — `GoalsViewModel` now combines goals + routes + accounts + cards (array-form combine),
+  exposing `cardMasks`, `routes`, and `linkCard/linkKeyword/unlink`. `LinkTransferRouteSheet.kt` (🔗 button per
+  goal card) lets the user attach a destination card chip or an SMS keyword and unattach existing routes.
+- **`TransactionRow`** — TRANSFER renders NEUTRAL (`TextPrimary`, "↔ amount", never red/green, tabular-nums
+  preserved) with a "→ в цель" subtext when `goalId != null`. EXPENSE(red)/INCOME(green) unchanged.
+- **`NotificationHelper.notifyUnroutedTransfer(magnitude)`** — fos_insight channel, deep-links to "goals".
+
+### Known limitation
+- Counterparty (destination) card mask is only available when the bank SMS spells "на карту/счёт *NNNN".
+  Several push/SMS formats omit it (e.g. Alfa push, generic СБП notifications); for those the destination
+  mask is null and the user relies on **keyword routing** (e.g. linking the word "вклад"/"накопительный").
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 

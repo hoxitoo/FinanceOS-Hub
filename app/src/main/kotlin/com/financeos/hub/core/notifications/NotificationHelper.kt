@@ -31,6 +31,7 @@ class NotificationHelper @Inject constructor(
         private const val ID_BUDGET_ALERT = 1001
         private const val ID_WEEKLY       = 1002
         private const val ID_INSIGHT_BASE = 2000
+        private const val ID_TRANSFER     = 3001
     }
 
     private fun deepLinkIntent(route: String): PendingIntent =
@@ -133,6 +134,24 @@ class NotificationHelper @Inject constructor(
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_INSIGHT_BASE + id, notification)
+    }
+
+    /** Fired when an outgoing transfer wasn't auto-routed to any savings goal. */
+    @SuppressLint("MissingPermission")
+    fun notifyUnroutedTransfer(magnitudeKopecks: Long) {
+        if (!hasNotificationPermission()) return
+        val text = "Перевод ${com.financeos.hub.ui.theme.FosFormatter.amount(magnitudeKopecks)} — назначить в накопительную цель?"
+        val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Перевод не отнесён к цели")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setAutoCancel(true)
+            .setContentIntent(deepLinkIntent("goals"))
+            .build()
+
+        NotificationManagerCompat.from(context).notify(ID_TRANSFER, notification)
     }
 
     private fun formatCompact(kopecks: Long): String {
