@@ -36,12 +36,20 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-        messages.forEach { sms ->
-            val sender = sms.originatingAddress ?: return@forEach
-            val body   = sms.messageBody ?: return@forEach
-            val ts     = sms.timestampMillis
-            scope.launch {
-                processSms(sender, body, ts)
+            ?.takeIf { it.isNotEmpty() } ?: return
+        // goAsync() tells Android not to kill the process until pendingResult.finish() is called,
+        // giving the coroutine time to write to the DB even when the app is in the background.
+        val pendingResult = goAsync()
+        scope.launch {
+            try {
+                messages.forEach { sms ->
+                    val sender = sms.originatingAddress ?: return@forEach
+                    val body   = sms.messageBody ?: return@forEach
+                    val ts     = sms.timestampMillis
+                    processSms(sender, body, ts)
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }

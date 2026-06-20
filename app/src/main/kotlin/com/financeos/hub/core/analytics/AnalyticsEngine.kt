@@ -293,7 +293,7 @@ class AnalyticsEngine @Inject constructor(
             monthlyExpense    = curExpense,
             mandatoryExpense  = mandatory,
             avgMonthlyExpense = avg3Expense,
-            totalBalance      = 0L,
+            totalBalance      = accountDao.sumAllBalances(),
             last3MonthsIncome = last3Income,
         )
     }
@@ -330,7 +330,7 @@ class AnalyticsEngine @Inject constructor(
             currentIncome     = curIncome,
             lastMonthExpense  = prevExpense,
             avgMonthlyExpense = avg3Expense,
-            totalBalance      = 0L,
+            totalBalance      = accountDao.sumAllBalances(),
             topCategoryDelta  = topDelta,
             budgetAlerts      = emptyList(),
         )
