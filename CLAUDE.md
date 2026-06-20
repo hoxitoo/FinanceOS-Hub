@@ -257,6 +257,26 @@ instead of being mis-booked as expenses. Because every analytics/aggregation que
   Several push/SMS formats omit it (e.g. Alfa push, generic СБП notifications); for those the destination
   mask is null and the user relies on **keyword routing** (e.g. linking the word "вклад"/"накопительный").
 
+## Post-Transfer Session Features
+- [x] **Volumetric bank cards** — `BankCard` with diagonal `Brush.linearGradient` (0%→45%→100%), 1dp gloss overlay, `BankSymbolBadge` (letter abbreviation in frosted corner badge)
+- [x] **BankColors.kt** — МБанк brand added; `FosFormatter.currencySymbol()` maps RUB/USD/EUR/KGS
+- [x] **HeroAmountMulti** (26sp) — used when account list has 3+ currencies to prevent text overflow
+- [x] **AccountLinker** (`core/account/AccountLinker.kt`) — resolves SMS/push card masks to accounts (account.card_mask → CardEntity); `syncBalance()` prefers bank-reported "Остаток" (authoritative) over delta
+- [x] **Card chip scroll fix** — card chips inside bank cards replaced with static `Row` (max 4 + "+N"), eliminates horizontal drag conflict with parent scroll
+- [x] **Swipe-to-delete** — `SwipeToDismissBox` on TransactionRow (→ softDelete) and AccountRow (→ deactivate)
+- [x] **AddTransactionSheet enhancements** — account picker chips (name + ••mask), income-source presets (Зарплата/Перевод/Букмекер/Подарок/Кэшбэк/Инвестиции/Другое), currency symbol follows account
+- [x] **Multi-currency hero** — `netWorthByCurrency` map per account group, `CalmHero` shows each currency on its own line
+
+## Audit #3 ✓ COMPLETE (this session)
+
+Deep audit of 4 critical paths. 3 genuine bugs fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `OnboardingScreen.kt` + `OnboardingViewModel.kt` | **SMS permission freeze bug**: `onRequestSmsPermission()` jumped to IMPORT step without showing the Android permission dialog → 0% forever. Replaced with `rememberLauncherForActivityResult(RequestMultiplePermissions)` for READ_SMS + RECEIVE_SMS. Added `permissionDenied` state, "Открыть настройки" deep-link, and "Пропустить" skip option. |
+| HIGH | `SmsReceiver.kt` | **Process kill race**: `onReceive()` launched coroutines without `goAsync()` — Android could kill the process before the DB write completed when app is backgrounded. Wrapped in `goAsync()` / `pendingResult.finish()` in finally block. |
+| HIGH | `AnalyticsEngine.kt` | **Cushion score always 0**: `buildScoreInput()` and `buildInsightData()` both hardcoded `totalBalance = 0L`. The cushion pillar (25 pts) of the 0–100 financial health score was permanently 0. Fixed to `accountDao.sumAllBalances()`. |
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 

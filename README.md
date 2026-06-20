@@ -6,38 +6,56 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 | Feature | Details |
 |---------|---------|
-| **Auto-import** | Reads SMS from 5 major Russian banks; imports last 90 days on first launch |
-| **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver |
+| **Auto-import** | Reads SMS from 11 Russian banks (P1/P2/P3); imports last 90 days on first launch; native permission dialog in onboarding |
+| **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS |
+| **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`) |
 | **Smart categorization** | Dictionary classifier with 60+ merchant rules; optional TFLite ML layer |
-| **Manual entry** | Add, edit, delete transactions and recategorize them inline |
-| **Financial score** | 0–100 score based on savings rate, stability, mandatory/cushion ratios |
+| **Account linking** | Card mask from SMS/push (e.g. ••2548) auto-links transactions to the correct account; "Остаток" balance synced from bank messages |
+| **Multi-currency** | RUB / USD / EUR / KGS (Сом) support per account; hero shows each currency on its own line |
+| **Manual entry** | Add (with account picker + income-source presets), edit, delete transactions |
+| **Swipe-to-delete** | Swipe left on transactions and accounts to delete |
+| **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
+| **Financial score** | 0–100 score based on savings rate, stability, mandatory/cushion ratios (cushion uses real account balances) |
 | **Behavioral analytics** | Heatmap, fatigue curve, payday effect, anomaly detection, subscription gaps |
+| **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER type; auto-routed to savings goals or paired between accounts |
 | **Budget envelopes** | Monthly/weekly limits per category with dynamic color bar (green→amber→red) |
-| **Savings goals** | Goal rings, contribution dialogs, auto-complete when target is reached |
+| **Savings goals** | Goal rings, contribution dialogs, transfer-to-goal auto-routing, link by card or keyword |
+| **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
 | **Notifications** | Budget alerts, weekly summaries, critical insight push (3 channels) |
 | **Deep-links** | Notification taps navigate directly to the relevant screen |
-| **Settings** | Hero variant, budget alert threshold, biometric lock, ML toggle |
+| **Settings** | Hero variant, budget alert threshold, biometric lock, ML toggle, categories CRUD |
+| **Biometric lock** | Locks on background; falls back to device credential (PIN) when no biometric enrolled |
+| **Home-screen widget** | 2×2 balance widget via `AppWidgetProvider` |
 | **100% offline** | No internet permission; all data stays on device |
 
 ## Supported Banks
 
-| Bank | Sender patterns |
-|------|-----------------|
-| Сбербанк | SBERBANK, 900 |
-| Т-Банк | TINKOFF, TBANK, 2200 |
-| ВТБ | VTB |
-| Альфа-Банк | ALFABANK, ALFA |
-| Газпромбанк | GAZPROMBANK, GPB |
+| Tier | Bank | SMS sender | Push package |
+|------|------|-----------|-------------|
+| P1 | Сбербанк | SBERBANK, 900 | ru.sberbankmobile, ru.sberbank.sbbol |
+| P1 | Т-Банк | TINKOFF, TBANK, 2200 | ru.tinkoff.cardsnew, com.idamob.tinkoff.android |
+| P1 | ВТБ | VTB | ru.vtb24.mobilebanking.android |
+| P1 | Альфа-Банк | ALFABANK, ALFA | ru.alfabank.mobile.android |
+| P1 | Газпромбанк | GAZPROMBANK, GPB | ru.gazprombank.android.mobilebank |
+| P2 | Райффайзен | RAIFFEISEN | ru.raiffeisenmobile.android |
+| P2 | Росбанк | ROSBANK | ru.rosbank.android |
+| P2 | Открытие | OTKRITIE | ru.ftc.otkritie |
+| P3 | МТС Банк | MTSB | ru.mtsbank.mobilebank |
+| P3 | Почта Банк | POSTABANK | ru.pochtabank.android |
+| P3 | Россельхозбанк | RSHB | ru.rshb.mbank |
 
 ## Screens
 
-1. **Dashboard** — net worth hero (3 variants), income/expense metrics, accounts scroll, recent transactions, forecast
-2. **Transactions** — grouped list, search, filter chips (All/Income/Expense/SMS/Manual), detail/edit sheet
-3. **Analytics** — 4 tabs: Overview (score ring + pyramid + what-if), Categories (fixed/variable badge), Trends (daily chart + heatmap + waterfall), Insights (alerts + anomalies + narratives)
-4. **Budget** — envelope cards with progress bars, create/delete budgets
-5. **Goals** — goal rings, contribution dialog, auto-complete
+1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), income/expense metrics, accounts scroll with volumetric bank cards, recent transactions, forecast
+2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-to-delete, detail/edit sheet, "↑ CSV" export, "↓ PDF" import
+3. **Analytics** — 4 tabs: Overview (score ring + expense pyramid + what-if), Categories (fixed/variable badge), Trends (daily chart + heatmap + waterfall), Insights (alerts + anomalies + narratives)
+4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
+5. **Goals** — goal rings, contribution dialog, link transfers by card or keyword
+6. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
+7. **Settings** — hero variant, ML toggle, budget alert threshold, biometric, categories CRUD
+8. **Onboarding** — native SMS permission request, 90-day import progress, skip option
 
 ## Tech Stack
 
@@ -119,6 +137,10 @@ dev   ← integration branch
 ## Security Notes
 
 - `SmsReceiver` is protected with `android:permission="android.permission.BROADCAST_SMS"` — only the system can broadcast to it
+- `SmsReceiver.onReceive()` uses `goAsync()` so the process is not killed before the DB write completes
 - All `POST_NOTIFICATIONS` calls are guarded by runtime permission check on API 33+
 - All Room database inserts in `FosDatabase.PREPOPULATE_CALLBACK` use parameterized `execSQL()` — no SQL injection surface
 - Coroutine errors in `SmsReceiver` are caught by `CoroutineExceptionHandler` — no silent crashes
+- CSV export uses RFC 4180 quoting + formula-injection neutralization (`=`, `+`, `-`, `@` prefix with `'`)
+- Deep-link routes are validated against an allowlist before navigation (prevents attacker-controlled crash via exported Activity)
+- `PushNotificationListener` → `TransactionSource.PUSH` requires user to explicitly enable the notification listener in system Settings
