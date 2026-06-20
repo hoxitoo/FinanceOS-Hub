@@ -2,6 +2,7 @@ package com.financeos.hub.core.sms
 
 import android.content.Context
 import android.provider.Telephony
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
@@ -27,6 +28,7 @@ class SmsReader @Inject constructor(
     private val transactionDao: TransactionDao,
     private val classifier: CategoryClassifier,
     private val transferRouter: TransferRouter,
+    private val accountLinker: AccountLinker,
 ) {
     fun importLast90Days(): Flow<ImportProgress> = flow {
         val cutoff = System.currentTimeMillis() - 90L * 24 * 60 * 60 * 1000
@@ -63,9 +65,10 @@ class SmsReader @Inject constructor(
                     val parsed = parserEngine.parse(sender, body, ts)
                     if (parsed != null && parsed.smsId !in knownIds) {
                         val categoryId = classifier.classify(parsed.merchant, null)
+                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),
-                            accountId     = null,
+                            accountId     = accountId,
                             categoryId    = categoryId,
                             type          = parsed.type,
                             source        = TransactionSource.SMS,
@@ -77,6 +80,7 @@ class SmsReader @Inject constructor(
                         )
                         val rowIds = transactionDao.insertAll(listOf(entity))
                         if (rowIds.firstOrNull() != -1L) {
+                            accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
                             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
                         }
                         knownIds.add(parsed.smsId)

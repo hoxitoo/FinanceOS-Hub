@@ -5,6 +5,7 @@ import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
@@ -30,6 +31,7 @@ class PushNotificationListener : NotificationListenerService() {
     @Inject lateinit var classifier     : CategoryClassifier
     @Inject lateinit var userPreferences: UserPreferences
     @Inject lateinit var transferRouter : TransferRouter
+    @Inject lateinit var accountLinker  : AccountLinker
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("PushListener", "Push processing failed", t)
@@ -56,9 +58,10 @@ class PushNotificationListener : NotificationListenerService() {
         if (pushId in transactionDao.getAllSmsHashes()) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
+        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),
-            accountId     = null,
+            accountId     = accountId,
             categoryId    = categoryId,
             type          = parsed.type,
             source        = TransactionSource.PUSH,
@@ -70,6 +73,7 @@ class PushNotificationListener : NotificationListenerService() {
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {
+            accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
         }
     }

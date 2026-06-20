@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
@@ -25,6 +26,7 @@ class SmsReceiver : BroadcastReceiver() {
     @Inject lateinit var transactionDao: TransactionDao
     @Inject lateinit var classifier: CategoryClassifier
     @Inject lateinit var transferRouter: TransferRouter
+    @Inject lateinit var accountLinker: AccountLinker
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("SmsReceiver", "SMS processing failed", t)
@@ -50,9 +52,10 @@ class SmsReceiver : BroadcastReceiver() {
         if (parsed.smsId in known) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
+        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
         val entity = TransactionEntity(
             id             = UUID.randomUUID().toString(),
-            accountId      = null,
+            accountId      = accountId,
             categoryId     = categoryId,
             type           = parsed.type,
             source         = TransactionSource.SMS,
@@ -64,6 +67,7 @@ class SmsReceiver : BroadcastReceiver() {
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {
+            accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
         }
     }

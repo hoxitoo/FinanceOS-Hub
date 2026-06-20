@@ -15,6 +15,9 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE is_active = 1")
     fun observeAll(): Flow<List<CardEntity>>
 
+    @Query("SELECT account_id FROM cards WHERE is_active = 1 AND card_mask = :mask LIMIT 1")
+    suspend fun findAccountIdByMask(mask: String): String?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(card: CardEntity)
 
