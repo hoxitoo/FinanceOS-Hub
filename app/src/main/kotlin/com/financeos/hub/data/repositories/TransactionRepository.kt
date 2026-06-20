@@ -36,6 +36,8 @@ class TransactionRepository @Inject constructor(
 
     suspend fun softDelete(id: String) = dao.softDelete(id)
 
+    suspend fun deleteAllHistory() = dao.deleteAll()
+
     suspend fun sumExpensesThisMonth(): Long {
         val zone  = ZoneId.systemDefault()
         val month = YearMonth.now()

@@ -2,12 +2,13 @@ package com.financeos.hub.core.sms
 
 import android.content.Context
 import android.provider.Telephony
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
-import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.ParserEngine
+import com.financeos.hub.core.transfer.TransferRouter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -26,6 +27,8 @@ class SmsReader @Inject constructor(
     private val parserEngine: ParserEngine,
     private val transactionDao: TransactionDao,
     private val classifier: CategoryClassifier,
+    private val transferRouter: TransferRouter,
+    private val accountLinker: AccountLinker,
 ) {
     fun importLast90Days(): Flow<ImportProgress> = flow {
         val cutoff = System.currentTimeMillis() - 90L * 24 * 60 * 60 * 1000
@@ -62,20 +65,24 @@ class SmsReader @Inject constructor(
                     val parsed = parserEngine.parse(sender, body, ts)
                     if (parsed != null && parsed.smsId !in knownIds) {
                         val categoryId = classifier.classify(parsed.merchant, null)
+                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),
-                            accountId     = null,
+                            accountId     = accountId,
                             categoryId    = categoryId,
                             type          = parsed.type,
                             source        = TransactionSource.SMS,
-                            amountKopecks = if (parsed.type == TransactionType.EXPENSE)
-                                -parsed.amountKopecks else parsed.amountKopecks,
+                            amountKopecks = parsed.signedKopecks(),
                             merchant      = parsed.merchant,
                             description   = null,
                             timestamp     = parsed.timestamp,
                             smsId         = parsed.smsId,
                         )
-                        transactionDao.insertAll(listOf(entity))
+                        val rowIds = transactionDao.insertAll(listOf(entity))
+                        if (rowIds.firstOrNull() != -1L) {
+                            accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
+                            transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+                        }
                         knownIds.add(parsed.smsId)
                         imported++
                     }

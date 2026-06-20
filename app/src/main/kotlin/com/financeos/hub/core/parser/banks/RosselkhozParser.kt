@@ -4,6 +4,7 @@ import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
+import com.financeos.hub.core.parser.TransferPatterns
 import javax.inject.Inject
 
 class RosselkhozParser @Inject constructor() : BankParser {
@@ -30,6 +31,10 @@ class RosselkhozParser @Inject constructor() : BankParser {
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
+
+        TransferPatterns.detect(body)?.let { r ->
+            return TransferPatterns.toParsed(r, bankId, body, smsId, timestampMillis)
+        }
 
         expense1.find(body)?.let { m ->
             val (amt, card, merchant, bal) = m.destructured

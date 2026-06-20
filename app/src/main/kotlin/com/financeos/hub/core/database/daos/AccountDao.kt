@@ -16,6 +16,9 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE id = :id")
     suspend fun getById(id: String): AccountEntity?
 
+    @Query("SELECT * FROM accounts WHERE is_active = 1 AND card_mask = :mask LIMIT 1")
+    suspend fun findByCardMask(mask: String): AccountEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(account: AccountEntity)
 

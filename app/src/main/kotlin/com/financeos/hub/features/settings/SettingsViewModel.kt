@@ -3,7 +3,9 @@ package com.financeos.hub.features.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.data.preferences.UserPreferences
+import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -22,7 +24,8 @@ data class SettingsState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val prefs: UserPreferences,
+    private val prefs : UserPreferences,
+    private val txRepo: TransactionRepository,
 ) : ViewModel() {
 
     val state = combine(
@@ -71,5 +74,9 @@ class SettingsViewModel @Inject constructor(
 
     fun setPushListenerEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setPushListenerEnabled(enabled)
+    }
+
+    fun deleteAllHistory() = viewModelScope.launch(Dispatchers.IO) {
+        txRepo.deleteAllHistory()
     }
 }

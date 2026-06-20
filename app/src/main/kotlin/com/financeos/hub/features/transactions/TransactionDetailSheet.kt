@@ -89,7 +89,7 @@ fun TransactionDetailSheet(
                         color = amtColor,
                     )
                     Text(
-                        text  = FosFormatter.dayLabel(transaction.timestamp),
+                        text  = FosFormatter.dayLabelYear(transaction.timestamp),
                         style = FosType.Micro,
                         color = FosColors.TextMuted,
                     )

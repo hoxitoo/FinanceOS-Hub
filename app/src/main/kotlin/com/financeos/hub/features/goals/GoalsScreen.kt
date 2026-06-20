@@ -54,6 +54,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     var editTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var linkTarget    by remember { mutableStateOf<GoalEntity?>(null) }
+    val linkSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     Scaffold(
         containerColor = FosColors.Background,
         floatingActionButton = {
@@ -99,6 +102,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                             contributeTarget = goal
                             contributeText   = ""
                         },
+                        onLink   = { linkTarget = goal },
                         onDelete = { vm.deleteGoal(goal.id) },
                     )
                 }
@@ -189,6 +193,20 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             },
         )
     }
+
+    // Auto-fund link sheet
+    linkTarget?.let { goal ->
+        LinkTransferRouteSheet(
+            goal          = goal,
+            sheetState    = linkSheetState,
+            routes        = state.routes,
+            cardMasks     = state.cardMasks,
+            onLinkCard    = { mask -> vm.linkCard(goal.id, mask) },
+            onLinkKeyword = { kw -> vm.linkKeyword(goal.id, kw) },
+            onUnlink      = { routeId -> vm.unlink(routeId) },
+            onDismiss     = { linkTarget = null },
+        )
+    }
 }
 
 @Composable
@@ -196,6 +214,7 @@ private fun GoalCard(
     goal             : GoalEntity,
     onEdit           : () -> Unit,
     onAddContribution: () -> Unit,
+    onLink           : () -> Unit,
     onDelete         : () -> Unit,
 ) {
     val ratio = if (goal.targetKopecks > 0)
@@ -254,6 +273,12 @@ private fun GoalCard(
                 ) {
                     Text("+", style = FosType.BodySemi, color = FosColors.Info)
                 }
+            }
+            TextButton(
+                onClick        = onLink,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
             }
             TextButton(
                 onClick        = onDelete,

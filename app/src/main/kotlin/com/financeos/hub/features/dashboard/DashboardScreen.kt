@@ -18,11 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,17 +31,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.CardEntity
+import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.TransactionRow
-import com.financeos.hub.ui.theme.bankBrand
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.bankBrand
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,8 +57,8 @@ fun DashboardScreen(
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
     val addAccountSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var selectedAccount      by remember { mutableStateOf<AccountEntity?>(null) }
-    var editBalanceText      by remember { mutableStateOf("") }
+    var selectedBank         by remember { mutableStateOf<String?>(null) }
+    val bankSheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
         modifier = Modifier
@@ -99,7 +99,7 @@ fun DashboardScreen(
         // Hero — variant-based (CALM / CONTRAST / MINIMAL)
         item { HeroBlock(state = state) }
 
-        // Accounts section — always shown
+        // Accounts section — grouped by bank
         item {
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -123,14 +123,15 @@ fun DashboardScreen(
                     color = FosColors.TextMuted,
                 )
             } else {
+                val byBank = state.accounts.groupBy { it.bank }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
-                    items(state.accounts, key = { it.id }) { account ->
-                        AccountCard(
-                            account = account,
-                            onClick = {
-                                selectedAccount = account
-                                editBalanceText = (account.balanceKopecks / 100).toString()
-                            },
+                    items(byBank.entries.toList(), key = { it.key }) { (bank, accounts) ->
+                        val bankCards = state.cards.filter { c -> accounts.any { a -> a.id == c.accountId } }
+                        BankCard(
+                            bank     = bank,
+                            accounts = accounts,
+                            cards    = bankCards,
+                            onClick  = { selectedBank = bank },
                         )
                     }
                 }
@@ -155,65 +156,182 @@ fun DashboardScreen(
         AddAccountSheet(
             sheetState = addAccountSheetState,
             onDismiss  = { showAddAccountSheet = false },
-            onSave     = { name, bank, cardMask, balanceKopecks ->
-                vm.createAccount(name, bank, cardMask, balanceKopecks)
+            onSave     = { name, bank, cardMask, balanceKopecks, currency ->
+                vm.createAccount(name, bank, cardMask, balanceKopecks, currency)
             },
         )
     }
 
-    selectedAccount?.let { account ->
-        val kopecks = editBalanceText.replace(",", ".").toDoubleOrNull()
-            ?.let { (it * 100).toLong() } ?: account.balanceKopecks
-        AlertDialog(
-            onDismissRequest = { selectedAccount = null },
-            containerColor   = FosColors.Surface,
-            title = {
-                Text(account.name, style = FosType.BodySemi, color = FosColors.TextPrimary)
+    selectedBank?.let { bank ->
+        val bankAccounts = state.accounts.filter { it.bank == bank }
+        val bankCards    = state.cards.filter { c -> bankAccounts.any { a -> a.id == c.accountId } }
+        AccountDetailSheet(
+            bank         = bank,
+            accounts     = bankAccounts,
+            cards        = bankCards,
+            sheetState   = bankSheetState,
+            onDismiss    = { selectedBank = null },
+            onAddAccount = { name, b, mask, kopecks, currency ->
+                vm.createAccount(name, b, mask, kopecks, currency)
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(account.bank, style = FosType.Body, color = FosColors.TextSecondary)
-                    OutlinedTextField(
-                        value           = editBalanceText,
-                        onValueChange   = { editBalanceText = it },
-                        label           = { Text("Баланс, ₽", style = FosType.Label) },
-                        singleLine      = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        colors          = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor   = FosColors.Info,
-                            unfocusedBorderColor = FosColors.BorderStrong,
-                            focusedLabelColor    = FosColors.Info,
-                            unfocusedLabelColor  = FosColors.TextMuted,
-                            cursorColor          = FosColors.Info,
-                            focusedTextColor     = FosColors.TextPrimary,
-                            unfocusedTextColor   = FosColors.TextPrimary,
-                        ),
-                    )
-                }
+            onAddCard    = { card -> vm.addCard(card) },
+            onDeleteCard = { id -> vm.deleteCard(id) },
+            onEditBalance = { account, newKopecks ->
+                vm.updateAccountBalance(account, newKopecks)
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.updateAccountBalance(account, kopecks)
-                    selectedAccount = null
-                }) {
-                    Text("Сохранить", color = FosColors.Positive)
-                }
-            },
-            dismissButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        vm.deleteAccount(account.id)
-                        selectedAccount = null
-                    }) {
-                        Text("Удалить", color = FosColors.Negative)
-                    }
-                    TextButton(onClick = { selectedAccount = null }) {
-                        Text("Отмена", color = FosColors.TextSecondary)
-                    }
-                }
-            },
+            onDelete     = { id -> vm.deleteAccount(id) },
         )
     }
+}
+
+@Composable
+private fun BankCard(
+    bank     : String,
+    accounts : List<AccountEntity>,
+    cards    : List<CardEntity>,
+    onClick  : () -> Unit,
+) {
+    val brand    = bankBrand(bank)
+    val allMasks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
+    val totals   = accounts.groupBy { it.currency }
+        .mapValues { (_, list) -> list.sumOf { it.balanceKopecks } }
+
+    Column(modifier = Modifier.width(264.dp)) {
+        // Peek row of card chips — NON-scrolling Row (a nested horizontal scroll inside the
+        // banks' LazyRow would steal the drag and slide the whole carousel). Show up to 4
+        // masks; collapse the rest into a "+N" chip.
+        if (allMasks.isNotEmpty()) {
+            val shown    = allMasks.take(4)
+            val overflow = allMasks.size - shown.size
+            Row(
+                modifier              = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                shown.forEach { mask ->
+                    Box(
+                        modifier = Modifier
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(FosColors.Surface2)
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("•• $mask", style = FosType.Micro, color = FosColors.TextSecondary)
+                    }
+                }
+                if (overflow > 0) {
+                    Box(
+                        modifier = Modifier
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(FosColors.Surface2)
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("+$overflow", style = FosType.Micro, color = FosColors.TextMuted)
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.height(32.dp))
+        }
+        // Main bank card — volumetric with gradient depth + symbol badge
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(FosDimens.RadiusCard))
+                .background(brand.bg)
+                .clickable { onClick() },
+        ) {
+            // Diagonal depth gradient: top-left light, bottom-right dark
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.White.copy(alpha = 0.13f),
+                                0.45f to Color.Transparent,
+                                1.0f to Color.Black.copy(alpha = 0.22f),
+                            ),
+                            start = Offset(0f, 0f),
+                            end   = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
+                        )
+                    )
+            )
+            // Top-edge gloss highlight
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .align(Alignment.TopCenter)
+                    .background(Color.White.copy(alpha = 0.28f)),
+            )
+            // Card content
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(bank, style = FosType.BodySemi, color = brand.onBg)
+                    BankSymbolBadge(bank = bank, onBg = brand.onBg)
+                }
+                Spacer(Modifier.weight(1f))
+                totals.entries.take(3).forEach { (currency, kopecks) ->
+                    Text(
+                        FosFormatter.amount(kopecks, FosFormatter.currencySymbol(currency)),
+                        style = FosType.CardAmount,
+                        color = brand.onBg,
+                    )
+                }
+                if (accounts.size > 1) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${accounts.size} счёт${accountSuffix(accounts.size)}",
+                        style = FosType.Micro,
+                        color = brand.onBg.copy(alpha = 0.70f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BankSymbolBadge(bank: String, onBg: Color) {
+    val b      = bank.lowercase()
+    val symbol = when {
+        "альфа" in b || "alfa" in b || "alpha" in b                          -> "А"
+        "сбер"  in b || "sber" in b                                          -> "С"
+        "т-банк" in b || "тинь" in b || "tbank" in b || "tinkoff" in b      -> "Т"
+        "втб"   in b || "vtb"  in b                                          -> "В"
+        "газпром" in b || "гпб" in b                                         -> "Г"
+        "мбанк" in b || "mbank" in b || "кыргыз" in b || "kicb" in b        -> "М"
+        "мтс"   in b                                                         -> "М"
+        "почта" in b || "posta" in b                                         -> "П"
+        "россельхоз" in b || "рсхб" in b                                     -> "Р"
+        "росбанк" in b || "rosbank" in b                                     -> "Р"
+        "открыт" in b || "otkritie" in b                                     -> "О"
+        "райф"  in b || "raiff" in b                                         -> "Р"
+        else -> bank.firstOrNull()?.uppercase() ?: "?"
+    }
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.White.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(symbol, style = FosType.BadgeSymbol, color = onBg)
+    }
+}
+
+private fun accountSuffix(n: Int) = when {
+    n % 10 == 1 && n % 100 != 11 -> ""
+    n % 10 in 2..4 && n % 100 !in 12..14 -> "а"
+    else -> "ов"
 }
 
 @Composable
@@ -235,37 +353,6 @@ private fun MetricChip(
     }
 }
 
-@Composable
-private fun AccountCard(account: AccountEntity, onClick: () -> Unit = {}) {
-    val brand = bankBrand(account.bank)
-    Column(
-        modifier = Modifier
-            .width(248.dp)
-            .height(150.dp)
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(brand.bg)
-            .clickable { onClick() }
-            .padding(16.dp),
-    ) {
-        Row(
-            modifier              = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment     = Alignment.CenterVertically,
-        ) {
-            Text(account.bank, style = FosType.BodySemi, color = brand.onBg)
-            account.cardMask?.takeIf { it.isNotBlank() }?.let { mask ->
-                Text("•• $mask", style = FosType.Label, color = brand.onBg.copy(alpha = 0.75f))
-            }
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        Text(FosFormatter.amount(account.balanceKopecks), style = FosType.CardAmount, color = brand.onBg)
-        Spacer(Modifier.height(2.dp))
-        Text(account.name, style = FosType.Micro, color = brand.onBg.copy(alpha = 0.8f))
-    }
-}
-
 // ── Hero variant composables ──────────────────────────────────────────────────
 
 @Composable
@@ -273,11 +360,11 @@ private fun HeroBlock(state: DashboardState) {
     when (state.heroVariant) {
         "CONTRAST" -> ContrastHero(state)
         "MINIMAL"  -> MinimalHero(state)
-        else       -> CalmHero(state)   // "CALM" + default
+        else       -> CalmHero(state)
     }
 }
 
-/** CALM: ScoreRing + net worth + metric chips */
+/** CALM: compact score row → full-width net worth → metric chips */
 @Composable
 private fun CalmHero(state: DashboardState) {
     val scoreColor = when {
@@ -293,24 +380,38 @@ private fun CalmHero(state: DashboardState) {
             .padding(FosDimens.CardPadding),
     ) {
         Column {
+            // Score row — ring is compact (72dp) so text fits alongside
             Row(
                 modifier              = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                ScoreRing(score = state.financialScore, modifier = Modifier.size(100.dp))
+                ScoreRing(score = state.financialScore, modifier = Modifier.size(72.dp))
                 Column {
                     Text("Финансовое здоровье", style = FosType.Micro, color = FosColors.TextMuted)
-                    Spacer(Modifier.height(4.dp))
-                    Text("${state.financialScore} / 100", style = FosType.BodySemi, color = scoreColor)
-                    Spacer(Modifier.height(12.dp))
-                    Text("Состояние", style = FosType.Micro, color = FosColors.TextSecondary)
                     Spacer(Modifier.height(2.dp))
-                    val netWorth = state.netWorthKopecks
+                    Text("${state.financialScore} / 100", style = FosType.BodySemi, color = scoreColor)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            // Net worth — FULL width so multi-currency never wraps
+            Text("Состояние", style = FosType.Micro, color = FosColors.TextSecondary)
+            Spacer(Modifier.height(2.dp))
+            val byCur = state.netWorthByCurrency
+            if (byCur.size <= 1) {
+                val nw = state.netWorthKopecks
+                Text(
+                    FosFormatter.amount(nw),
+                    style = FosType.HeroAmount,
+                    color = if (nw >= 0) FosColors.TextPrimary else FosColors.Negative,
+                )
+            } else {
+                val amtStyle = if (byCur.size >= 3) FosType.HeroAmountMulti else FosType.HeroAmount
+                byCur.entries.take(3).forEach { (cur, kopecks) ->
                     Text(
-                        FosFormatter.amount(netWorth),
-                        style = FosType.HeroAmount,
-                        color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+                        FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
+                        style = amtStyle,
+                        color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
                     )
                 }
             }
@@ -352,6 +453,22 @@ private fun ContrastHero(state: DashboardState) {
                     Text(FosFormatter.compact(state.expenseKopecks), style = FosType.HeroLarge, color = FosColors.Negative)
                 }
             }
+            if (state.sparkline.size >= 2) {
+                Spacer(Modifier.height(FosDimens.ItemGap))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                        .background(FosColors.Surface2),
+                ) {
+                    LineChart(
+                        data     = state.sparkline,
+                        color    = FosColors.Negative,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
             Spacer(Modifier.height(FosDimens.ItemGap))
             Box(
                 modifier = Modifier
@@ -367,12 +484,24 @@ private fun ContrastHero(state: DashboardState) {
             ) {
                 Column {
                     Text("Состояние", style = FosType.Micro, color = FosColors.TextMuted)
-                    val netWorth = state.netWorthKopecks
-                    Text(
-                        FosFormatter.amount(netWorth),
-                        style = FosType.CardAmount,
-                        color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
-                    )
+                    val byCur = state.netWorthByCurrency
+                    if (byCur.size <= 1) {
+                        val netWorth = state.netWorthKopecks
+                        Text(
+                            FosFormatter.amount(netWorth),
+                            style = FosType.CardAmount,
+                            color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+                        )
+                    } else {
+                        val amtStyle = if (byCur.size >= 3) FosType.HeroAmountMulti else FosType.CardAmount
+                        byCur.entries.take(3).forEach { (cur, kopecks) ->
+                            Text(
+                                FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
+                                style = amtStyle,
+                                color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
+                            )
+                        }
+                    }
                 }
                 if (state.forecastKopecks > 0) {
                     Column(horizontalAlignment = Alignment.End) {
@@ -402,12 +531,25 @@ private fun MinimalHero(state: DashboardState) {
         Column {
             Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
             Spacer(Modifier.height(4.dp))
-            val netWorth = state.netWorthKopecks
-            Text(
-                FosFormatter.amount(netWorth),
-                style = FosType.HeroMinimal,
-                color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
-            )
+            val byCur = state.netWorthByCurrency
+            if (byCur.size <= 1) {
+                val netWorth = state.netWorthKopecks
+                Text(
+                    FosFormatter.amount(netWorth),
+                    style = FosType.HeroMinimal,
+                    color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
+                )
+            } else {
+                // HeroMinimal (42sp) would overflow with 3 currencies — use compact multi style
+                val amtStyle = if (byCur.size >= 3) FosType.HeroAmountMulti else FosType.HeroMinimal
+                byCur.entries.take(3).forEach { (cur, kopecks) ->
+                    Text(
+                        FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
+                        style = amtStyle,
+                        color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
+                    )
+                }
+            }
             Spacer(Modifier.height(FosDimens.ItemGap))
             Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
                 MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))

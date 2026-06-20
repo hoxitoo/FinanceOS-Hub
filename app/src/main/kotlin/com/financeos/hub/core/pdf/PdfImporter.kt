@@ -18,10 +18,12 @@ class PdfImporter @Inject constructor(
 ) {
     fun extractText(uri: Uri): String = try {
         context.contentResolver.openInputStream(uri)?.use { stream ->
-            val doc  = PDDocument.load(stream)
-            val text = PDFTextStripper().getText(doc)
-            doc.close()
-            text
+            PDDocument.load(stream).use { doc ->
+                // sortByPosition keeps a tabular statement in visual reading order
+                // (date → code → description → amount), which the row parser relies on.
+                val stripper = PDFTextStripper().apply { sortByPosition = true }
+                stripper.getText(doc)
+            }
         } ?: ""
     } catch (e: Exception) {
         ""

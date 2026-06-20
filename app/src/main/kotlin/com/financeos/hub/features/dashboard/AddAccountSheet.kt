@@ -31,24 +31,29 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
-private val BANKS = listOf("Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "Другой")
+private val BANKS = listOf("Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "МБанк", "Другой")
+private val CURRENCIES = listOf("RUB" to "₽ Рубль", "USD" to "$ Доллар", "EUR" to "€ Евро", "KGS" to "сом Сом")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddAccountSheet(
-    sheetState: SheetState,
-    onDismiss : () -> Unit,
-    onSave    : (name: String, bank: String, cardMask: String?, balanceKopecks: Long) -> Unit,
+    sheetState  : SheetState,
+    initialBank : String = BANKS[0],
+    onDismiss   : () -> Unit,
+    onSave      : (name: String, bank: String, cardMask: String?, balanceKopecks: Long, currency: String) -> Unit,
 ) {
-    var selectedBank by remember { mutableStateOf(BANKS[0]) }
-    var name         by remember { mutableStateOf("") }
-    var cardMaskText by remember { mutableStateOf("") }
-    var balanceText  by remember { mutableStateOf("") }
+    var selectedBank     by remember { mutableStateOf(initialBank) }
+    var selectedCurrency by remember { mutableStateOf("RUB") }
+    var name             by remember { mutableStateOf("") }
+    var cardMaskText     by remember { mutableStateOf("") }
+    var balanceText      by remember { mutableStateOf("") }
 
     val balanceKopecks = balanceText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
     val canSave        = name.isNotBlank()
+    val currencySymbol = FosFormatter.currencySymbol(selectedCurrency)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -119,7 +124,7 @@ fun AddAccountSheet(
             OutlinedTextField(
                 value           = balanceText,
                 onValueChange   = { balanceText = it },
-                label           = { Text("Текущий баланс, ₽", style = FosType.Label) },
+                label           = { Text("Текущий баланс, $currencySymbol", style = FosType.Label) },
                 singleLine      = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Decimal,
@@ -128,6 +133,30 @@ fun AddAccountSheet(
                 colors   = accountSheetFieldColors(),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // Currency picker
+            Text("Валюта", style = FosType.SectionCap, color = FosColors.TextMuted)
+            LazyRow(
+                contentPadding        = PaddingValues(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(CURRENCIES.size) { i ->
+                    val (code, label) = CURRENCIES[i]
+                    val selected = selectedCurrency == code
+                    FilterChip(
+                        selected = selected,
+                        onClick  = { selectedCurrency = code },
+                        label    = { Text(label, style = FosType.Label) },
+                        shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
+                            selectedLabelColor     = FosColors.Info,
+                            containerColor         = FosColors.Surface2,
+                            labelColor             = FosColors.TextSecondary,
+                        ),
+                    )
+                }
+            }
 
             Spacer(Modifier.height(4.dp))
 
@@ -138,6 +167,7 @@ fun AddAccountSheet(
                         selectedBank,
                         cardMaskText.takeIf { it.length == 4 },
                         balanceKopecks,
+                        selectedCurrency,
                     )
                     onDismiss()
                 },

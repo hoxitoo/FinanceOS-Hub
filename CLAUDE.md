@@ -209,11 +209,73 @@ Parallel deep audit of all 105 source files. 20 genuine issues fixed:
 - `TextFeatureExtractor.extract` — removed unnecessary `Double→Float→Double` roundtrip in norm computation
 
 ## PDF Import (`core/pdf/`)
-- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0
-- `PdfTransactionParser.kt` — line-by-line parser: DD.MM.YYYY date + signed amount regex; dedup key = `pdf_{ts}_{kopecks}_{merchant.hashCode()}`
+- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0; `sortByPosition = true` keeps tabular statements in visual reading order
+- `PdfTransactionParser.kt` — **logical-row** parser (rewritten): reconstructs each statement row from wrapped physical lines (row starts at `DD.MM.YYYY`, absorbs continuation lines), then extracts posting date (4-digit year), posting amount (comma-decimal + currency suffix → distinguishes from inner dot-decimal `на сумму:`), sign, op code, and a cleaned merchant; dedup key = `pdf_{opCode}` (unique) with `pdf_{ts}_{kopecks}_{merchant.hashCode()}` fallback
+- `PdfTransactionParserTest.kt` — 7 tests against real Alfa-Bank "Операции по счету" layout
 - `TransactionSource.PDF` added to enum (stored as string → no Room migration)
 - `TransactionsViewModel.importPdf(uri)` — IO-dispatched; auto-classifies via CategoryClassifier; returns found/inserted counts
 - `ImportPdfSheet.kt` — bottom sheet with idle/loading/success/error states; "↓ PDF" button in TransactionsScreen header
+
+### PDF parser bug fixes (this session)
+- **Sign bug (critical)**: old parser passed the signed token to `AmountParser.toKopecks`, which returns `0` for negatives (`value <= 0`) → **every expense was silently dropped**, only income survived (all imports looked green/`+`). Now the sign is detected separately and only the unsigned magnitude is parsed.
+- **Multi-line layout**: old parser required date + amount on the *same physical line*; Alfa descriptions wrap across lines, so it latched onto stray fragments. Now rows are reconstructed before extraction.
+- **Inner-value confusion**: card rows contain `на сумму: 40.00 RUR` (dot) and `дата совершения операции: 19.12.25` (2-digit year). These are now excluded by construction (posting amount = comma-decimal, posting date = 4-digit year).
+- **Date display**: `FosFormatter.dayLabelYear()` added — transaction history (row meta, day header, detail sheet) now shows the year ("19 декабря 2025") instead of "19 декабря".
+
+## Transfer → Savings-Goal Auto-Routing (`core/transfer/`) ✓ COMPLETE
+Bank transfers (перевод / СБП / перечисление) are now first-class `TransactionType.TRANSFER` rows
+instead of being mis-booked as expenses. Because every analytics/aggregation query filters on
+`type='EXPENSE'`/`'INCOME'`, emitting TRANSFER makes them vanish from spend/income automatically.
+
+- **Detection** — `core/parser/TransferPatterns.kt`: conservative Russian keyword recognition (OUTGOING:
+  Перевод/Перечисление/Отправлен перевод/СБП/Списание…перевод; INCOMING: Зачисление перевода/Перевод от/
+  Входящий перевод). Captures destination card last-4 from "на карту/счёт *1234" when present. Wired into
+  **all 11 bank parsers** as the FIRST matcher in `parse()` so a transfer is never read as a purchase or
+  as inverted-sign income (the old "Перевод excluded from income" hack is now handled explicitly).
+- **Signed storage** — `ParsedTransaction` gained `counterpartyMask`, `outgoing`, and `signedKopecks()`
+  (EXPENSE −, INCOME +, TRANSFER ∓ by `outgoing`). All 3 insert sites (SmsReceiver, PushNotificationListener,
+  SmsReader) now use `parsed.signedKopecks()` and call `TransferRouter.onTransactionInserted(...)` only when
+  the row was actually inserted (`insertAll` rowId != -1).
+- **`TransferRouter`** — (@Singleton) for an inserted TRANSFER: (A) outgoing + matching a linked card/keyword
+  → `GoalRepository.contribute(goalId, magnitude)` + `TransactionDao.setGoal`; (B) otherwise pairs an
+  opposite-sign equal-magnitude counterpart within ±10 min via `findTransferCounterpart` +
+  `markAsPairedTransfer` (net worth unchanged); (C) unrouted outgoing ≥ 1000 ₽ → push. Whole body in
+  `runCatching` so routing never breaks ingestion.
+- **DB** — `TransferRouteEntity`/`TransferRouteDao`/`TransferRouteRepository` (`transfer_routes` table,
+  CARD|KEYWORD match, lowercased value). `TransactionEntity` gained `goal_id` + `transfer_pair_id` columns.
+  `FosTypeConverters` handles `TransferMatchType`. **DB bumped v2→v3** with `MIGRATION_2_3` (adds 2 columns +
+  `transfer_routes` table + index); registered in `DatabaseModule.addMigrations(...)` + DAO provider.
+- **Goal linking UI** — `GoalsViewModel` now combines goals + routes + accounts + cards (array-form combine),
+  exposing `cardMasks`, `routes`, and `linkCard/linkKeyword/unlink`. `LinkTransferRouteSheet.kt` (🔗 button per
+  goal card) lets the user attach a destination card chip or an SMS keyword and unattach existing routes.
+- **`TransactionRow`** — TRANSFER renders NEUTRAL (`TextPrimary`, "↔ amount", never red/green, tabular-nums
+  preserved) with a "→ в цель" subtext when `goalId != null`. EXPENSE(red)/INCOME(green) unchanged.
+- **`NotificationHelper.notifyUnroutedTransfer(magnitude)`** — fos_insight channel, deep-links to "goals".
+
+### Known limitation
+- Counterparty (destination) card mask is only available when the bank SMS spells "на карту/счёт *NNNN".
+  Several push/SMS formats omit it (e.g. Alfa push, generic СБП notifications); for those the destination
+  mask is null and the user relies on **keyword routing** (e.g. linking the word "вклад"/"накопительный").
+
+## Post-Transfer Session Features
+- [x] **Volumetric bank cards** — `BankCard` with diagonal `Brush.linearGradient` (0%→45%→100%), 1dp gloss overlay, `BankSymbolBadge` (letter abbreviation in frosted corner badge)
+- [x] **BankColors.kt** — МБанк brand added; `FosFormatter.currencySymbol()` maps RUB/USD/EUR/KGS
+- [x] **HeroAmountMulti** (26sp) — used when account list has 3+ currencies to prevent text overflow
+- [x] **AccountLinker** (`core/account/AccountLinker.kt`) — resolves SMS/push card masks to accounts (account.card_mask → CardEntity); `syncBalance()` prefers bank-reported "Остаток" (authoritative) over delta
+- [x] **Card chip scroll fix** — card chips inside bank cards replaced with static `Row` (max 4 + "+N"), eliminates horizontal drag conflict with parent scroll
+- [x] **Swipe-to-delete** — `SwipeToDismissBox` on TransactionRow (→ softDelete) and AccountRow (→ deactivate)
+- [x] **AddTransactionSheet enhancements** — account picker chips (name + ••mask), income-source presets (Зарплата/Перевод/Букмекер/Подарок/Кэшбэк/Инвестиции/Другое), currency symbol follows account
+- [x] **Multi-currency hero** — `netWorthByCurrency` map per account group, `CalmHero` shows each currency on its own line
+
+## Audit #3 ✓ COMPLETE (this session)
+
+Deep audit of 4 critical paths. 3 genuine bugs fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `OnboardingScreen.kt` + `OnboardingViewModel.kt` | **SMS permission freeze bug**: `onRequestSmsPermission()` jumped to IMPORT step without showing the Android permission dialog → 0% forever. Replaced with `rememberLauncherForActivityResult(RequestMultiplePermissions)` for READ_SMS + RECEIVE_SMS. Added `permissionDenied` state, "Открыть настройки" deep-link, and "Пропустить" skip option. |
+| HIGH | `SmsReceiver.kt` | **Process kill race**: `onReceive()` launched coroutines without `goAsync()` — Android could kill the process before the DB write completed when app is backgrounded. Wrapped in `goAsync()` / `pendingResult.finish()` in finally block. |
+| HIGH | `AnalyticsEngine.kt` | **Cushion score always 0**: `buildScoreInput()` and `buildInsightData()` both hardcoded `totalBalance = 0L`. The cushion pillar (25 pts) of the 0–100 financial health score was permanently 0. Fixed to `accountDao.sumAllBalances()`. |
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA

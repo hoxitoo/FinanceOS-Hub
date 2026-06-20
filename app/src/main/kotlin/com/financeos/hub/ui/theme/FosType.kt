@@ -66,4 +66,15 @@ object FosType {
         letterSpacing = (-2.0).sp,
         fontFeatureSettings = "tnum"
     )
+
+    // Compact multi-currency: 3 lines don't overflow at any screen width
+    val HeroAmountMulti = TextStyle(
+        fontSize = 26.sp,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = (-0.8).sp,
+        fontFeatureSettings = "tnum"
+    )
+
+    // Bank symbol badge inside the card (letter abbreviation)
+    val BadgeSymbol = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
 }
