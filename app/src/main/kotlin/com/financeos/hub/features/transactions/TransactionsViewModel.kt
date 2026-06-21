@@ -13,6 +13,7 @@ import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.pdf.PdfImporter
 import com.financeos.hub.core.pdf.PdfTransactionParser
+import com.financeos.hub.core.transfer.TransferRouter
 import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.CardRepository
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -68,6 +69,7 @@ class TransactionsViewModel @Inject constructor(
     private val cardRepo    : CardRepository,
     private val pdfImporter : PdfImporter,
     private val classifier  : CategoryClassifier,
+    private val transferRouter: TransferRouter,
     savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
 
@@ -168,6 +170,11 @@ class TransactionsViewModel @Inject constructor(
                         updatedAt      = System.currentTimeMillis(),
                     ))
                 }
+            }
+            // A transfer that funded a savings goal must un-fund it on delete, else the goal
+            // stays permanently inflated by money no longer backed by a transaction.
+            if (tx?.goalId != null) {
+                transferRouter.onTransactionReversed(tx)
             }
             txRepo.softDelete(id)
         }

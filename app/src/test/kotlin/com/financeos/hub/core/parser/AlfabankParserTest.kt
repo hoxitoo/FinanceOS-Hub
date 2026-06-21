@@ -69,6 +69,15 @@ class AlfabankParserTest {
         assertNull(tx.balanceKopecks)
     }
 
+    @Test fun `merchant ending in 4 digits is not mistaken for card mask`() {
+        // Regression: a bare \d{4} end-anchor used to capture the merchant's trailing digits.
+        val tx = parser.parse("ALFABANK", "Альфа-Банк -250 ₽. АЗС 2024", ts)
+        assertNotNull(tx)
+        assertEquals(25_000L, tx!!.amountKopecks)
+        assertEquals("АЗС 2024", tx.merchant)
+        assertNull(tx.cardMask)
+    }
+
     @Test fun `canHandle matches sender`() {
         assert(parser.canHandle("ALFABANK"))
         assert(parser.canHandle("ALFA"))

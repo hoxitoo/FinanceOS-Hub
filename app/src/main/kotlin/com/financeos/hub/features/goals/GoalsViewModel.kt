@@ -22,7 +22,8 @@ import javax.inject.Inject
 data class GoalsState(
     val goals: List<GoalEntity> = emptyList(),
     val routes: List<TransferRouteEntity> = emptyList(),
-    val cardMasks: List<String> = emptyList(),  // distinct masks from accounts + cards, for the picker
+    val cardMasks: List<String> = emptyList(),
+    val accounts: List<AccountEntity> = emptyList(),
 )
 
 @HiltViewModel
@@ -49,14 +50,21 @@ class GoalsViewModel @Inject constructor(
         val cards    = arr[3] as List<CardEntity>
 
         val masks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
-        GoalsState(goals = goals, routes = routes, cardMasks = masks)
+        GoalsState(goals = goals, routes = routes, cardMasks = masks, accounts = accounts)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
-    fun createGoal(name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?) {
+    fun createGoal(
+        name           : String,
+        emoji          : String,
+        targetKopecks  : Long,
+        deadlineAt     : Long?,
+        linkedAccountId: String? = null,
+    ) {
         viewModelScope.launch {
+            val goalId = UUID.randomUUID().toString()
             goalRepo.upsert(
                 GoalEntity(
-                    id            = UUID.randomUUID().toString(),
+                    id            = goalId,
                     name          = name,
                     emoji         = emoji,
                     targetKopecks = targetKopecks,
@@ -64,21 +72,23 @@ class GoalsViewModel @Inject constructor(
                     deadlineAt    = deadlineAt,
                 )
             )
+            if (linkedAccountId != null) {
+                transferRouteRepo.addRoute(
+                    TransferRouteEntity(
+                        id         = UUID.randomUUID().toString(),
+                        goalId     = goalId,
+                        matchType  = TransferMatchType.ACCOUNT,
+                        matchValue = linkedAccountId,
+                    )
+                )
+            }
         }
     }
 
     fun addContribution(goal: GoalEntity, amountKopecks: Long) {
-        viewModelScope.launch {
-            val newSaved = goal.savedKopecks + amountKopecks
-            val completed = newSaved >= goal.targetKopecks
-            goalRepo.upsert(
-                goal.copy(
-                    savedKopecks = newSaved.coerceAtMost(goal.targetKopecks),
-                    isCompleted  = completed,
-                    completedAt  = if (completed) System.currentTimeMillis() else null,
-                )
-            )
-        }
+        // Delegate to the single clamping/completion code path so manual and routed
+        // contributions behave identically (floor-clamp, target-clamp, updatedAt refresh).
+        viewModelScope.launch { goalRepo.contribute(goal.id, amountKopecks) }
     }
 
     fun updateGoal(
@@ -108,31 +118,37 @@ class GoalsViewModel @Inject constructor(
 
     // --- Auto-fund (transfer routing) links ---
 
-    fun linkCard(goalId: String, mask: String) {
+    /**
+     * Inserts a route unless an identical one (same goal + type + value) already exists.
+     * Guards the free-text card/keyword entry, which can otherwise create duplicate rows that
+     * route the same transfer twice (or, for an account already linked elsewhere, ambiguously).
+     */
+    private fun addRouteIfAbsent(goalId: String, type: TransferMatchType, value: String) {
         viewModelScope.launch {
-            transferRouteRepo.addRoute(
-                TransferRouteEntity(
-                    id         = UUID.randomUUID().toString(),
-                    goalId     = goalId,
-                    matchType  = TransferMatchType.CARD,
-                    matchValue = mask.lowercase(),
+            val exists = transferRouteRepo.getAllActive().any {
+                it.goalId == goalId && it.matchType == type && it.matchValue.equals(value, ignoreCase = true)
+            }
+            if (!exists) {
+                transferRouteRepo.addRoute(
+                    TransferRouteEntity(
+                        id         = UUID.randomUUID().toString(),
+                        goalId     = goalId,
+                        matchType  = type,
+                        matchValue = value,
+                    )
                 )
-            )
+            }
         }
     }
 
-    fun linkKeyword(goalId: String, keyword: String) {
-        viewModelScope.launch {
-            transferRouteRepo.addRoute(
-                TransferRouteEntity(
-                    id         = UUID.randomUUID().toString(),
-                    goalId     = goalId,
-                    matchType  = TransferMatchType.KEYWORD,
-                    matchValue = keyword.trim().lowercase(),
-                )
-            )
-        }
-    }
+    fun linkCard(goalId: String, mask: String) =
+        addRouteIfAbsent(goalId, TransferMatchType.CARD, mask.lowercase())
+
+    fun linkAccount(goalId: String, accountId: String) =
+        addRouteIfAbsent(goalId, TransferMatchType.ACCOUNT, accountId)
+
+    fun linkKeyword(goalId: String, keyword: String) =
+        addRouteIfAbsent(goalId, TransferMatchType.KEYWORD, keyword.trim().lowercase())
 
     fun unlink(routeId: String) {
         viewModelScope.launch { transferRouteRepo.removeRoute(routeId) }

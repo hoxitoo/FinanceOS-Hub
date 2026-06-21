@@ -5,7 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-enum class TransferMatchType { CARD, KEYWORD }
+enum class TransferMatchType { CARD, KEYWORD, ACCOUNT }
 
 @Entity(tableName = "transfer_routes", indices = [Index("goal_id")])
 data class TransferRouteEntity(

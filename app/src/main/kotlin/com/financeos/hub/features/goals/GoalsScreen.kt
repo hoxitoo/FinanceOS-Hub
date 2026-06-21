@@ -115,9 +115,10 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     if (showAddSheet) {
         AddGoalSheet(
             sheetState = addSheetState,
+            accounts   = state.accounts,
             onDismiss  = { showAddSheet = false },
-            onSave     = { name, emoji, targetKopecks, deadline ->
-                vm.createGoal(name, emoji, targetKopecks, deadline)
+            onSave     = { name, emoji, targetKopecks, deadline, linkedAccountId ->
+                vm.createGoal(name, emoji, targetKopecks, deadline, linkedAccountId)
             },
         )
     }
@@ -127,8 +128,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
         AddGoalSheet(
             sheetState = editSheetState,
             existing   = goal,
+            accounts   = state.accounts,
             onDismiss  = { editTarget = null },
-            onSave     = { name, emoji, targetKopecks, deadline ->
+            onSave     = { name, emoji, targetKopecks, deadline, _ ->
                 vm.updateGoal(goal, name, emoji, targetKopecks, deadline)
                 editTarget = null
             },
@@ -197,14 +199,16 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     // Auto-fund link sheet
     linkTarget?.let { goal ->
         LinkTransferRouteSheet(
-            goal          = goal,
-            sheetState    = linkSheetState,
-            routes        = state.routes,
-            cardMasks     = state.cardMasks,
-            onLinkCard    = { mask -> vm.linkCard(goal.id, mask) },
-            onLinkKeyword = { kw -> vm.linkKeyword(goal.id, kw) },
-            onUnlink      = { routeId -> vm.unlink(routeId) },
-            onDismiss     = { linkTarget = null },
+            goal           = goal,
+            sheetState     = linkSheetState,
+            routes         = state.routes,
+            cardMasks      = state.cardMasks,
+            accounts       = state.accounts,
+            onLinkCard     = { mask -> vm.linkCard(goal.id, mask) },
+            onLinkKeyword  = { kw -> vm.linkKeyword(goal.id, kw) },
+            onLinkAccount  = { accountId -> vm.linkAccount(goal.id, accountId) },
+            onUnlink       = { routeId -> vm.unlink(routeId) },
+            onDismiss      = { linkTarget = null },
         )
     }
 }
