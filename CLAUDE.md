@@ -246,16 +246,31 @@ instead of being mis-booked as expenses. Because every analytics/aggregation que
   `FosTypeConverters` handles `TransferMatchType`. **DB bumped v2→v3** with `MIGRATION_2_3` (adds 2 columns +
   `transfer_routes` table + index); registered in `DatabaseModule.addMigrations(...)` + DAO provider.
 - **Goal linking UI** — `GoalsViewModel` now combines goals + routes + accounts + cards (array-form combine),
-  exposing `cardMasks`, `routes`, and `linkCard/linkKeyword/unlink`. `LinkTransferRouteSheet.kt` (🔗 button per
-  goal card) lets the user attach a destination card chip or an SMS keyword and unattach existing routes.
+  exposing `cardMasks`, `routes`, `accounts`, and `linkCard/linkKeyword/linkAccount/unlink`. `LinkTransferRouteSheet.kt`
+  (🔗 button per goal card) lets the user attach a bank account, destination card chip, or an SMS keyword.
 - **`TransactionRow`** — TRANSFER renders NEUTRAL (`TextPrimary`, "↔ amount", never red/green, tabular-nums
   preserved) with a "→ в цель" subtext when `goalId != null`. EXPENSE(red)/INCOME(green) unchanged.
 - **`NotificationHelper.notifyUnroutedTransfer(magnitude)`** — fos_insight channel, deep-links to "goals".
 
+## Bidirectional Account-Based Goal Routing ✓ COMPLETE
+
+Link a bank account to a goal (at creation or via 🔗 sheet):
+- Transfer INTO that account → `+amount` to goal progress
+- Transfer FROM that account → `-amount` from goal progress (clamped at 0)
+- Example: "Путешествия" linked to Alfa Travel; перевод 10k → цель +10k; снятие 5k → цель -5k
+
+Changes:
+- `TransferMatchType.ACCOUNT` added (stored as string — no DB migration needed)
+- `TransferRouter`: ACCOUNT routes checked for both incoming and outgoing before CARD/KEYWORD
+- `AddGoalSheet`: "ПРИВЯЗАТЬ СЧЁТ (АВТО)" chip picker — optional at goal creation
+- `LinkTransferRouteSheet`: "СЧЁТ В БАНКЕ" section with bidirectional badge
+- `GoalsViewModel.createGoal(linkedAccountId)` + `linkAccount(goalId, accountId)`
+- `GoalsState.accounts` exposed for pickers in both sheets
+
 ### Known limitation
 - Counterparty (destination) card mask is only available when the bank SMS spells "на карту/счёт *NNNN".
   Several push/SMS formats omit it (e.g. Alfa push, generic СБП notifications); for those the destination
-  mask is null and the user relies on **keyword routing** (e.g. linking the word "вклад"/"накопительный").
+  mask is null and the user relies on **keyword routing** or **account routing**.
 
 ## Post-Transfer Session Features
 - [x] **Volumetric bank cards** — `BankCard` with diagonal `Brush.linearGradient` (0%→45%→100%), 1dp gloss overlay, `BankSymbolBadge` (letter abbreviation in frosted corner badge)
