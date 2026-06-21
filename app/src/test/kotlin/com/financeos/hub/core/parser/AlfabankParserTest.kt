@@ -37,6 +37,38 @@ class AlfabankParserTest {
         assertEquals(1_000_000L, tx.amountKopecks)
     }
 
+    @Test fun `parses push expense with single decimal digit`() {
+        // Regression: "-468,7 ₽" has ONE decimal digit; the old fixed-2-digit regex dropped it.
+        val body = "Альфа-Банк -468,7 ₽. Другое\nОстаток: 3 621,04 ₽; ••2548"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(TransactionType.EXPENSE, tx!!.type)
+        assertEquals(46_870L, tx.amountKopecks)          // 468.70 ₽
+        assertEquals("Другое", tx.merchant)
+        assertEquals("2548", tx.cardMask)
+        assertEquals(362_104L, tx.balanceKopecks)        // 3 621.04 ₽
+    }
+
+    @Test fun `parses push income`() {
+        val body = "Альфа-Банк +4 000 ₽. Поступление\nОстаток: 4 089,74 ₽; ••2548"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(TransactionType.INCOME, tx!!.type)
+        assertEquals(400_000L, tx.amountKopecks)
+        assertEquals("2548", tx.cardMask)
+        assertEquals(408_974L, tx.balanceKopecks)
+    }
+
+    @Test fun `parses push expense without balance or card`() {
+        val tx = parser.parse("ALFABANK", "Альфа-Банк -468,7 ₽. Другое", ts)
+        assertNotNull(tx)
+        assertEquals(TransactionType.EXPENSE, tx!!.type)
+        assertEquals(46_870L, tx.amountKopecks)
+        assertEquals("Другое", tx.merchant)
+        assertNull(tx.cardMask)
+        assertNull(tx.balanceKopecks)
+    }
+
     @Test fun `canHandle matches sender`() {
         assert(parser.canHandle("ALFABANK"))
         assert(parser.canHandle("ALFA"))

@@ -43,10 +43,15 @@ class PushNotificationListener : NotificationListenerService() {
         scope.launch {
             if (!userPreferences.pushListenerEnabled.first()) return@launch
             val extras = sbn.notification?.extras ?: return@launch
-            val title  = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
-            val text   = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+            val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
+            val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+            // The expanded ("big text") view carries the full body — e.g. the
+            // "Остаток: … ; ··2548" line that the collapsed EXTRA_TEXT omits. Prefer it so
+            // the balance and destination card mask are available for account linking.
+            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
+            val detail  = if (bigText.length > text.length) bigText else text
             // Some banks put the amount in the title, details in text — join both
-            val body   = if (text.isNotBlank()) "$title $text" else title
+            val body    = listOf(title, detail).filter { it.isNotBlank() }.joinToString(" ")
             if (body.isBlank()) return@launch
             processPush(sender, body, sbn.postTime)
         }
