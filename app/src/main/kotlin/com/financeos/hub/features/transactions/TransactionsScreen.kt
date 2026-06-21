@@ -287,8 +287,8 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 categories = state.categories,
                 accounts   = state.accounts,
                 onDismiss  = { showAddSheet = false },
-                onSave     = { type, kopecks, merchant, catId, note, accountId ->
-                    vm.insertManual(type, kopecks, merchant, catId, note, accountId)
+                onSave     = { type, kopecks, merchant, catId, note, accountId, timestamp ->
+                    vm.insertManual(type, kopecks, merchant, catId, note, accountId, timestamp)
                 },
             )
         }

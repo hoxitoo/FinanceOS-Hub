@@ -13,14 +13,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +43,11 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /** Preset income sources — emoji + label. Selected value is stored into the description. */
 private val INCOME_SOURCES = listOf(
@@ -56,7 +67,7 @@ fun AddTransactionSheet(
     categories : List<CategoryEntity>,
     accounts   : List<AccountEntity>,
     onDismiss  : () -> Unit,
-    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?) -> Unit,
+    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?, timestamp: Long) -> Unit,
 ) {
     var txType       by remember { mutableStateOf(TransactionType.EXPENSE) }
     var amountText   by remember { mutableStateOf("") }
@@ -65,6 +76,10 @@ fun AddTransactionSheet(
     var categoryId   by remember { mutableStateOf<String?>(null) }
     var incomeSource by remember { mutableStateOf<String?>(null) }
     var accountId    by remember { mutableStateOf<String?>(null) }
+    // Selected date for the operation (defaults to today). Stored as the local day; the
+    // actual save-time clock is folded in so back-dated rows sort correctly within their day.
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     val amountError = amountText.isNotBlank() && amountText.replace(",", ".").toDoubleOrNull() == null
     val selectedAccount = accounts.firstOrNull { it.id == accountId }
@@ -119,6 +134,21 @@ fun AddTransactionSheet(
                 ),
                 colors        = fosTextFieldColors(),
                 modifier      = Modifier.fillMaxWidth(),
+            )
+
+            // Date of the operation — for manual entries that were missed by SMS/push
+            Text("Дата операции", style = FosType.SectionCap, color = FosColors.TextMuted)
+            val selectedDateMillis = selectedDate
+                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            FilterChip(
+                selected = true,
+                onClick  = { showDatePicker = true },
+                label    = { Text("📅  ${FosFormatter.dayLabelYear(selectedDateMillis)}", style = FosType.Micro) },
+                shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                colors   = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
+                    selectedLabelColor     = FosColors.Info,
+                ),
             )
 
             // Account / card picker — where the money landed / left from
@@ -229,7 +259,16 @@ fun AddTransactionSheet(
                         } else {
                             note.ifBlank { null }
                         }
-                        onSave(txType, kopecks, merchant, categoryId, finalNote, accountId)
+                        // Today keeps the live clock; a back-dated day uses the current time-of-day
+                        // on that date so it sorts naturally within the day's group.
+                        val today = LocalDate.now()
+                        val timestamp = if (selectedDate == today) {
+                            System.currentTimeMillis()
+                        } else {
+                            selectedDate.atTime(LocalTime.now())
+                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        }
+                        onSave(txType, kopecks, merchant, categoryId, finalNote, accountId, timestamp)
                         onDismiss()
                     }
                 },
@@ -245,6 +284,47 @@ fun AddTransactionSheet(
             }
         }
     }
+
+    if (showDatePicker) {
+        // The picker works in UTC; we read back the picked day-of-month directly to avoid
+        // any timezone drift when converting to a LocalDate.
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            selectableDates = NoFutureDates,
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        selectedDate = Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC).toLocalDate()
+                    }
+                    showDatePicker = false
+                }) { Text("Готово", color = FosColors.Info) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Отмена", color = FosColors.TextSecondary)
+                }
+            },
+            colors = DatePickerDefaults.colors(containerColor = FosColors.Surface),
+        ) {
+            DatePicker(state = pickerState, showModeToggle = false)
+        }
+    }
+}
+
+/** Disallows selecting a date in the future — you cannot spend money tomorrow. */
+@OptIn(ExperimentalMaterial3Api::class)
+private val NoFutureDates = object : SelectableDates {
+    override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+        val todayUtc = LocalDate.now()
+            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        return utcTimeMillis <= todayUtc
+    }
+    override fun isSelectableYear(year: Int): Boolean = year <= LocalDate.now().year
 }
 
 @Composable

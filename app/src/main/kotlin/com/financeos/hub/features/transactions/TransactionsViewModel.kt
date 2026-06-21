@@ -187,6 +187,7 @@ class TransactionsViewModel @Inject constructor(
         categoryId   : String?,
         note         : String?,
         accountId    : String? = null,
+        timestamp    : Long    = System.currentTimeMillis(),
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -206,7 +207,7 @@ class TransactionsViewModel @Inject constructor(
                     },
                     merchant      = merchant.ifBlank { null },
                     description   = note?.ifBlank { null },
-                    timestamp     = now,
+                    timestamp     = timestamp,
                     isDeleted     = false,
                     deletedAt     = null,
                 )
