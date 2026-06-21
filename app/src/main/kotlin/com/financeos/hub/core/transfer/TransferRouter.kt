@@ -96,4 +96,27 @@ class TransferRouter @Inject constructor(
             }
         }
     }
-}
+
+    /**
+     * Reverses the goal contribution that [onTransactionInserted] applied, so deleting (or
+     * un-routing) a transfer that funded a goal restores the goal's progress. Mirrors the
+     * original sign exactly:
+     *  - ACCOUNT routes applied the signed amount (incoming +, outgoing −) → undo with −signed.
+     *  - CARD/KEYWORD routes applied +magnitude (outgoing only) → undo with −magnitude.
+     * Best-effort: the goal's clamp to [0, target] means a reversal can't always be exact, but it
+     * prevents a goal staying permanently inflated by a deleted transaction.
+     */
+    suspend fun onTransactionReversed(tx: TransactionEntity) {
+        runCatching {
+            val goalId = tx.goalId ?: return
+            val magnitude = abs(tx.amountKopecks)
+            val accountRoute = transferRouteRepo.getAllActive().firstOrNull {
+                it.goalId == goalId &&
+                it.matchType == TransferMatchType.ACCOUNT &&
+                tx.accountId != null &&
+                it.matchValue == tx.accountId
+            }
+            val appliedDelta = if (accountRoute != null) tx.amountKopecks else magnitude
+            goalRepo.contribute(goalId, -appliedDelta)
+        }
+    }

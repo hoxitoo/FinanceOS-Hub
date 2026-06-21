@@ -32,8 +32,11 @@ class MBankParser @Inject constructor() : BankParser {
     private val expenseKw = Regex("Покупка|Оплата|Списание|Снятие", RegexOption.IGNORE_CASE)
     private val incomeKw  = Regex("Пополнение|Зачисление|Поступление|Возврат", RegexOption.IGNORE_CASE)
 
-    private val amountToken = Regex("([\\d][\\d\\s.,]*?)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
-    private val balanceRe   = Regex("Доступно:?\\s*([\\d][\\d\\s.,]*?)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
+    // Digit-grouping (regular/NBSP/narrow-NBSP spaces) plus at most ONE decimal group, so a
+    // stray second separator (e.g. a "." thousands separator) can't poison toDoubleOrNull → 0.
+    private val number      = "[\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?"
+    private val amountToken = Regex("($number)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
+    private val balanceRe   = Regex("Доступно:?\\s*($number)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
     private val cardRe      = Regex("Карта:?\\s*\\*?\\s*(\\d{4})", RegexOption.IGNORE_CASE)
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {

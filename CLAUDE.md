@@ -296,8 +296,25 @@ Deep audit of 4 critical paths. 3 genuine bugs fixed:
 - [x] **МБанк parser** (`core/parser/banks/MBankParser.kt`) — multi-currency KG bank (USD/KGS/EUR/RUB). Line-oriented push: `Покупка: 22 USD` / merchant line / `Карта: *6461` / `Доступно: 11.96 USD`. Extracts each field independently (amount taken AFTER the type keyword so `Доступно:` is never mis-read as the amount). Registered in `ParserModule` (`bindMBank`); push package `com.maanavan.mb_kyrgyzstan` → `MBANK` added to `PushNotificationListener`. `MBankParserTest` (7 cases). Amounts stored as minor units (×100) in the card's currency.
 - [x] **Manual-delete balance bug** — deleting a manually-added operation did not restore the account balance (insert applied a delta, delete did not undo it). `TransactionsViewModel.deleteTransaction` now loads the row first and, for `source == MANUAL` with an `accountId`, reverses `amountKopecks` from the account before soft-deleting. SMS/PUSH balances are bank-authoritative snapshots (not reversed); PDF rows have no account. Added `TransactionRepository.getById`.
 
+## Audit #4 ✓ COMPLETE (this session)
+
+Three parallel deep audits (transfer/goal routing · parsers/ingestion · DB/DI/analytics). 7 genuine bugs fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `TransactionsViewModel.deleteTransaction` + `TransferRouter.onTransactionReversed` | **Goal stayed inflated on delete**: deleting a transfer that funded a goal never un-funded it (`savedKopecks` permanently inflated; repeat add/delete could force completion). New `TransferRouter.onTransactionReversed(tx)` mirrors the original contribution sign (ACCOUNT = signed amount, CARD/KEYWORD = +magnitude) and is called for any `tx.goalId != null` before soft-delete. |
+| HIGH | `GoalsViewModel.addContribution` | **Divergent contribution paths**: manual contribute didn't floor-clamp or refresh `updatedAt`, unlike routed `GoalRepository.contribute`. Now delegates to `goalRepo.contribute` — single clamping/completion code path. |
+| HIGH | `GoalsViewModel` link methods | **Duplicate routes**: free-text card/keyword entry created duplicate `transfer_routes` rows (and the same account could link to two goals, non-deterministic). New `addRouteIfAbsent()` skips an identical (goal+type+value) route. |
+| HIGH | `AlfabankParser.pushMask` / `maskTail` | **Merchant digits read as card mask**: a bare `\d{4}` end-anchor captured a merchant ending in 4 digits (e.g. "АЗС 2024") as the card → wrong account link. Now requires the masking glyph `[*•·]{1,2}` before the digits (both for extraction and merchant-tail stripping). |
+| HIGH | `AccountLinker.syncBalance` | **Zero balance ignored**: `ostatokKopecks > 0L` treated an authoritative "Доступно: 0" as "no balance" and fell through to the delta path. Changed to `>= 0L` (only `null` falls through). |
+| MEDIUM | `MBankParser` amount/balance regex | **Multi-separator poisoning**: `[\d\s.,]*?` could capture two separators → `toDoubleOrNull` null → amount 0 → transaction dropped. Tightened to digit-grouping + at most one decimal group. |
+| MEDIUM | `TransactionDao.findTransferCounterpart` | **Double-count**: a goal-routed transfer leg could still be paired as net-worth-neutral. Query now excludes `goal_id IS NOT NULL` rows from counterpart matching. |
+
+Added `AlfabankParserTest` regression: merchant ending in 4 digits is not mistaken for a card mask.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
+- Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency
 
 ## Key File Locations
 | Layer | Path |

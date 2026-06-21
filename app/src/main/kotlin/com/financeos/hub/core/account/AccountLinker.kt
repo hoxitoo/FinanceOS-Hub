@@ -29,13 +29,15 @@ class AccountLinker @Inject constructor(
     }
 
     /**
-     * Updates [accountId]'s balance. Uses [ostatokKopecks] (the bank's reported balance) when it
-     * is a sane positive value, otherwise nudges the existing balance by [signedDelta]
-     * (income +, expense/outgoing −). No-op when [accountId] is null.
+     * Updates [accountId]'s balance. Uses [ostatokKopecks] (the bank's reported balance) when the
+     * bank actually reported one, otherwise nudges the existing balance by [signedDelta]
+     * (income +, expense/outgoing −). A reported balance of exactly 0 is authoritative (account
+     * drained) — only a `null` (no balance in the message) falls through to the delta path.
+     * No-op when [accountId] is null.
      */
     suspend fun syncBalance(accountId: String?, ostatokKopecks: Long?, signedDelta: Long) {
         val id = accountId ?: return
-        if (ostatokKopecks != null && ostatokKopecks > 0L) {
+        if (ostatokKopecks != null && ostatokKopecks >= 0L) {
             accountDao.updateBalance(id, ostatokKopecks)
         } else {
             val acc = accountDao.getById(id) ?: return

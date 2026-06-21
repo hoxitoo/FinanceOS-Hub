@@ -67,6 +67,7 @@ interface TransactionDao {
         SELECT * FROM transactions
         WHERE is_deleted = 0
           AND transfer_pair_id IS NULL
+          AND goal_id IS NULL
           AND id != :selfId
           AND ABS(amount_kopecks) = :magnitude
           AND ( (:outgoing = 1 AND amount_kopecks > 0) OR (:outgoing = 0 AND amount_kopecks < 0) )
