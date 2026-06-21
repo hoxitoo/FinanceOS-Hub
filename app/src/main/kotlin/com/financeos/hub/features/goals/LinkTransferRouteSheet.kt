@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.GoalEntity
@@ -59,7 +60,8 @@ fun LinkTransferRouteSheet(
     onUnlink      : (routeId: String) -> Unit,
     onDismiss     : () -> Unit,
 ) {
-    var keyword by remember { mutableStateOf("") }
+    var keyword    by remember { mutableStateOf("") }
+    var cardInput  by remember { mutableStateOf("") }
     val goalRoutes = routes.filter { it.goalId == goal.id }
 
     ModalBottomSheet(
@@ -131,9 +133,9 @@ fun LinkTransferRouteSheet(
                 }
             }
 
-            // Card masks — outgoing only
+            // Card last-4 — outgoing transfers; chips from known accounts + free-text entry
+            Text("КАРТА НАЗНАЧЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             if (cardMasks.isNotEmpty()) {
-                Text("КАРТА НАЗНАЧЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement   = Arrangement.spacedBy(8.dp),
@@ -164,6 +166,40 @@ fun LinkTransferRouteSheet(
                             )
                         }
                     }
+                }
+            }
+            // Manual entry — type 4 digits when the card isn't in the account list
+            Row(
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value         = cardInput,
+                    onValueChange = { cardInput = it.filter { c -> c.isDigit() }.take(4) },
+                    label         = { Text("Последние 4 цифры", style = FosType.Label) },
+                    singleLine    = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction    = ImeAction.Done,
+                    ),
+                    colors   = sheetFieldColors(),
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = {
+                        if (cardInput.length == 4) {
+                            onLinkCard(cardInput)
+                            cardInput = ""
+                        }
+                    },
+                    enabled = cardInput.length == 4,
+                    shape   = RoundedCornerShape(FosDimens.RadiusButton),
+                    colors  = ButtonDefaults.buttonColors(
+                        containerColor = FosColors.Info,
+                        contentColor   = FosColors.Background,
+                    ),
+                ) {
+                    Text("Добавить", style = FosType.Label)
                 }
             }
 
