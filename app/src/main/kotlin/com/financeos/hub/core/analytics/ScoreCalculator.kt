@@ -52,7 +52,7 @@ class ScoreCalculator @Inject constructor() {
     private fun calcStability(input: ScoreInput): Int {
         if (input.last3MonthsIncome.isEmpty()) return 0
         val monthsWithIncome = input.last3MonthsIncome.count { it > 0 }
-        return (monthsWithIncome.toFloat() / 3 * 20).roundToInt()
+        return (monthsWithIncome.toFloat() / input.last3MonthsIncome.size * 20).roundToInt()
     }
 
     // 25 pts: mandatory ratio ≤ 50% of total expense = full score; ≥ 90% = 0

@@ -18,6 +18,7 @@ import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -102,18 +103,23 @@ class AnalyticsViewModel @Inject constructor(
                 .sortedBy { it.first }
 
             coroutineScope {
-                val scoreD     = async { runCatching { analyticsEngine.computeScore() }.getOrNull() }
-                val insightsD  = async { runCatching { analyticsEngine.generateInsights() }.getOrDefault(emptyList()) }
-                val sparklineD = async { runCatching { analyticsEngine.sparkline30Days() }.getOrDefault(emptyList()) }
-                val forecastD  = async { runCatching { analyticsEngine.forecastMonthEnd() }.getOrDefault(0L) }
-                val heatmapD   = async { runCatching { analyticsEngine.computeHeatmap() }.getOrNull() }
-                val fatigueD   = async { runCatching { analyticsEngine.computeFatigueCurve() }.getOrNull() }
-                val impulseD   = async { runCatching { analyticsEngine.computeImpulseStats() }.getOrNull() }
-                val anomaliesD = async { runCatching { analyticsEngine.detectCategoryAnomalies() }.getOrDefault(emptyList()) }
-                val waterfallD = async { runCatching { analyticsEngine.computeWaterfallBars() }.getOrDefault(emptyList()) }
-                val narrativesD= async { runCatching { analyticsEngine.generateNarratives() }.getOrDefault(emptyList()) }
-                val fixedVarD  = async { runCatching { analyticsEngine.classifyFixedVariable() }.getOrNull() }
-                val archetypeD = async { runCatching { analyticsEngine.classifyBehavior() }.getOrNull() }
+                fun <T> safeAsync(block: suspend () -> T?) = async {
+                    runCatching { block() }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrNull()
+                }
+                val scoreD     = safeAsync { analyticsEngine.computeScore() }
+                val insightsD  = safeAsync { analyticsEngine.generateInsights() ?: emptyList() }
+                val sparklineD = safeAsync { analyticsEngine.sparkline30Days() ?: emptyList() }
+                val forecastD  = safeAsync { analyticsEngine.forecastMonthEnd() ?: 0L }
+                val heatmapD   = safeAsync { analyticsEngine.computeHeatmap() }
+                val fatigueD   = safeAsync { analyticsEngine.computeFatigueCurve() }
+                val impulseD   = safeAsync { analyticsEngine.computeImpulseStats() }
+                val anomaliesD = safeAsync { analyticsEngine.detectCategoryAnomalies() ?: emptyList() }
+                val waterfallD = safeAsync { analyticsEngine.computeWaterfallBars() ?: emptyList() }
+                val narrativesD= safeAsync { analyticsEngine.generateNarratives() ?: emptyList() }
+                val fixedVarD  = safeAsync { analyticsEngine.classifyFixedVariable() }
+                val archetypeD = safeAsync { analyticsEngine.classifyBehavior() }
 
                 AnalyticsState(
                     transactions      = monthTx,
@@ -121,15 +127,15 @@ class AnalyticsViewModel @Inject constructor(
                     categoryNames     = catMap,
                     dailyExpenses     = daily,
                     score             = scoreD.await(),
-                    insights          = insightsD.await(),
-                    sparkline         = sparklineD.await(),
-                    forecastKopecks   = forecastD.await(),
+                    insights          = insightsD.await()    ?: emptyList(),
+                    sparkline         = sparklineD.await()   ?: emptyList(),
+                    forecastKopecks   = forecastD.await()    ?: 0L,
                     heatmap           = heatmapD.await(),
                     fatigueCurve      = fatigueD.await(),
                     impulseStats      = impulseD.await(),
-                    categoryAnomalies = anomaliesD.await(),
-                    waterfallBars     = waterfallD.await(),
-                    narratives        = narrativesD.await(),
+                    categoryAnomalies = anomaliesD.await()   ?: emptyList(),
+                    waterfallBars     = waterfallD.await()   ?: emptyList(),
+                    narratives        = narrativesD.await()  ?: emptyList(),
                     fixedVariable     = fixedVarD.await(),
                     userArchetype     = archetypeD.await(),
                     isLoading         = false,

@@ -34,8 +34,23 @@ object TransferPatterns {
 
     // Amount somewhere in the body, with optional currency suffix.
     // Whitespace class covers regular space plus NBSP (U+00A0) and narrow NBSP (U+202F) separators.
+    // Allow 1 or 2 decimal places — some Alfa pushes emit "-468,7 ₽" (one digit).
     private val AMOUNT = Regex(
-        "([\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{2})?)\\s*(?:RUB|₽|руб|р)",
+        "([\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*(?:RUB|₽|руб|р)",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // Source card mask in common Russian push/SMS formats:
+    //   VISA/MIR + 4 digits (Sberbank), Карта *NNNN or Карта NNNN (Tbank/Alfa SMS),
+    //   ••NNNN / ··NNNN / *NNNN at end of line (Alfa push, others).
+    private val SOURCE_CARD = Regex(
+        "(?:(?:VISA|MIR|МИР|MC|MASTERCARD)\\s*(\\d{4})|Карта\\s+[*•·]{0,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})\\s*$)",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
+
+    // Post-operation balance: "Остаток: 16 000 ₽", "Доступно: 5000,00 RUB", "Баланс: 1 234р"
+    private val BALANCE = Regex(
+        "(?:Остаток|Доступно|Баланс):?\\s*([\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
         RegexOption.IGNORE_CASE,
     )
 
@@ -44,11 +59,13 @@ object TransferPatterns {
         val outgoing: Boolean,
         val counterpartyMask: String?,
         val cardMask: String?,
+        val balanceKopecks: Long? = null,
     )
 
     /**
      * Returns a TRANSFER [Result] if [body] clearly describes a transfer, else null.
-     * [ownCardMask] is the source card last-4 if the caller already extracted it.
+     * [ownCardMask] overrides the auto-extracted source card; pass it when the bank parser
+     * already knows the source card from a bank-specific pattern.
      */
     fun detect(body: String, ownCardMask: String? = null): Result? {
         val incoming = INCOMING.containsMatchIn(body)
@@ -59,11 +76,18 @@ object TransferPatterns {
         if (amt <= 0L) return null
 
         val dest = DEST_MASK.find(body)?.groupValues?.getOrNull(1)
+        // Use caller-supplied mask, else try common bank push/SMS card-mask patterns.
+        val resolvedMask = ownCardMask ?: SOURCE_CARD.find(body)?.let { m ->
+            m.groupValues.drop(1).firstOrNull { it.isNotEmpty() }
+        }
+        val balance = BALANCE.find(body)?.groupValues?.getOrNull(1)
+            ?.let { AmountParser.toKopecks(it) }?.takeIf { it >= 0L }
         return Result(
             amountKopecks    = amt,
             outgoing         = outgoing,
             counterpartyMask = dest,
-            cardMask         = ownCardMask,
+            cardMask         = resolvedMask,
+            balanceKopecks   = balance,
         )
     }
 
@@ -79,7 +103,7 @@ object TransferPatterns {
         amountKopecks    = r.amountKopecks,
         merchant         = if (r.outgoing) "Перевод" else "Перевод (входящий)",
         cardMask         = r.cardMask,
-        balanceKopecks   = null,
+        balanceKopecks   = r.balanceKopecks,
         timestamp        = timestampMillis,
         bankId           = bankId,
         rawSms           = body,

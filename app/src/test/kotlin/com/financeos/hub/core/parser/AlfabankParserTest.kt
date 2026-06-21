@@ -96,4 +96,38 @@ class AlfabankParserTest {
             parser.parse("ALFABANK", body, ts)!!.smsId,
         )
     }
+
+    // Regression: outgoing P2P transfer push — card mask and balance must be extracted so
+    // AccountLinker can resolve the account and syncBalance can update it on Dashboard.
+    @Test fun `parses push transfer with card mask and balance`() {
+        val body = "Альфа-Банк -5 000 ₽. Перевод Иван И. Остаток: 16 000 ₽; ••2548"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(com.financeos.hub.core.database.entities.TransactionType.TRANSFER, tx!!.type)
+        assertEquals(500_000L, tx.amountKopecks)
+        assertEquals("2548", tx.cardMask)
+        assertEquals(1_600_000L, tx.balanceKopecks)
+        assertEquals(true, tx.outgoing)
+    }
+
+    @Test fun `parses push transfer with single decimal amount`() {
+        val body = "Альфа-Банк -468,7 ₽. Перевод Остаток: 3 621,04 ₽; ••2548"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(com.financeos.hub.core.database.entities.TransactionType.TRANSFER, tx!!.type)
+        assertEquals(46_870L, tx.amountKopecks)
+        assertEquals("2548", tx.cardMask)
+        assertEquals(362_104L, tx.balanceKopecks)
+    }
+
+    @Test fun `parses push incoming transfer`() {
+        val body = "Альфа-Банк +5 000 ₽. Перевод от Ивана И. Остаток: 21 000 ₽; ••2548"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(com.financeos.hub.core.database.entities.TransactionType.TRANSFER, tx!!.type)
+        assertEquals(500_000L, tx.amountKopecks)
+        assertEquals(false, tx.outgoing)
+        assertEquals("2548", tx.cardMask)
+        assertEquals(2_100_000L, tx.balanceKopecks)
+    }
 }

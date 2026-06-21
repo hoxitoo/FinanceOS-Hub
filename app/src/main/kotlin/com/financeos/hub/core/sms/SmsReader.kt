@@ -65,7 +65,7 @@ class SmsReader @Inject constructor(
                     val parsed = parserEngine.parse(sender, body, ts)
                     if (parsed != null && parsed.smsId !in knownIds) {
                         val categoryId = classifier.classify(parsed.merchant, null)
-                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
+                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),
                             accountId     = accountId,
@@ -79,12 +79,12 @@ class SmsReader @Inject constructor(
                             smsId         = parsed.smsId,
                         )
                         val rowIds = transactionDao.insertAll(listOf(entity))
+                        knownIds.add(parsed.smsId)  // always add so next loop iteration skips it
                         if (rowIds.firstOrNull() != -1L) {
                             accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
                             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+                            imported++
                         }
-                        knownIds.add(parsed.smsId)
-                        imported++
                     }
                 }
                 processed++
