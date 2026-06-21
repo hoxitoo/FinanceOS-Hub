@@ -120,3 +120,4 @@ class TransferRouter @Inject constructor(
             goalRepo.contribute(goalId, -appliedDelta)
         }
     }
+}
