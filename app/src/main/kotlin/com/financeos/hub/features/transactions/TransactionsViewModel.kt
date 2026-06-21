@@ -154,7 +154,23 @@ class TransactionsViewModel @Inject constructor(
     }
 
     fun deleteTransaction(id: String) {
-        viewModelScope.launch { txRepo.softDelete(id) }
+        viewModelScope.launch {
+            // Reverse the balance effect of a MANUAL op before soft-deleting it: insertManual()
+            // applied its signed amount to the chosen account, so deletion must undo it.
+            // SMS/PUSH balances come from the bank's authoritative "Остаток" snapshot (not a
+            // delta we own), and PDF rows have no account — so we only reverse MANUAL entries.
+            val tx = txRepo.getById(id)
+            if (tx != null && tx.accountId != null && tx.source == TransactionSource.MANUAL) {
+                val acc = accountRepo.getById(tx.accountId)
+                if (acc != null) {
+                    accountRepo.upsert(acc.copy(
+                        balanceKopecks = acc.balanceKopecks - tx.amountKopecks,
+                        updatedAt      = System.currentTimeMillis(),
+                    ))
+                }
+            }
+            txRepo.softDelete(id)
+        }
     }
 
     fun insertManual(

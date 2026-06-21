@@ -45,6 +45,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | P3 | МТС Банк | MTSB | ru.mtsbank.mobilebank |
 | P3 | Почта Банк | POSTABANK | ru.pochtabank.android |
 | P3 | Россельхозбанк | RSHB | ru.rshb.mbank |
+| KG | МБанк (Кыргызстан) | MBANK | com.maanavan.mb_kyrgyzstan |
 
 ## Screens
 
