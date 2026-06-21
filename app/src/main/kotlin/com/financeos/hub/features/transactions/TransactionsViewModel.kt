@@ -173,7 +173,7 @@ class TransactionsViewModel @Inject constructor(
             }
             // A transfer that funded a savings goal must un-fund it on delete, else the goal
             // stays permanently inflated by money no longer backed by a transaction.
-            if (tx?.goalId != null) {
+            if (tx != null && tx.goalId != null) {
                 transferRouter.onTransactionReversed(tx)
             }
             txRepo.softDelete(id)
