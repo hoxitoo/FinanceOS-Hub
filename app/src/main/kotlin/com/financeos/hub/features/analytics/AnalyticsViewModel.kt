@@ -21,6 +21,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -135,5 +136,6 @@ class AnalyticsViewModel @Inject constructor(
                 )
             }
         }
+        .catch { emit(AnalyticsState(isLoading = false)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }

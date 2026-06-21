@@ -18,5 +18,23 @@ class GoalRepository @Inject constructor(
 
     suspend fun updateSaved(id: String, savedKopecks: Long) = dao.updateSaved(id, savedKopecks)
 
+    /**
+     * Adds [amountKopecks] to a goal's saved balance (may be negative to undo),
+     * clamping to [0, target] and updating completion state.
+     */
+    suspend fun contribute(goalId: String, amountKopecks: Long) {
+        val g = dao.getById(goalId) ?: return
+        val newSaved = (g.savedKopecks + amountKopecks).coerceAtLeast(0L)
+        val completed = newSaved >= g.targetKopecks
+        dao.upsert(
+            g.copy(
+                savedKopecks = newSaved.coerceAtMost(g.targetKopecks),
+                isCompleted  = completed,
+                completedAt  = if (completed) System.currentTimeMillis() else null,
+                updatedAt    = System.currentTimeMillis(),
+            )
+        )
+    }
+
     suspend fun delete(id: String) = dao.delete(id)
 }

@@ -49,21 +49,44 @@ fun TransactionRow(
                 maxLines = 1,
             )
             Text(
-                text  = "${FosFormatter.dayLabel(transaction.timestamp)} · $categoryName",
+                text  = "${FosFormatter.dayLabelYear(transaction.timestamp)} · ${transaction.description?.takeIf { it.isNotBlank() } ?: categoryName}",
                 style = FosType.Micro,
                 color = FosColors.TextSecondary,
+                maxLines = 1,
             )
         }
 
         Spacer(Modifier.width(8.dp))
 
-        // Right — amount; CRITICAL: expenses = Negative red
-        val isExpense = transaction.type == TransactionType.EXPENSE
-        val amtColor  = if (isExpense) FosColors.Negative else FosColors.Positive
-        Text(
-            text  = FosFormatter.signedAmount(transaction.amountKopecks),
-            style = FosType.TxAmount,
-            color = amtColor,
-        )
+        // Right — amount.
+        // CRITICAL: expenses = Negative red, income = Positive green.
+        // A TRANSFER is neither income nor expense → render neutral (never red, never green).
+        when (transaction.type) {
+            TransactionType.TRANSFER -> {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text  = "↔ ${FosFormatter.amount(kotlin.math.abs(transaction.amountKopecks))}",
+                        style = FosType.TxAmount,
+                        color = FosColors.TextPrimary,
+                    )
+                    if (transaction.goalId != null) {
+                        Text(
+                            text  = "→ в цель",
+                            style = FosType.Micro,
+                            color = FosColors.TextSecondary,
+                        )
+                    }
+                }
+            }
+            else -> {
+                val isExpense = transaction.type == TransactionType.EXPENSE
+                val amtColor  = if (isExpense) FosColors.Negative else FosColors.Positive
+                Text(
+                    text  = FosFormatter.signedAmount(transaction.amountKopecks),
+                    style = FosType.TxAmount,
+                    color = amtColor,
+                )
+            }
+        }
     }
 }

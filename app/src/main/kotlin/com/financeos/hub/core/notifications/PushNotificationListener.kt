@@ -5,12 +5,13 @@ import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
-import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.ParserEngine
+import com.financeos.hub.core.transfer.TransferRouter
 import com.financeos.hub.data.preferences.UserPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -29,6 +30,8 @@ class PushNotificationListener : NotificationListenerService() {
     @Inject lateinit var transactionDao : TransactionDao
     @Inject lateinit var classifier     : CategoryClassifier
     @Inject lateinit var userPreferences: UserPreferences
+    @Inject lateinit var transferRouter : TransferRouter
+    @Inject lateinit var accountLinker  : AccountLinker
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("PushListener", "Push processing failed", t)
@@ -40,10 +43,15 @@ class PushNotificationListener : NotificationListenerService() {
         scope.launch {
             if (!userPreferences.pushListenerEnabled.first()) return@launch
             val extras = sbn.notification?.extras ?: return@launch
-            val title  = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
-            val text   = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+            val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
+            val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+            // The expanded ("big text") view carries the full body — e.g. the
+            // "Остаток: … ; ··2548" line that the collapsed EXTRA_TEXT omits. Prefer it so
+            // the balance and destination card mask are available for account linking.
+            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
+            val detail  = if (bigText.length > text.length) bigText else text
             // Some banks put the amount in the title, details in text — join both
-            val body   = if (text.isNotBlank()) "$title $text" else title
+            val body    = listOf(title, detail).filter { it.isNotBlank() }.joinToString(" ")
             if (body.isBlank()) return@launch
             processPush(sender, body, sbn.postTime)
         }
@@ -55,23 +63,24 @@ class PushNotificationListener : NotificationListenerService() {
         if (pushId in transactionDao.getAllSmsHashes()) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
-        transactionDao.insertAll(
-            listOf(
-                TransactionEntity(
-                    id            = UUID.randomUUID().toString(),
-                    accountId     = null,
-                    categoryId    = categoryId,
-                    type          = parsed.type,
-                    source        = TransactionSource.PUSH,
-                    amountKopecks = if (parsed.type == TransactionType.EXPENSE)
-                        -parsed.amountKopecks else parsed.amountKopecks,
-                    merchant      = parsed.merchant,
-                    description   = null,
-                    timestamp     = ts,
-                    smsId         = pushId,
-                )
-            )
+        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
+        val entity = TransactionEntity(
+            id            = UUID.randomUUID().toString(),
+            accountId     = accountId,
+            categoryId    = categoryId,
+            type          = parsed.type,
+            source        = TransactionSource.PUSH,
+            amountKopecks = parsed.signedKopecks(),
+            merchant      = parsed.merchant,
+            description   = null,
+            timestamp     = ts,
+            smsId         = pushId,
         )
+        val rowIds = transactionDao.insertAll(listOf(entity))
+        if (rowIds.firstOrNull() != -1L) {
+            accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
+            transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+        }
     }
 
     companion object {
@@ -97,6 +106,8 @@ class PushNotificationListener : NotificationListenerService() {
             "ru.mtsbank.mobilebank"             to "MTSB",
             "ru.pochtabank.android"             to "POSTABANK",
             "ru.rshb.mbank"                     to "RSHB",
+            // KG
+            "com.maanavan.mb_kyrgyzstan"        to "MBANK",
         )
 
         fun isPermissionGranted(context: Context): Boolean =

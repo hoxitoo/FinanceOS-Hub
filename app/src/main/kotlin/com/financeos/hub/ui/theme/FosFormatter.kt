@@ -56,6 +56,20 @@ object FosFormatter {
         }
     }
 
+    /**
+     * Like [dayLabel] but always shows the year for non-relative dates: "18 июня 2025".
+     * Used in transaction history, where imported statements can span past years.
+     */
+    fun dayLabelYear(epochMillis: Long): String {
+        val date  = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+        val today = LocalDate.now()
+        return when (date) {
+            today              -> "Сегодня"
+            today.minusDays(1) -> "Вчера"
+            else               -> date.format(fullDateFmt)
+        }
+    }
+
     /** Epoch millis → "18 июня 2025, 14:35" */
     fun fullDateTime(epochMillis: Long): String {
         val ldt = Instant.ofEpochMilli(epochMillis)
@@ -80,6 +94,14 @@ object FosFormatter {
     fun date(epochMillis: Long): String {
         val date = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
         return date.format(fullDateFmt)
+    }
+
+    /** Maps an ISO currency code to a display symbol. */
+    fun currencySymbol(code: String): String = when (code.uppercase()) {
+        "USD" -> "$"
+        "EUR" -> "€"
+        "KGS" -> "сом"
+        else  -> "₽"
     }
 
     /** Groups a raw digit string with NBSP thousands separators: "200000" → "200 000". */

@@ -60,6 +60,36 @@ interface TransactionDao {
     """)
     suspend fun softDelete(id: String, now: Long = System.currentTimeMillis())
 
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAll()
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+          AND transfer_pair_id IS NULL
+          AND goal_id IS NULL
+          AND id != :selfId
+          AND ABS(amount_kopecks) = :magnitude
+          AND ( (:outgoing = 1 AND amount_kopecks > 0) OR (:outgoing = 0 AND amount_kopecks < 0) )
+          AND timestamp BETWEEN :fromTs AND :toTs
+        ORDER BY ABS(timestamp - :centerTs) ASC
+        LIMIT 1
+    """)
+    suspend fun findTransferCounterpart(
+        selfId: String,
+        magnitude: Long,
+        outgoing: Int,
+        fromTs: Long,
+        toTs: Long,
+        centerTs: Long,
+    ): TransactionEntity?
+
+    @Query("UPDATE transactions SET type = 'TRANSFER', transfer_pair_id = :pairId, category_id = NULL, updated_at = :now WHERE id = :id")
+    suspend fun markAsPairedTransfer(id: String, pairId: String, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE transactions SET goal_id = :goalId, updated_at = :now WHERE id = :id")
+    suspend fun setGoal(id: String, goalId: String?, now: Long = System.currentTimeMillis())
+
     @Query("""
         SELECT SUM(amount_kopecks) FROM transactions
         WHERE is_deleted = 0

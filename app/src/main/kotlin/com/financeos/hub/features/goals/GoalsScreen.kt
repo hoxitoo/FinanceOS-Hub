@@ -54,6 +54,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     var editTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var linkTarget    by remember { mutableStateOf<GoalEntity?>(null) }
+    val linkSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     Scaffold(
         containerColor = FosColors.Background,
         floatingActionButton = {
@@ -99,6 +102,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                             contributeTarget = goal
                             contributeText   = ""
                         },
+                        onLink   = { linkTarget = goal },
                         onDelete = { vm.deleteGoal(goal.id) },
                     )
                 }
@@ -111,9 +115,10 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     if (showAddSheet) {
         AddGoalSheet(
             sheetState = addSheetState,
+            accounts   = state.accounts,
             onDismiss  = { showAddSheet = false },
-            onSave     = { name, emoji, targetKopecks, deadline ->
-                vm.createGoal(name, emoji, targetKopecks, deadline)
+            onSave     = { name, emoji, targetKopecks, deadline, linkedAccountId ->
+                vm.createGoal(name, emoji, targetKopecks, deadline, linkedAccountId)
             },
         )
     }
@@ -123,8 +128,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
         AddGoalSheet(
             sheetState = editSheetState,
             existing   = goal,
+            accounts   = state.accounts,
             onDismiss  = { editTarget = null },
-            onSave     = { name, emoji, targetKopecks, deadline ->
+            onSave     = { name, emoji, targetKopecks, deadline, _ ->
                 vm.updateGoal(goal, name, emoji, targetKopecks, deadline)
                 editTarget = null
             },
@@ -189,6 +195,22 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             },
         )
     }
+
+    // Auto-fund link sheet
+    linkTarget?.let { goal ->
+        LinkTransferRouteSheet(
+            goal           = goal,
+            sheetState     = linkSheetState,
+            routes         = state.routes,
+            cardMasks      = state.cardMasks,
+            accounts       = state.accounts,
+            onLinkCard     = { mask -> vm.linkCard(goal.id, mask) },
+            onLinkKeyword  = { kw -> vm.linkKeyword(goal.id, kw) },
+            onLinkAccount  = { accountId -> vm.linkAccount(goal.id, accountId) },
+            onUnlink       = { routeId -> vm.unlink(routeId) },
+            onDismiss      = { linkTarget = null },
+        )
+    }
 }
 
 @Composable
@@ -196,6 +218,7 @@ private fun GoalCard(
     goal             : GoalEntity,
     onEdit           : () -> Unit,
     onAddContribution: () -> Unit,
+    onLink           : () -> Unit,
     onDelete         : () -> Unit,
 ) {
     val ratio = if (goal.targetKopecks > 0)
@@ -254,6 +277,12 @@ private fun GoalCard(
                 ) {
                     Text("+", style = FosType.BodySemi, color = FosColors.Info)
                 }
+            }
+            TextButton(
+                onClick        = onLink,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
             }
             TextButton(
                 onClick        = onDelete,

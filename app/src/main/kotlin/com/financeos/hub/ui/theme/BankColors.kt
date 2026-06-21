@@ -42,6 +42,8 @@ fun bankBrand(bank: String): BankBrand {
             BankBrand(Color(0xFF1A468C), WHITE)
         "россельхоз" in b || "рсхб" in b || "rshb" in b ->
             BankBrand(Color(0xFF006B3F), WHITE)
+        "мбанк" in b || "mbank" in b || "кыргыз" in b ->
+            BankBrand(Color(0xFF0076BE), WHITE)
         else ->
             BankBrand(Color(0xFF3A4358), WHITE)   // neutral slate for unknown banks
     }

@@ -5,12 +5,17 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.classifier.CategoryClassifier
+import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.pdf.PdfImporter
 import com.financeos.hub.core.pdf.PdfTransactionParser
+import com.financeos.hub.core.transfer.TransferRouter
+import com.financeos.hub.data.repositories.AccountRepository
+import com.financeos.hub.data.repositories.CardRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,6 +45,8 @@ data class TransactionsState(
     val searchQuery    : String                             = "",
     val categories     : List<CategoryEntity>               = emptyList(),
     val categoryFilter : String?                            = null,
+    val accounts       : List<AccountEntity>               = emptyList(),
+    val cards          : List<CardEntity>                  = emptyList(),
     private val categoryMap: Map<String, String>            = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categoryMap[it] } ?: "Другое"
@@ -58,8 +65,11 @@ sealed interface PdfImportState {
 class TransactionsViewModel @Inject constructor(
     private val txRepo      : TransactionRepository,
     private val categoryRepo: CategoryRepository,
+    private val accountRepo : AccountRepository,
+    private val cardRepo    : CardRepository,
     private val pdfImporter : PdfImporter,
     private val classifier  : CategoryClassifier,
+    private val transferRouter: TransferRouter,
     savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
 
@@ -77,8 +87,10 @@ class TransactionsViewModel @Inject constructor(
     val state = combine(
         txRepo.observeAll(),
         categoryRepo.observeAll(),
+        accountRepo.observeAll(),
+        cardRepo.observeAll(),
         combine(_filter, _search, _categoryFilter) { f, s, c -> Triple(f, s, c) },
-    ) { txList, categories, (filter, query, catFilter) ->
+    ) { txList, categories, accounts, cards, (filter, query, catFilter) ->
         val catMap = categories.associate { it.id to it.name }
 
         val filtered = txList
@@ -117,6 +129,8 @@ class TransactionsViewModel @Inject constructor(
             searchQuery    = query,
             categories     = categories,
             categoryFilter = catFilter,
+            accounts       = accounts,
+            cards          = cards,
             categoryMap    = catMap,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionsState())
@@ -142,28 +156,54 @@ class TransactionsViewModel @Inject constructor(
     }
 
     fun deleteTransaction(id: String) {
-        viewModelScope.launch { txRepo.softDelete(id) }
+        viewModelScope.launch {
+            // Reverse the balance effect of a MANUAL op before soft-deleting it: insertManual()
+            // applied its signed amount to the chosen account, so deletion must undo it.
+            // SMS/PUSH balances come from the bank's authoritative "Остаток" snapshot (not a
+            // delta we own), and PDF rows have no account — so we only reverse MANUAL entries.
+            val tx = txRepo.getById(id)
+            if (tx != null && tx.accountId != null && tx.source == TransactionSource.MANUAL) {
+                val acc = accountRepo.getById(tx.accountId)
+                if (acc != null) {
+                    accountRepo.upsert(acc.copy(
+                        balanceKopecks = acc.balanceKopecks - tx.amountKopecks,
+                        updatedAt      = System.currentTimeMillis(),
+                    ))
+                }
+            }
+            // A transfer that funded a savings goal must un-fund it on delete, else the goal
+            // stays permanently inflated by money no longer backed by a transaction.
+            if (tx?.goalId != null) {
+                transferRouter.onTransactionReversed(tx)
+            }
+            txRepo.softDelete(id)
+        }
     }
 
     fun insertManual(
-        type       : TransactionType,
+        type         : TransactionType,
         amountKopecks: Long,
-        merchant   : String,
-        categoryId : String?,
-        note       : String?,
+        merchant     : String,
+        categoryId   : String?,
+        note         : String?,
+        accountId    : String? = null,
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val mag = kotlin.math.abs(amountKopecks)
             txRepo.insert(
                 TransactionEntity(
                     id            = UUID.randomUUID().toString(),
                     smsId         = null,
-                    accountId     = null,
+                    accountId     = accountId,
                     categoryId    = categoryId,
                     type          = type,
                     source        = TransactionSource.MANUAL,
-                    amountKopecks = if (type == TransactionType.EXPENSE) -kotlin.math.abs(amountKopecks)
-                                    else kotlin.math.abs(amountKopecks),
+                    amountKopecks = when (type) {
+                        TransactionType.EXPENSE  -> -mag
+                        TransactionType.INCOME   ->  mag
+                        TransactionType.TRANSFER -> -mag   // manual transfer treated as outgoing
+                    },
                     merchant      = merchant.ifBlank { null },
                     description   = note?.ifBlank { null },
                     timestamp     = now,
@@ -171,6 +211,21 @@ class TransactionsViewModel @Inject constructor(
                     deletedAt     = null,
                 )
             )
+            // Reflect the operation on the chosen account's balance so the dashboard stays in sync.
+            if (accountId != null) {
+                val acc = accountRepo.getById(accountId)
+                if (acc != null) {
+                    val delta = when (type) {
+                        TransactionType.INCOME   ->  mag
+                        TransactionType.EXPENSE  -> -mag
+                        TransactionType.TRANSFER -> -mag
+                    }
+                    accountRepo.upsert(acc.copy(
+                        balanceKopecks = acc.balanceKopecks + delta,
+                        updatedAt      = now,
+                    ))
+                }
+            }
         }
     }
 

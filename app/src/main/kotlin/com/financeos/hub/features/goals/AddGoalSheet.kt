@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -60,17 +61,18 @@ private val GOAL_EMOJIS = listOf(
 fun AddGoalSheet(
     sheetState: SheetState,
     existing  : GoalEntity? = null,
+    accounts  : List<AccountEntity> = emptyList(),
     onDismiss : () -> Unit,
-    onSave    : (name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?) -> Unit,
+    onSave    : (name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?, linkedAccountId: String?) -> Unit,
 ) {
     val editing = existing != null
 
-    var name          by remember { mutableStateOf(existing?.name ?: "") }
-    // Raw digits only (whole rubles); displayed grouped with spaces.
-    var targetDigits  by remember { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
-    var selectedEmoji by remember { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
-    var deadline      by remember { mutableStateOf(existing?.deadlineAt) }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var name             by remember { mutableStateOf(existing?.name ?: "") }
+    var targetDigits     by remember { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
+    var selectedEmoji    by remember { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
+    var deadline         by remember { mutableStateOf(existing?.deadlineAt) }
+    var linkedAccountId  by remember { mutableStateOf<String?>(null) }
+    var showDatePicker   by remember { mutableStateOf(false) }
 
     val targetKopecks = (targetDigits.toLongOrNull() ?: 0L) * 100L
     val canSave = name.isNotBlank() && targetKopecks > 0
@@ -185,11 +187,82 @@ fun AddGoalSheet(
                 }
             }
 
+            // Account picker — optional; links goal to a bank account for auto-routing
+            if (accounts.isNotEmpty()) {
+                Text("ПРИВЯЗАТЬ СЧЁТ (АВТО)", style = FosType.SectionCap, color = FosColors.TextMuted)
+                Text(
+                    "Переводы на этот счёт будут автоматически добавлять к цели, переводы с него — вычитать.",
+                    style = FosType.Micro,
+                    color = FosColors.TextSecondary,
+                )
+                LazyRow(
+                    contentPadding        = PaddingValues(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // "No link" chip
+                    item {
+                        val selected = linkedAccountId == null
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                                .background(if (selected) FosColors.Surface2 else FosColors.Surface2)
+                                .border(
+                                    1.dp,
+                                    if (selected) FosColors.TextSecondary else FosColors.BorderStrong,
+                                    RoundedCornerShape(FosDimens.RadiusButton),
+                                )
+                                .clickable { linkedAccountId = null }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                "— Не привязывать",
+                                style = FosType.Label,
+                                color = if (selected) FosColors.TextPrimary else FosColors.TextMuted,
+                            )
+                        }
+                    }
+                    items(accounts) { acc ->
+                        val selected = linkedAccountId == acc.id
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                                .background(
+                                    if (selected) FosColors.Positive.copy(alpha = 0.12f) else FosColors.Surface2
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) FosColors.Positive else FosColors.BorderStrong,
+                                    RoundedCornerShape(FosDimens.RadiusButton),
+                                )
+                                .clickable { linkedAccountId = acc.id }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    acc.name,
+                                    style = FosType.Label,
+                                    color = if (selected) FosColors.Positive else FosColors.TextPrimary,
+                                )
+                                if (acc.cardMask != null) {
+                                    Text(
+                                        "•• ${acc.cardMask}",
+                                        style = FosType.Micro,
+                                        color = if (selected) FosColors.Positive.copy(alpha = 0.7f) else FosColors.TextMuted,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(4.dp))
 
             Button(
                 onClick  = {
-                    onSave(name.trim(), selectedEmoji, targetKopecks, deadline)
+                    onSave(name.trim(), selectedEmoji, targetKopecks, deadline, linkedAccountId)
                     onDismiss()
                 },
                 enabled  = canSave,

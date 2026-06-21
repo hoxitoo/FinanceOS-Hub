@@ -30,11 +30,15 @@ class TransactionRepository @Inject constructor(
 
     suspend fun getAllSmsHashes(): List<String> = dao.getAllSmsHashes()
 
+    suspend fun getById(id: String): TransactionEntity? = dao.getById(id)
+
     suspend fun insert(tx: TransactionEntity) = dao.insertAll(listOf(tx))
 
     suspend fun update(tx: TransactionEntity) = dao.update(tx)
 
     suspend fun softDelete(id: String) = dao.softDelete(id)
+
+    suspend fun deleteAllHistory() = dao.deleteAll()
 
     suspend fun sumExpensesThisMonth(): Long {
         val zone  = ZoneId.systemDefault()

@@ -43,6 +43,8 @@ data class TransactionEntity(
     val description: String?,
     val timestamp: Long,
     @ColumnInfo(name = "sms_id") val smsId: String?,                // dedup key
+    @ColumnInfo(name = "goal_id") val goalId: String? = null,
+    @ColumnInfo(name = "transfer_pair_id") val transferPairId: String? = null,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
