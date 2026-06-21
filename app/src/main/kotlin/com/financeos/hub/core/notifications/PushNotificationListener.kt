@@ -63,7 +63,7 @@ class PushNotificationListener : NotificationListenerService() {
         if (pushId in transactionDao.getAllSmsHashes()) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
-        val accountId  = accountLinker.resolveAccountId(parsed.cardMask)
+        val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),
             accountId     = accountId,

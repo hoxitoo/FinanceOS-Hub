@@ -15,7 +15,9 @@ import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -54,11 +56,13 @@ class DashboardViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            txRepo.observeCurrentMonth().collect {
-                runCatching { engine.computeScore().total }.onSuccess  { _score.value     = it }
-                runCatching { engine.forecastMonthEnd() }.onSuccess    { _forecast.value  = it }
-                runCatching { engine.sparkline30Days() }.onSuccess     { _sparkline.value = it }
-            }
+            txRepo.observeCurrentMonth()
+                .debounce(500)
+                .collectLatest {
+                    runCatching { engine.computeScore().total }.onSuccess  { _score.value     = it }
+                    runCatching { engine.forecastMonthEnd() }.onSuccess    { _forecast.value  = it }
+                    runCatching { engine.sparkline30Days() }.onSuccess     { _sparkline.value = it }
+                }
         }
     }
 

@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -82,6 +82,13 @@ abstract class FosDatabase : RoomDatabase() {
                     )
                 """)
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_routes_goal_id` ON `transfer_routes`(`goal_id`)")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_goal_id` ON `transactions`(`goal_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_transfer_pair_id` ON `transactions`(`transfer_pair_id`)")
             }
         }
 
