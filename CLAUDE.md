@@ -277,6 +277,10 @@ Deep audit of 4 critical paths. 3 genuine bugs fixed:
 | HIGH | `SmsReceiver.kt` | **Process kill race**: `onReceive()` launched coroutines without `goAsync()` — Android could kill the process before the DB write completed when app is backgrounded. Wrapped in `goAsync()` / `pendingResult.finish()` in finally block. |
 | HIGH | `AnalyticsEngine.kt` | **Cushion score always 0**: `buildScoreInput()` and `buildInsightData()` both hardcoded `totalBalance = 0L`. The cushion pillar (25 pts) of the 0–100 financial health score was permanently 0. Fixed to `accountDao.sumAllBalances()`. |
 
+## Post-Audit-3 Fixes (this session)
+- [x] **МБанк parser** (`core/parser/banks/MBankParser.kt`) — multi-currency KG bank (USD/KGS/EUR/RUB). Line-oriented push: `Покупка: 22 USD` / merchant line / `Карта: *6461` / `Доступно: 11.96 USD`. Extracts each field independently (amount taken AFTER the type keyword so `Доступно:` is never mis-read as the amount). Registered in `ParserModule` (`bindMBank`); push package `com.maanavan.mb_kyrgyzstan` → `MBANK` added to `PushNotificationListener`. `MBankParserTest` (7 cases). Amounts stored as minor units (×100) in the card's currency.
+- [x] **Manual-delete balance bug** — deleting a manually-added operation did not restore the account balance (insert applied a delta, delete did not undo it). `TransactionsViewModel.deleteTransaction` now loads the row first and, for `source == MANUAL` with an `accountId`, reverses `amountKopecks` from the account before soft-deleting. SMS/PUSH balances are bank-authoritative snapshots (not reversed); PDF rows have no account. Added `TransactionRepository.getById`.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 
