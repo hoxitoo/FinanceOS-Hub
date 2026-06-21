@@ -39,15 +39,33 @@ class TransferRouter @Inject constructor(
             val magnitude = abs(tx.amountKopecks)
             val outgoing  = tx.amountKopecks < 0
 
-            // (A) Goal routing — ONLY for outgoing transfers (money put INTO savings)
+            // (A) Goal routing
+            val routes = transferRouteRepo.getAllActive()
+
+            // ACCOUNT routes fire for BOTH directions: inbound → +progress, outbound → −progress.
+            // This lets a user say "Путешествия = my Alfa Travel account": depositing 10k adds to
+            // the goal; withdrawing 5k reduces it.
+            val accountRoute = routes.firstOrNull { r ->
+                r.matchType == TransferMatchType.ACCOUNT &&
+                tx.accountId != null &&
+                r.matchValue == tx.accountId
+            }
+            if (accountRoute != null) {
+                val delta = if (outgoing) -magnitude else magnitude
+                goalRepo.contribute(accountRoute.goalId, delta)
+                transactionDao.setGoal(tx.id, accountRoute.goalId)
+                return   // routed; skip pairing
+            }
+
+            // CARD / KEYWORD routes — only for outgoing transfers (money put INTO savings)
             if (outgoing) {
-                val routes = transferRouteRepo.getAllActive()
                 val match = routes.firstOrNull { r ->
                     when (r.matchType) {
                         TransferMatchType.CARD ->
                             counterpartyMask != null && r.matchValue.equals(counterpartyMask, ignoreCase = true)
                         TransferMatchType.KEYWORD ->
                             rawSms != null && rawSms.contains(r.matchValue, ignoreCase = true)
+                        TransferMatchType.ACCOUNT -> false  // handled above
                     }
                 }
                 if (match != null) {

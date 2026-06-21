@@ -22,7 +22,8 @@ import javax.inject.Inject
 data class GoalsState(
     val goals: List<GoalEntity> = emptyList(),
     val routes: List<TransferRouteEntity> = emptyList(),
-    val cardMasks: List<String> = emptyList(),  // distinct masks from accounts + cards, for the picker
+    val cardMasks: List<String> = emptyList(),
+    val accounts: List<AccountEntity> = emptyList(),
 )
 
 @HiltViewModel
@@ -49,14 +50,21 @@ class GoalsViewModel @Inject constructor(
         val cards    = arr[3] as List<CardEntity>
 
         val masks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
-        GoalsState(goals = goals, routes = routes, cardMasks = masks)
+        GoalsState(goals = goals, routes = routes, cardMasks = masks, accounts = accounts)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
-    fun createGoal(name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?) {
+    fun createGoal(
+        name           : String,
+        emoji          : String,
+        targetKopecks  : Long,
+        deadlineAt     : Long?,
+        linkedAccountId: String? = null,
+    ) {
         viewModelScope.launch {
+            val goalId = UUID.randomUUID().toString()
             goalRepo.upsert(
                 GoalEntity(
-                    id            = UUID.randomUUID().toString(),
+                    id            = goalId,
                     name          = name,
                     emoji         = emoji,
                     targetKopecks = targetKopecks,
@@ -64,6 +72,16 @@ class GoalsViewModel @Inject constructor(
                     deadlineAt    = deadlineAt,
                 )
             )
+            if (linkedAccountId != null) {
+                transferRouteRepo.addRoute(
+                    TransferRouteEntity(
+                        id         = UUID.randomUUID().toString(),
+                        goalId     = goalId,
+                        matchType  = TransferMatchType.ACCOUNT,
+                        matchValue = linkedAccountId,
+                    )
+                )
+            }
         }
     }
 
@@ -116,6 +134,19 @@ class GoalsViewModel @Inject constructor(
                     goalId     = goalId,
                     matchType  = TransferMatchType.CARD,
                     matchValue = mask.lowercase(),
+                )
+            )
+        }
+    }
+
+    fun linkAccount(goalId: String, accountId: String) {
+        viewModelScope.launch {
+            transferRouteRepo.addRoute(
+                TransferRouteEntity(
+                    id         = UUID.randomUUID().toString(),
+                    goalId     = goalId,
+                    matchType  = TransferMatchType.ACCOUNT,
+                    matchValue = accountId,
                 )
             )
         }
