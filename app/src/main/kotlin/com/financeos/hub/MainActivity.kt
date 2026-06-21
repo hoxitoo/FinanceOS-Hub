@@ -32,6 +32,9 @@ class MainActivity : AppCompatActivity() {
     private var isLocked by mutableStateOf(true)
     private var promptActive = false
     private var pendingDeepRoute by mutableStateOf<String?>(null)
+    // Cached so onStop can lock synchronously without launching a new coroutine that
+    // may be cancelled before writing isLocked = true (race condition on rapid backgrounding).
+    private var biometricEnabledCache = false
 
     // Device-credential (PIN/pattern/password) fallback when no biometric is enrolled.
     private val credentialLauncher = registerForActivityResult(
@@ -70,7 +73,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
-            if (!userPreferences.biometricEnabled.first()) {
+            biometricEnabledCache = userPreferences.biometricEnabled.first()
+            if (!biometricEnabledCache) {
                 isLocked = false
                 return@launch
             }
@@ -80,11 +84,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        lifecycleScope.launch {
-            if (userPreferences.biometricEnabled.first()) {
-                isLocked = true
-                promptActive = false
-            }
+        // Use the cached value to avoid launching a coroutine that can be cancelled before
+        // setting isLocked = true, which would leave the screen unlocked after backgrounding.
+        if (biometricEnabledCache) {
+            isLocked = true
+            promptActive = false
         }
     }
 

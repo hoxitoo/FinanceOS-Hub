@@ -43,7 +43,8 @@ class BalanceWidget : AppWidgetProvider() {
         val pending = goAsync()
         val handler = CoroutineExceptionHandler { _, t ->
             android.util.Log.e("BalanceWidget", "widget update failed", t)
-            pending.finish()
+            // pending.finish() is NOT called here — the finally block always runs it,
+            // so calling it again here would be a double-finish.
         }
         CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             try {

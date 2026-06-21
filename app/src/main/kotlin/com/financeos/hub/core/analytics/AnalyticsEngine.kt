@@ -189,15 +189,16 @@ class AnalyticsEngine @Inject constructor(
         val zone    = this.zone
         val month   = YearMonth.now()
 
-        // Category avg per day over the actual data span (≤ 90 days).
-        // Dividing by a fixed 90 understates per-day spend for users with < 90 days of history.
-        val spanDays = all.minOfOrNull { it.timestamp }
+        // Category avg per day: span from first EXPENSE only (income/transfer timestamps are irrelevant).
+        val allExpenses = all.filter { it.type == TransactionType.EXPENSE }
+        val spanDays = allExpenses.minOfOrNull { it.timestamp }
             ?.let { earliest -> ((now - earliest) / (24L * 60 * 60 * 1000)) + 1 }
             ?.coerceIn(1L, 90L) ?: 1L
         val catAvgPerDay = expenseByCat(all).mapValues { (_, total) -> total / spanDays }
 
-        // Savings rate history (last 3 months)
-        val savingsHistory = (0..2).map { offset ->
+        // Savings rate history: use completed months only (offset 1–3) — current month is
+        // partial and its in-progress rate would skew narratives (e.g. "no income yet" on day 3).
+        val savingsHistory = (1..3).map { offset ->
             val (f, t) = monthBounds(month.minusMonths(offset.toLong()))
             val txs    = getTxSync(f, t)
             val inc    = txs.filter { it.type == TransactionType.INCOME }.sumOf { it.amountKopecks }.toFloat()
@@ -218,15 +219,17 @@ class AnalyticsEngine @Inject constructor(
             } else null
         }.maxByOrNull { it.first.second }?.first
 
-        // Weekend vs weekday ratio
-        val expensesByDay = all.filter { it.type == TransactionType.EXPENSE }
+        // Weekend vs weekday ratio: per-transaction average (not per-day-of-week bucket).
+        val expensesByDay = allExpenses
             .groupBy { tx -> Instant.ofEpochMilli(tx.timestamp).atZone(zone).dayOfWeek.value }
-        val weekdayAvg = (1..5).mapNotNull { expensesByDay[it] }
-            .flatten().sumOf { abs(it.amountKopecks) }
-            .toFloat() / 5f.coerceAtLeast(1f)
-        val weekendAvg = (6..7).mapNotNull { expensesByDay[it] }
-            .flatten().sumOf { abs(it.amountKopecks) }
-            .toFloat() / 2f.coerceAtLeast(1f)
+        val weekdayTxs = (1..5).mapNotNull { expensesByDay[it] }.flatten()
+        val weekendTxs = (6..7).mapNotNull { expensesByDay[it] }.flatten()
+        val weekdayAvg = if (weekdayTxs.isNotEmpty())
+            weekdayTxs.sumOf { abs(it.amountKopecks) }.toFloat() / weekdayTxs.size
+        else 0f
+        val weekendAvg = if (weekendTxs.isNotEmpty())
+            weekendTxs.sumOf { abs(it.amountKopecks) }.toFloat() / weekendTxs.size
+        else 0f
         val weekendRatio = if (weekdayAvg > 0) weekendAvg / weekdayAvg else null
 
         // Top merchant

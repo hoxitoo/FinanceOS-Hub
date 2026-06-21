@@ -312,6 +312,34 @@ Three parallel deep audits (transfer/goal routing · parsers/ingestion · DB/DI/
 
 Added `AlfabankParserTest` regression: merchant ending in 4 digits is not mistaken for a card mask.
 
+## Audit #5 ✓ COMPLETE (this session)
+
+### Balance sync fix (balance not updating on Alfa push transfer)
+Root cause: `TransferPatterns.detect()` lacked SOURCE_CARD and BALANCE regex extraction; `AccountLinker.resolveAccountId` had no bank-name fallback when card mask is absent; `toParsed()` hardcoded `balanceKopecks = null`.
+
+Fixed across 3 commits:
+- `TransferPatterns.kt` — added `SOURCE_CARD` + `BALANCE` regex, fixed AMOUNT regex (`\d{2}` → `\d{1,2}`), `Result.balanceKopecks`, auto-extract `resolvedMask` in `detect()`
+- `AccountLinker.kt` — complete rewrite: card mask lookup → CardEntity lookup → bank-name fallback (BANK_KEYWORDS map, only when single match); `syncBalance` `>= 0L` fix already applied (Audit #4)
+- `SmsReceiver`, `PushNotificationListener`, `SmsReader` — pass `parsed.bankId` to `resolveAccountId`
+
+### Comprehensive audit fixes (18 bugs, 14 files)
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH | `DashboardViewModel.kt` | `collect` → `collectLatest` + `.debounce(500)` — prevents 1500+ redundant analytics DB queries during batch SMS import |
+| HIGH | `TransactionDao.kt` `findTransferCounterpart` | Added `AND type = 'TRANSFER'` filter — prevented INCOME rows from being mis-classified as transfer legs |
+| HIGH | `TransactionDao.kt` `sumExpenses` | `SUM(amount_kopecks)` → `SUM(ABS(amount_kopecks))` — expenses stored as negative kopecks; query returned negative totals |
+| HIGH | `GoalRepository.kt` | Added `Mutex` + `withLock` around `contribute()` — eliminated TOCTOU race under concurrent coroutines; fixed `completedAt` reset bug |
+| HIGH | `SmsReader.kt` | `imported++` moved inside `rowIds != -1L` check — was over-counting skipped duplicates |
+| HIGH | `ScoreCalculator.kt` `calcStability` | `/3` → `/input.last3MonthsIncome.size` — hardcoded divisor broke score when fewer than 3 months of data |
+| HIGH | `AnalyticsEngine.kt` | 3 fixes: spanDays computed from EXPENSE rows only; `savingsHistory` uses offsets 1..3 (completed months); weekday/weekend avg per-transaction not per-bucket |
+| MEDIUM | `BehavioralAnalyzer.kt` line 77 | `(base1 + base2) / 2` → `/ 2.0` — integer truncation silently dropped payday events with tiny baselines |
+| MEDIUM | `BehavioralAnalyzer.kt` line 158 | `expenses.size.coerceAtLeast(1)` → `expenses.size`; `neutralCount = (...).coerceAtLeast(0)` — phantom neutral count of 1 when expense list is empty |
+| MEDIUM | `AnalyticsViewModel.kt` | `runCatching` swallowed `CancellationException`, breaking `mapLatest` cancellation. Replaced with `safeAsync` helper that re-throws `CancellationException` |
+| MEDIUM | `MainActivity.kt` | Cached `biometricEnabledCache` field; `onStop` now locks synchronously — eliminated coroutine race where `isLocked = true` was never written if lifecycle scope was cancelled first |
+| MEDIUM | `BalanceWidget.kt` | Removed `pending.finish()` from `CoroutineExceptionHandler` — `finally` block always calls it; double-finish caused a crash |
+| LOW | `FosDatabase.kt` | Added `MIGRATION_3_4` with indexes on `transactions.goal_id` and `transactions.transfer_pair_id`; DB version bumped 3→4 |
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency

@@ -66,6 +66,7 @@ interface TransactionDao {
     @Query("""
         SELECT * FROM transactions
         WHERE is_deleted = 0
+          AND type = 'TRANSFER'
           AND transfer_pair_id IS NULL
           AND goal_id IS NULL
           AND id != :selfId
@@ -91,7 +92,7 @@ interface TransactionDao {
     suspend fun setGoal(id: String, goalId: String?, now: Long = System.currentTimeMillis())
 
     @Query("""
-        SELECT SUM(amount_kopecks) FROM transactions
+        SELECT SUM(ABS(amount_kopecks)) FROM transactions
         WHERE is_deleted = 0
           AND timestamp BETWEEN :from AND :to
           AND type = 'EXPENSE'

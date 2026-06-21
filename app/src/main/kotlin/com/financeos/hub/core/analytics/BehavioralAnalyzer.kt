@@ -74,11 +74,11 @@ class BehavioralAnalyzer @Inject constructor() {
                 && it.timestamp in base1Start..base1End }.sumOf { abs(it.amountKopecks) }
             val base2 = transactions.filter { it.type == TransactionType.EXPENSE
                 && it.timestamp in base2Start..base2End }.sumOf { abs(it.amountKopecks) }
-            val baseline = (base1 + base2) / 2
+            val baseline = (base1 + base2) / 2.0
 
             if (baseline > 0) {
                 totalPostKopecks  += post
-                totalBaseKopecks  += baseline
+                totalBaseKopecks  += baseline.toLong()
                 count++
             }
         }
@@ -155,12 +155,12 @@ class BehavioralAnalyzer @Inject constructor() {
         val expenses = transactions.filter { it.type == TransactionType.EXPENSE }
         val impulse  = expenses.filter { classifyTransaction(it) == SpendingClass.IMPULSE }
         val planned  = expenses.filter { classifyTransaction(it) == SpendingClass.PLANNED }
-        val total    = expenses.size.coerceAtLeast(1)
+        val total    = expenses.size
         return ImpulseStats(
             impulseCount   = impulse.size,
             plannedCount   = planned.size,
-            neutralCount   = total - impulse.size - planned.size,
-            impulsePercent = impulse.size.toFloat() / total,
+            neutralCount   = (total - impulse.size - planned.size).coerceAtLeast(0),
+            impulsePercent = if (total > 0) impulse.size.toFloat() / total else 0f,
             impulseKopecks = impulse.sumOf { abs(it.amountKopecks) },
             totalKopecks   = expenses.sumOf { abs(it.amountKopecks) },
         )
