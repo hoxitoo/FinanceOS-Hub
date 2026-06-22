@@ -11,11 +11,13 @@ import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.parser.ParserEngine
 import com.financeos.hub.core.transfer.TransferRouter
+import com.financeos.hub.data.preferences.UserPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -27,6 +29,7 @@ class SmsReceiver : BroadcastReceiver() {
     @Inject lateinit var classifier: CategoryClassifier
     @Inject lateinit var transferRouter: TransferRouter
     @Inject lateinit var accountLinker: AccountLinker
+    @Inject lateinit var prefs: UserPreferences
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("SmsReceiver", "SMS processing failed", t)
@@ -42,6 +45,9 @@ class SmsReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         scope.launch {
             try {
+                // Honour the user's choice — real-time capture is opt-in. A fresh install
+                // (toggle off) never ingests SMS until the user enables it or runs an import.
+                if (!prefs.smsRealtimeEnabled.first()) return@launch
                 messages.forEach { sms ->
                     val sender = sms.originatingAddress ?: return@forEach
                     val body   = sms.messageBody ?: return@forEach

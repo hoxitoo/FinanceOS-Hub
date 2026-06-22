@@ -58,6 +58,9 @@ class OnboardingViewModel @Inject constructor(
     private fun startImport() {
         _state.update { it.copy(step = OnboardingStep.IMPORT, permissionDenied = false) }
         viewModelScope.launch {
+            // The user explicitly chose to read SMS — turn on real-time capture too so new
+            // operations keep flowing in. (Skipping leaves it off; see onSkip.)
+            prefs.setSmsRealtimeEnabled(true)
             smsReader.importLast90Days().collect { progress ->
                 val pct = if (progress.total > 0) progress.processed.toFloat() / progress.total else 0f
                 _state.update { it.copy(importProgress = pct) }

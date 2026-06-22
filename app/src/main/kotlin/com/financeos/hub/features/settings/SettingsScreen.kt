@@ -19,7 +19,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.notifications.PushNotificationListener
 import com.financeos.hub.ui.theme.FosColors
@@ -46,9 +50,43 @@ fun SettingsScreen(
     onCategoriesClick : () -> Unit = {},
     viewModel         : SettingsViewModel = hiltViewModel(),
 ) {
-    val state   by viewModel.state.collectAsState()
+    val state     by viewModel.state.collectAsState()
+    val smsImport by viewModel.smsImport.collectAsState()
+    val backup    by viewModel.backup.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // Request READ_SMS + RECEIVE_SMS, then run the manual 90-day import on grant.
+    val smsImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        if (perms[android.Manifest.permission.READ_SMS] == true) {
+            viewModel.setSmsRealtimeEnabled(true)
+            viewModel.importSmsHistory()
+        }
+    }
+    fun startSmsImport() {
+        val granted = ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.READ_SMS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            viewModel.setSmsRealtimeEnabled(true)
+            viewModel.importSmsHistory()
+        } else {
+            smsImportLauncher.launch(arrayOf(
+                android.Manifest.permission.READ_SMS,
+                android.Manifest.permission.RECEIVE_SMS,
+            ))
+        }
+    }
+
+    // Storage Access Framework: write/read the backup to a user-chosen location.
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { viewModel.exportBackup(it) } }
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.restoreBackup(it) } }
 
     Column(
         modifier = Modifier
@@ -172,6 +210,107 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+
+        // ── Operations from SMS ──────────────────────────────────────────────────
+        SettingsSection(title = "ОПЕРАЦИИ ИЗ SMS") {
+            ToggleRow(
+                label    = "Читать входящие SMS",
+                sublabel = "Новые операции добавляются автоматически",
+                checked  = state.smsRealtimeEnabled,
+                onToggle = { enabled ->
+                    viewModel.setSmsRealtimeEnabled(enabled)
+                    if (enabled) {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context, android.Manifest.permission.READ_SMS,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!granted) smsImportLauncher.launch(arrayOf(
+                            android.Manifest.permission.READ_SMS,
+                            android.Manifest.permission.RECEIVE_SMS,
+                        ))
+                    }
+                },
+            )
+            androidx.compose.material3.Divider(
+                color = FosColors.Border, thickness = 0.5.dp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            val importing = smsImport is SmsImportUi.Running
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !importing) { startSmsImport() }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Импортировать за 90 дней", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text(
+                        when (val s = smsImport) {
+                            is SmsImportUi.Running -> "Импорт… ${(s.progress * 100).toInt()}%"
+                            is SmsImportUi.Done    -> "Готово — добавлено операций: ${s.imported}"
+                            SmsImportUi.Idle       -> "Разовая загрузка истории из SMS банка"
+                        },
+                        style = FosType.Micro,
+                        color = if (smsImport is SmsImportUi.Done) FosColors.Positive else FosColors.TextMuted,
+                    )
+                }
+                Text(
+                    if (importing) "…" else "↻",
+                    style = FosType.BodySemi,
+                    color = FosColors.Info,
+                )
+            }
+        }
+
+        // ── Backup / restore ─────────────────────────────────────────────────────
+        SettingsSection(title = "РЕЗЕРВНАЯ КОПИЯ") {
+            val working = backup is BackupUi.Working
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !working) {
+                        viewModel.dismissBackup()
+                        createBackupLauncher.launch(viewModel.suggestedBackupName)
+                    }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Создать резервную копию", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text("Счета, карты, операции, цели, бюджеты", style = FosType.Micro, color = FosColors.TextMuted)
+                }
+                Text("↑", style = FosType.BodySemi, color = FosColors.Info)
+            }
+            androidx.compose.material3.Divider(
+                color = FosColors.Border, thickness = 0.5.dp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !working) {
+                        viewModel.dismissBackup()
+                        restoreBackupLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                    }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Восстановить из файла", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text("Загрузить данные из резервной копии", style = FosType.Micro, color = FosColors.TextMuted)
+                }
+                Text("↓", style = FosType.BodySemi, color = FosColors.Info)
+            }
+            when (val b = backup) {
+                BackupUi.Working      -> StatusLine("Обработка…", FosColors.TextSecondary)
+                is BackupUi.Success   -> StatusLine(b.message, FosColors.Positive)
+                is BackupUi.Error     -> StatusLine(b.message, FosColors.Negative)
+                BackupUi.Idle         -> {}
             }
         }
 
@@ -328,6 +467,12 @@ private fun ToggleRow(
             ),
         )
     }
+}
+
+@Composable
+private fun StatusLine(text: String, color: Color) {
+    Spacer(Modifier.height(6.dp))
+    Text(text, style = FosType.Micro, color = color)
 }
 
 @Composable
