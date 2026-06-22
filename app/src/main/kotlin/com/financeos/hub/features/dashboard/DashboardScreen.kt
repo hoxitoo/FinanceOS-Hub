@@ -38,13 +38,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
+import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.ScoreRing
+import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.ui.components.TransactionRow
+import com.financeos.hub.ui.components.shimmerTilt
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.LocalShimmer
 import com.financeos.hub.ui.theme.bankBrand
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,6 +196,7 @@ private fun BankCard(
     onClick  : () -> Unit,
 ) {
     val brand    = bankBrand(bank)
+    val shimmer  = LocalShimmer.current
     val allMasks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
     val totals   = accounts.groupBy { it.currency }
         .mapValues { (_, list) -> list.sumOf { it.balanceKopecks } }
@@ -235,11 +240,13 @@ private fun BankCard(
         } else {
             Spacer(Modifier.height(32.dp))
         }
-        // Main bank card — volumetric with gradient depth + symbol badge
+        // Main bank card — volumetric with gradient depth + symbol badge.
+        // «Анимации» layer adds accelerometer parallax + a holographic / glass light sweep.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
+                .shimmerTilt(shimmer.holographicCards || shimmer.glassCards)
                 .clip(RoundedCornerShape(FosDimens.RadiusCard))
                 .background(brand.bg)
                 .clickable { onClick() },
@@ -268,6 +275,8 @@ private fun BankCard(
                     .align(Alignment.TopCenter)
                     .background(Color.White.copy(alpha = 0.28f)),
             )
+            // Holographic (A) / glass (B) light sweep — drawn under the content below.
+            ShimmerCardSheen(holographic = shimmer.holographicCards, glass = shimmer.glassCards)
             // Card content
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(
@@ -400,8 +409,8 @@ private fun CalmHero(state: DashboardState) {
             val byCur = state.netWorthByCurrency
             if (byCur.size <= 1) {
                 val nw = state.netWorthKopecks
-                Text(
-                    FosFormatter.amount(nw),
+                AnimatedAmount(
+                    kopecks = nw,
                     style = FosType.HeroAmount,
                     color = if (nw >= 0) FosColors.TextPrimary else FosColors.Negative,
                 )
@@ -487,8 +496,8 @@ private fun ContrastHero(state: DashboardState) {
                     val byCur = state.netWorthByCurrency
                     if (byCur.size <= 1) {
                         val netWorth = state.netWorthKopecks
-                        Text(
-                            FosFormatter.amount(netWorth),
+                        AnimatedAmount(
+                            kopecks = netWorth,
                             style = FosType.CardAmount,
                             color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
                         )
@@ -534,8 +543,8 @@ private fun MinimalHero(state: DashboardState) {
             val byCur = state.netWorthByCurrency
             if (byCur.size <= 1) {
                 val netWorth = state.netWorthKopecks
-                Text(
-                    FosFormatter.amount(netWorth),
+                AnimatedAmount(
+                    kopecks = netWorth,
                     style = FosType.HeroMinimal,
                     color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
                 )

@@ -1,5 +1,11 @@
 package com.financeos.hub.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,10 +39,13 @@ import com.financeos.hub.features.settings.SettingsScreen
 import com.financeos.hub.features.transactions.TransactionsScreen
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.LocalShimmer
 
 @Composable
 fun FosNavHost(initialDeepRoute: String? = null) {
     val navController = rememberNavController()
+    // «Анимации» layer: emerge-from-dark fade + slight scale on screen change; off = instant.
+    val transitions = LocalShimmer.current.screenTransitions
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
@@ -82,6 +91,13 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             navController    = navController,
             startDestination = FosRoute.Onboarding.route,
             modifier         = Modifier.padding(inner),
+            enterTransition  = {
+                if (transitions) fadeIn(tween(220)) + scaleIn(initialScale = 0.98f, animationSpec = tween(220))
+                else EnterTransition.None
+            },
+            exitTransition   = {
+                if (transitions) fadeOut(tween(160)) else ExitTransition.None
+            },
         ) {
             composable(FosRoute.Onboarding.route) {
                 OnboardingScreen(onFinished = {
