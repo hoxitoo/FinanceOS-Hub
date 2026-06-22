@@ -19,6 +19,7 @@ import com.financeos.hub.features.auth.LockScreen
 import com.financeos.hub.navigation.FosNavHost
 import com.financeos.hub.navigation.FosRoute
 import com.financeos.hub.ui.theme.FosTheme
+import com.financeos.hub.ui.theme.ProvideShimmer
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -51,10 +52,12 @@ class MainActivity : AppCompatActivity() {
         pendingDeepRoute = FosRoute.sanitizeDeepLink(intent.getStringExtra(NotificationHelper.EXTRA_ROUTE))
         setContent {
             FosTheme {
-                if (isLocked) {
-                    LockScreen(onUnlockRequested = { triggerAuth() })
-                } else {
-                    FosNavHost(initialDeepRoute = pendingDeepRoute)
+                ProvideShimmer(userPreferences) {
+                    if (isLocked) {
+                        LockScreen(onUnlockRequested = { triggerAuth() })
+                    } else {
+                        FosNavHost(initialDeepRoute = pendingDeepRoute)
+                    }
                 }
             }
         }

@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.analytics.CategoryAnomaly
@@ -28,20 +29,26 @@ import com.financeos.hub.core.analytics.Insight
 import com.financeos.hub.core.analytics.InsightSeverity
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.features.analytics.AnalyticsState
+import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.LocalShimmer
 
 @Composable
 fun InsightsTab(state: AnalyticsState) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(FosColors.Background)
-            .padding(horizontal = FosDimens.ScreenPadding),
-        verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap),
-    ) {
+    val shimmer = LocalShimmer.current
+    Box(modifier = Modifier.fillMaxSize().background(FosColors.Background)) {
+        if (shimmer.particles) {
+            ParticleLayer(count = 20, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = FosDimens.ScreenPadding),
+            verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap),
+        ) {
         item { Spacer(Modifier.height(FosDimens.ItemGap)) }
 
         // ── Alerts (sorted CRITICAL first) ────────────────────────────────────
@@ -74,7 +81,7 @@ fun InsightsTab(state: AnalyticsState) {
                 Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
                 Text("НАБЛЮДЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            itemsIndexed(state.narratives) { i, narrative ->
+            itemsIndexed(state.narratives, key = { _, n -> n.id }) { _, narrative ->
                 NarrativeCard(narrative = narrative)
             }
         }
@@ -89,7 +96,8 @@ fun InsightsTab(state: AnalyticsState) {
             }
         }
 
-        item { Spacer(Modifier.height(80.dp)) }
+            item { Spacer(Modifier.height(80.dp)) }
+        }
     }
 }
 
@@ -101,29 +109,45 @@ private fun InsightCard(insight: Insight) {
         InsightSeverity.WARNING  -> FosColors.Warning
         InsightSeverity.INFO     -> FosColors.Info
     }
+    // «Атмосфера» layer: the left border glows inward by severity (still no icon — rule #4 intact).
+    val glow = LocalShimmer.current.insightBorderGlow
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
             .background(FosColors.Surface),
     ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(60.dp)
-                .background(borderColor),
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-        ) {
-            Text(
-                text  = insight.text,
-                style = FosType.Body,
-                color = FosColors.TextPrimary,
+        if (glow) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            0f    to borderColor.copy(alpha = 0.18f),
+                            0.28f to Color.Transparent,
+                        )
+                    ),
             )
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(60.dp)
+                    .background(borderColor),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+            ) {
+                Text(
+                    text  = insight.text,
+                    style = FosType.Body,
+                    color = FosColors.TextPrimary,
+                )
+            }
         }
     }
 }
