@@ -31,18 +31,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.LineChart
+import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.ui.components.TransactionRow
+import com.financeos.hub.ui.components.rememberBreathingScale
 import com.financeos.hub.ui.components.shimmerTilt
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -381,13 +385,18 @@ private fun CalmHero(state: DashboardState) {
         state.financialScore >= 40 -> FosColors.Warning
         else                       -> FosColors.Negative
     }
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             // Score row — ring is compact (72dp) so text fits alongside
             Row(
@@ -439,13 +448,18 @@ private fun CalmHero(state: DashboardState) {
 /** CONTRAST: bold income/expense side-by-side, net worth + forecast below */
 @Composable
 private fun ContrastHero(state: DashboardState) {
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -530,13 +544,18 @@ private fun ContrastHero(state: DashboardState) {
 /** MINIMAL: compact net worth + income/expense chips */
 @Composable
 private fun MinimalHero(state: DashboardState) {
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
             Spacer(Modifier.height(4.dp))
