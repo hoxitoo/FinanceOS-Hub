@@ -340,9 +340,25 @@ Fixed across 3 commits:
 | MEDIUM | `BalanceWidget.kt` | Removed `pending.finish()` from `CoroutineExceptionHandler` — `finally` block always calls it; double-finish caused a crash |
 | LOW | `FosDatabase.kt` | Added `MIGRATION_3_4` with indexes on `transactions.goal_id` and `transactions.transfer_pair_id`; DB version bumped 3→4 |
 
+## Backup / Restore + Opt-in SMS (this session)
+
+### Full backup to file (`core/backup/BackupManager.kt`)
+- Exports **all 8 tables** (accounts, cards, categories, goals, budgets, transfer_routes, transactions) to a single self-describing JSON file via `org.json` (no new dependency). `SCHEMA_VERSION = 1` header for forward-compat.
+- **Save:** SAF `CreateDocument("application/json")`, suggested name `financeos-backup-YYYY-MM-DD.json`. **Restore:** SAF `OpenDocument`.
+- Restore is additive + idempotent inside one `db.withTransaction { }`; FK-safe order (categories → accounts → goals → cards → budgets → routes → transactions). **Dangling-reference guard:** cards/budgets whose parent isn't in the backup are dropped; transaction `accountId`/`categoryId` not present are nulled — prevents Room FK abort.
+- New backup-read DAO methods: `CardDao.getAllActive`, `BudgetDao.getAllActive`, `GoalDao.getAllForBackup`, `TransactionDao.getAllForBackup` (non-deleted).
+- UI: Settings → "РЕЗЕРВНАЯ КОПИЯ" (создать / восстановить) with status line. `SettingsViewModel`: `exportBackup(uri)`, `restoreBackup(uri)`, `BackupUi` state.
+
+### SMS now opt-in (no auto-parse on fresh install)
+- New pref `SMS_REALTIME_ENABLED` (**default false**). `SmsReceiver` checks `prefs.smsRealtimeEnabled.first()` before processing — a fresh install never ingests SMS until the user opts in.
+- Onboarding reframed to an explicit choice: **"Импортировать из SMS за 90 дней"** vs **"Пропустить — добавлю вручную"**. Choosing import sets `SmsRealtimeEnabled = true`; skipping leaves it off.
+- Settings → "ОПЕРАЦИИ ИЗ SMS": toggle "Читать входящие SMS" + "Импортировать за 90 дней" (requests READ_SMS/RECEIVE_SMS, shows progress, then count). `SettingsViewModel.importSmsHistory()`, `SmsImportUi` state.
+- **Migration note:** existing installs relying on real-time capture must re-enable the toggle (or re-import); intentional per the opt-in design.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency
+- Consider: encrypt backup file (currently plaintext JSON — contains balances & masks)
 
 ## Key File Locations
 | Layer | Path |

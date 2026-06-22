@@ -1,12 +1,17 @@
 package com.financeos.hub.features.settings
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.backup.BackupManager
+import com.financeos.hub.core.sms.SmsReader
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -19,13 +24,31 @@ data class SettingsState(
     val budgetAlertThreshold   : Int     = 80,
     val mlClassificationEnabled: Boolean = false,
     val pushListenerEnabled    : Boolean = false,
+    val smsRealtimeEnabled     : Boolean = false,
     val lastImportAt           : String? = null,
 )
 
+/** Transient status of the manual 90-day SMS import. */
+sealed interface SmsImportUi {
+    data object Idle : SmsImportUi
+    data class Running(val progress: Float) : SmsImportUi
+    data class Done(val imported: Int) : SmsImportUi
+}
+
+/** Transient status of a backup export / restore. */
+sealed interface BackupUi {
+    data object Idle : BackupUi
+    data object Working : BackupUi
+    data class Success(val message: String) : BackupUi
+    data class Error(val message: String) : BackupUi
+}
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val prefs : UserPreferences,
-    private val txRepo: TransactionRepository,
+    private val prefs        : UserPreferences,
+    private val txRepo       : TransactionRepository,
+    private val smsReader    : SmsReader,
+    private val backupManager: BackupManager,
 ) : ViewModel() {
 
     val state = combine(
@@ -36,9 +59,10 @@ class SettingsViewModel @Inject constructor(
             prefs.budgetAlertThreshold,
             prefs.mlClassificationEnabled,
             prefs.pushListenerEnabled,
+            prefs.smsRealtimeEnabled,
             prefs.lastImportAt,
-        ) { threshold, ml, push, last ->
-            listOf<Any?>(threshold, ml, push, last)
+        ) { threshold, ml, push, sms, last ->
+            listOf<Any?>(threshold, ml, push, sms, last)
         },
     ) { hero, bio, notif, rest ->
         SettingsState(
@@ -48,9 +72,16 @@ class SettingsViewModel @Inject constructor(
             budgetAlertThreshold    = rest[0] as Int,
             mlClassificationEnabled = rest[1] as Boolean,
             pushListenerEnabled     = rest[2] as Boolean,
-            lastImportAt            = rest[3] as String?,
+            smsRealtimeEnabled      = rest[3] as Boolean,
+            lastImportAt            = rest[4] as String?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
+
+    private val _smsImport = MutableStateFlow<SmsImportUi>(SmsImportUi.Idle)
+    val smsImport = _smsImport.asStateFlow()
+
+    private val _backup = MutableStateFlow<BackupUi>(BackupUi.Idle)
+    val backup = _backup.asStateFlow()
 
     fun setHeroVariant(variant: String) = viewModelScope.launch {
         prefs.setHeroVariant(variant)
@@ -76,7 +107,47 @@ class SettingsViewModel @Inject constructor(
         prefs.setPushListenerEnabled(enabled)
     }
 
+    fun setSmsRealtimeEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setSmsRealtimeEnabled(enabled)
+    }
+
     fun deleteAllHistory() = viewModelScope.launch(Dispatchers.IO) {
         txRepo.deleteAllHistory()
     }
+
+    /** Manual 90-day SMS import — call after the READ_SMS permission has been granted. */
+    fun importSmsHistory() = viewModelScope.launch {
+        _smsImport.value = SmsImportUi.Running(0f)
+        smsReader.importLast90Days().collect { progress ->
+            val pct = if (progress.total > 0) progress.processed.toFloat() / progress.total else 0f
+            _smsImport.value = SmsImportUi.Running(pct)
+            if (progress.done) _smsImport.value = SmsImportUi.Done(progress.imported)
+        }
+    }
+
+    fun dismissSmsImport() { _smsImport.value = SmsImportUi.Idle }
+
+    // ─── Backup / restore ─────────────────────────────────────────────────────
+
+    fun exportBackup(uri: Uri) = viewModelScope.launch(Dispatchers.IO) {
+        _backup.value = BackupUi.Working
+        _backup.value = runCatching { backupManager.exportTo(uri) }
+            .fold(
+                onSuccess = { BackupUi.Success("Резервная копия сохранена") },
+                onFailure = { BackupUi.Error(it.message ?: "Не удалось сохранить") },
+            )
+    }
+
+    fun restoreBackup(uri: Uri) = viewModelScope.launch(Dispatchers.IO) {
+        _backup.value = BackupUi.Working
+        _backup.value = runCatching { backupManager.restoreFrom(uri) }
+            .fold(
+                onSuccess = { c -> BackupUi.Success("Восстановлено: ${c.accounts} счетов, ${c.transactions} операций") },
+                onFailure = { BackupUi.Error(it.message ?: "Не удалось восстановить") },
+            )
+    }
+
+    fun dismissBackup() { _backup.value = BackupUi.Idle }
+
+    val suggestedBackupName: String get() = BackupManager.suggestedFileName()
 }

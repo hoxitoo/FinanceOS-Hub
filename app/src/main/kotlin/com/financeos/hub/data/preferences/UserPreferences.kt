@@ -27,6 +27,7 @@ class UserPreferences @Inject constructor(
         val BUDGET_ALERT_THRESHOLD    = stringPreferencesKey("budget_alert_threshold") // "80" default
         val ML_CLASSIFICATION_ENABLED  = booleanPreferencesKey("ml_classification_enabled")
         val PUSH_LISTENER_ENABLED      = booleanPreferencesKey("push_listener_enabled")
+        val SMS_REALTIME_ENABLED       = booleanPreferencesKey("sms_realtime_enabled")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -49,6 +50,11 @@ class UserPreferences @Inject constructor(
 
     val pushListenerEnabled: Flow<Boolean> = context.dataStore.data
         .map { it[PUSH_LISTENER_ENABLED] ?: false }
+
+    /** Real-time capture of incoming bank SMS. Off by default so a fresh install never
+     *  silently fills up with operations before the user has set anything up. */
+    val smsRealtimeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[SMS_REALTIME_ENABLED] ?: false }
 
     val lastImportAt: Flow<String?> = context.dataStore.data
         .map { it[LAST_IMPORT_AT] }
@@ -79,6 +85,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setPushListenerEnabled(enabled: Boolean) {
         context.dataStore.edit { it[PUSH_LISTENER_ENABLED] = enabled }
+    }
+
+    suspend fun setSmsRealtimeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SMS_REALTIME_ENABLED] = enabled }
     }
 
     suspend fun setLastImportAt(iso: String) {
