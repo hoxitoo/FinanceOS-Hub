@@ -114,11 +114,10 @@ fun ParticleLayer(
  */
 @Composable
 fun rememberBreathingScale(active: Boolean): Float {
-    if (!active) return 1f
     val transition = rememberInfiniteTransition(label = "breath")
     val scale by transition.animateFloat(
-        initialValue  = 0.997f,
-        targetValue   = 1.003f,
+        initialValue  = if (active) 0.997f else 1f,
+        targetValue   = if (active) 1.003f else 1f,
         animationSpec = infiniteRepeatable(tween(3000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "breathScale",
     )

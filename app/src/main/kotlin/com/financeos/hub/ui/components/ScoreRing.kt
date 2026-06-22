@@ -1,8 +1,10 @@
 package com.financeos.hub.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -12,8 +14,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.financeos.hub.ui.theme.FosColors
@@ -27,6 +32,7 @@ fun ScoreRing(
     modifier : Modifier = Modifier,
 ) {
     // Colour is keyed to the target score so it never sweeps through red→yellow→green while counting.
+    val shimmer = LocalShimmer.current
     val color = when {
         score >= 70 -> FosColors.Positive
         score >= 40 -> FosColors.Warning
@@ -34,7 +40,7 @@ fun ScoreRing(
     }
 
     // Count up from 0 on first appearance when the «Анимации» layer is on.
-    val enabled  = LocalShimmer.current.countUp
+    val enabled  = shimmer.countUp
     val animated = remember { Animatable(0f) }
     LaunchedEffect(score, enabled) {
         if (enabled) animated.animateTo(score.toFloat(), tween(900, easing = FastOutSlowInEasing))
@@ -44,6 +50,22 @@ fun ScoreRing(
     val shownScore = shown.roundToInt()
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        // «Атмосфера» semantic glow: ambient light whose colour tracks financial health.
+        // Drawn inside the ring bounds only — never bleeds into net worth text.
+        if (shimmer.semanticGlow) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            0.0f to color.copy(alpha = 0.22f),
+                            0.5f to color.copy(alpha = 0.08f),
+                            1.0f to Color.Transparent,
+                        )
+                    )
+            )
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val stroke  = size.minDimension * 0.10f
             val inset   = stroke / 2f
