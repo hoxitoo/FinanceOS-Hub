@@ -391,10 +391,42 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - **Real CI blocker** (dc25502): `ParticleLayer.kt` used `var time by remember { mutableStateOf(0f) }` but imported only `getValue`, not `setValue` → `Type 'MutableState<Float>' has no method 'setValue(...)'`. Added `import androidx.compose.runtime.setValue`.
 - (5e1bc1b) `rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → also fixed to always call the transition with `1f..1f` bounds when inactive (latent, would have failed at runtime).
 
+## Audit #6 Fixes (Shimmer layer, this session)
+
+5 Compose Rules of Hooks violations and performance issues fixed (commit 3c3718d):
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `ShimmerCardFx.kt` | `shimmerTilt` called `rememberDeviceTilt`/`animateFloatAsState` after early return → slot-table crash on toggle. All composable calls moved before the guard. |
+| CRITICAL | `AnimatedAmount.kt` | Early return before `remember`/`LaunchedEffect` → slot-table mismatch when animation toggled live. Removed early return; added `enabled` to LaunchedEffect keys. |
+| HIGH | `Shimmer.kt` | `rememberSystemReduceMotion` read scale once via `remember {}` — stale until recomposition. Replaced with `ContentObserver + DisposableEffect` (live, mirrors `rememberPowerSave`). |
+| MEDIUM | `InsightsTab.kt` | `itemsIndexed(narratives)` missing key lambda → index-based reuse, wrong items on list reorder. Fixed: `key = { _, n -> n.id }`. |
+| LOW | `ShimmerRipple.kt` | `Brush.radialGradient` allocated per-frame per-ripple (GC pressure @ 60 fps). Replaced with 3 concentric `drawCircle` + `Color.copy(alpha)` (zero allocation). |
+
+## Branch / Merge History
+- `claude/project-setup-design-sndr3y` → `dev` (PR #2, merged)
+- `dev` → `main` (PR #3, merged)
+- All branches in sync as of 2026-06-22
+
+## Post-Audit-6 Features (this session)
+
+### Backup encryption (`core/backup/BackupCrypto.kt`)
+- AES-GCM-256 via Android Keystore (hardware-backed TEE/SE when available)
+- Key alias `fos_backup_key`; 12-byte GCM IV prepended; 128-bit auth tag
+- File format: `FOSENC1:` header (8 bytes) + IV (12 bytes) + ciphertext
+- Backward compat: files without the header (old plaintext exports) are accepted on restore as-is
+- Suggested filename extension changed from `.json` → `.fose`
+
+### Cross-channel SMS↔push dedup (`TransactionDao`, `SmsReader`, `PushNotificationListener`)
+- New `TransactionDao.existsSimilarSmsOrPush(magnitude, fromTs, toTs)` query: checks if any SMS/PUSH transaction with the same absolute amount exists within a ±5-minute window
+- `PushNotificationListener.processPush` now calls this guard after the `existsBySmsId` check — rejects push if SMS already imported the same event
+- `SmsReader.importLast90Days` applies the same guard — rejects SMS if push was already ingested
+- Prevents double-counting on banks that send both SMS and push for every operation (e.g. Sberbank)
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency
-- Consider: encrypt backup file (currently plaintext JSON — contains balances & masks)
+- Review `feature/app-icon` branch and merge
+- Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
 
 ## Key File Locations
 | Layer | Path |

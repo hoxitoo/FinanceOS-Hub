@@ -36,6 +36,21 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) > 0 FROM transactions WHERE sms_id = :smsId")
     suspend fun existsBySmsId(smsId: String): Boolean
 
+    /**
+     * Cross-channel dedup: returns true if an SMS or PUSH transaction with the same absolute
+     * amount already exists within a ±5-minute window. Used to prevent the same bank event
+     * from being inserted twice when it arrives via both channels (e.g. Sberbank sends both
+     * an SMS and a push notification for every operation).
+     */
+    @Query("""
+        SELECT COUNT(*) > 0 FROM transactions
+        WHERE is_deleted = 0
+          AND ABS(amount_kopecks) = :magnitude
+          AND timestamp BETWEEN :fromTs AND :toTs
+          AND source IN ('SMS', 'PUSH')
+    """)
+    suspend fun existsSimilarSmsOrPush(magnitude: Long, fromTs: Long, toTs: Long): Boolean
+
     @Query("""
         SELECT category_id, SUM(ABS(amount_kopecks)) as total
         FROM transactions

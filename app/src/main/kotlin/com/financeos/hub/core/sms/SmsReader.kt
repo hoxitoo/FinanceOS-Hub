@@ -63,7 +63,11 @@ class SmsReader @Inject constructor(
                 // Guard each row: a single malformed SMS must not abort the whole import.
                 runCatching {
                     val parsed = parserEngine.parse(sender, body, ts)
-                    if (parsed != null && parsed.smsId !in knownIds) {
+                    // Cross-channel dedup: skip if a PUSH transaction with the same amount already
+                    // arrived within ±5 minutes (same bank event delivered via push before SMS).
+                    val window = 5 * 60 * 1000L
+                    if (parsed != null && parsed.smsId !in knownIds &&
+                        !transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, parsed.timestamp - window, parsed.timestamp + window)) {
                         val categoryId = classifier.classify(parsed.merchant, null)
                         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
                         val entity = TransactionEntity(
