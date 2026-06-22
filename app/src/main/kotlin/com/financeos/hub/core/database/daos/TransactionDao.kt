@@ -47,6 +47,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id AND is_deleted = 0")
     suspend fun getById(id: String): TransactionEntity?
 
+    /** All non-deleted transactions — used for backup export. */
+    @Query("SELECT * FROM transactions WHERE is_deleted = 0 ORDER BY timestamp ASC")
+    suspend fun getAllForBackup(): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(transactions: List<TransactionEntity>): List<Long>
 

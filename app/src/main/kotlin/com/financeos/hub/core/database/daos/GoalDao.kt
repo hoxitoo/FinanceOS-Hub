@@ -19,6 +19,10 @@ interface GoalDao {
     @Query("SELECT * FROM goals WHERE id = :id")
     suspend fun getById(id: String): GoalEntity?
 
+    /** All goals (active + completed) — used for backup export. */
+    @Query("SELECT * FROM goals ORDER BY created_at ASC")
+    suspend fun getAllForBackup(): List<GoalEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(goal: GoalEntity)
 

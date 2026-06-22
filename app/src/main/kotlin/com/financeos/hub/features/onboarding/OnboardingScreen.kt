@@ -77,7 +77,7 @@ fun OnboardingScreen(
         )
         Spacer(Modifier.height(FosDimens.ItemGap))
         Text(
-            text      = "Полный контроль над финансами.\nАвтоматически, из SMS.",
+            text      = "Полный контроль над финансами.\nДобавьте счета вручную или загрузите\nисторию операций из SMS банка.",
             style     = FosType.Body,
             color     = FosColors.TextSecondary,
             textAlign = TextAlign.Center,
@@ -122,6 +122,7 @@ private fun WelcomeStep(
     onSkip              : () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Primary, clearly-labelled choice: pull history from SMS (asks for permission first).
         Button(
             onClick  = onRequestPermission,
             modifier = Modifier
@@ -133,7 +134,7 @@ private fun WelcomeStep(
                 contentColor   = FosColors.Background,
             ),
         ) {
-            Text("Разрешить доступ к SMS", style = FosType.BodySemi)
+            Text("Импортировать из SMS за 90 дней", style = FosType.BodySemi)
         }
         if (permissionDenied) {
             Spacer(Modifier.height(12.dp))
@@ -149,8 +150,10 @@ private fun WelcomeStep(
             }
         }
         Spacer(Modifier.height(FosDimens.ItemGap))
+        // Equally-prominent alternative: start clean and add accounts by hand. Nothing is
+        // read from SMS until the user opts in (here or later from Settings).
         TextButton(onClick = onSkip) {
-            Text("Пропустить", style = FosType.Body, color = FosColors.TextMuted)
+            Text("Пропустить — добавлю вручную", style = FosType.Body, color = FosColors.TextMuted)
         }
     }
 }

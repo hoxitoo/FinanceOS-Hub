@@ -13,6 +13,9 @@ interface BudgetDao {
     @Query("SELECT * FROM budgets WHERE is_active = 1")
     fun observeAll(): Flow<List<BudgetEntity>>
 
+    @Query("SELECT * FROM budgets WHERE is_active = 1")
+    suspend fun getAllActive(): List<BudgetEntity>
+
     @Query("SELECT * FROM budgets WHERE category_id = :categoryId AND is_active = 1 LIMIT 1")
     suspend fun getByCategory(categoryId: String): BudgetEntity?
 
