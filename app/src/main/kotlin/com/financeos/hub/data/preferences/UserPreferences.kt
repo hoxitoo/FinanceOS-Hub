@@ -28,6 +28,14 @@ class UserPreferences @Inject constructor(
         val ML_CLASSIFICATION_ENABLED  = booleanPreferencesKey("ml_classification_enabled")
         val PUSH_LISTENER_ENABLED      = booleanPreferencesKey("push_listener_enabled")
         val SMS_REALTIME_ENABLED       = booleanPreferencesKey("sms_realtime_enabled")
+
+        // ── Кастомизация («Мерцание») ─────────────────────────────────────────
+        /** Tumbler 1: event-driven motion (count-up, transitions, holo cards, touch ripple). */
+        val ANIMATIONS_ENABLED         = booleanPreferencesKey("animations_enabled")
+        /** Tumbler 2: ambient atmosphere (fireflies, glow, breathing, depth). */
+        val ATMOSPHERE_ENABLED         = booleanPreferencesKey("atmosphere_enabled")
+        /** Conditional sub-tumbler under #1: bank cards use variant B (deep glass) instead of A (holographic). */
+        val CARDS_VARIANT_B            = booleanPreferencesKey("cards_variant_b")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -58,6 +66,18 @@ class UserPreferences @Inject constructor(
 
     val lastImportAt: Flow<String?> = context.dataStore.data
         .map { it[LAST_IMPORT_AT] }
+
+    /** «Анимации» — плавные переходы, счётчики чисел, объёмные карты, отклик касания. Off by default. */
+    val animationsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[ANIMATIONS_ENABLED] ?: false }
+
+    /** «Атмосфера Мерцание» — светлячки, свечение, глубина. Off by default. */
+    val atmosphereEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[ATMOSPHERE_ENABLED] ?: false }
+
+    /** Bank cards: variant B (deep glass) when true, variant A (holographic) when false. */
+    val cardsVariantB: Flow<Boolean> = context.dataStore.data
+        .map { it[CARDS_VARIANT_B] ?: false }
 
     suspend fun setOnboardingComplete(done: Boolean) {
         context.dataStore.edit { it[ONBOARDING_COMPLETE] = done }
@@ -93,5 +113,17 @@ class UserPreferences @Inject constructor(
 
     suspend fun setLastImportAt(iso: String) {
         context.dataStore.edit { it[LAST_IMPORT_AT] = iso }
+    }
+
+    suspend fun setAnimationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[ANIMATIONS_ENABLED] = enabled }
+    }
+
+    suspend fun setAtmosphereEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[ATMOSPHERE_ENABLED] = enabled }
+    }
+
+    suspend fun setCardsVariantB(enabled: Boolean) {
+        context.dataStore.edit { it[CARDS_VARIANT_B] = enabled }
     }
 }
