@@ -70,11 +70,22 @@ private fun rememberDeviceTilt(active: Boolean): Offset {
 /** Subtle 3-D parallax driven by device tilt, capped at ±8°. No-op when [active] is false. */
 @Composable
 fun Modifier.shimmerTilt(active: Boolean): Modifier {
-    if (!active) return this
-    val tilt = rememberDeviceTilt(true)
+    // Always call composable functions unconditionally — Compose Rules of Hooks.
+    // rememberDeviceTilt(active) handles inactive gracefully: DisposableEffect skips sensor
+    // registration when active=false and resets tilt to Zero.
+    val tilt    = rememberDeviceTilt(active)
     val density = LocalDensity.current.density
-    val rotY by animateFloatAsState((tilt.x * 8f).coerceIn(-8f, 8f), spring(), label = "tiltY")
-    val rotX by animateFloatAsState((-tilt.y * 8f).coerceIn(-8f, 8f), spring(), label = "tiltX")
+    val rotY by animateFloatAsState(
+        targetValue = if (active) (tilt.x * 8f).coerceIn(-8f, 8f) else 0f,
+        animationSpec = spring(),
+        label = "tiltY",
+    )
+    val rotX by animateFloatAsState(
+        targetValue = if (active) (-tilt.y * 8f).coerceIn(-8f, 8f) else 0f,
+        animationSpec = spring(),
+        label = "tiltX",
+    )
+    if (!active) return this
     return this.graphicsLayer {
         rotationY = rotY
         rotationX = rotX

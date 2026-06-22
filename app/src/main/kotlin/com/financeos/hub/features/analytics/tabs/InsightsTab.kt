@@ -81,7 +81,7 @@ fun InsightsTab(state: AnalyticsState) {
                 Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
                 Text("НАБЛЮДЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
-            itemsIndexed(state.narratives) { i, narrative ->
+            itemsIndexed(state.narratives, key = { _, n -> n.id }) { _, narrative ->
                 NarrativeCard(narrative = narrative)
             }
         }

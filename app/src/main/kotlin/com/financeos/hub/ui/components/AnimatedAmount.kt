@@ -38,19 +38,26 @@ fun AnimatedAmount(
     formatter: (Long) -> String = { FosFormatter.amount(it, currency) },
 ) {
     val enabled = LocalShimmer.current.countUp
-    if (!enabled) {
-        Text(formatter(kopecks), style = style, color = color, modifier = modifier)
-        return
-    }
 
+    // Always call all composable functions — Compose Rules of Hooks.
+    // The early-return-before-remember pattern would crash when `enabled` is toggled
+    // in Settings while the composable is live (slot-table mismatch).
     val progress = remember { Animatable(0f) }
     var fromVal by remember { mutableStateOf(0L) }
     var toVal   by remember { mutableStateOf(0L) }
-    LaunchedEffect(kopecks) {
-        fromVal  = fromVal + ((toVal - fromVal) * progress.value.toDouble()).toLong()
-        toVal    = kopecks
-        progress.snapTo(0f)
-        progress.animateTo(1f, tween(durationMillis = 700, easing = FastOutSlowInEasing))
+
+    LaunchedEffect(kopecks, enabled) {
+        if (enabled) {
+            fromVal  = fromVal + ((toVal - fromVal) * progress.value.toDouble()).toLong()
+            toVal    = kopecks
+            progress.snapTo(0f)
+            progress.animateTo(1f, tween(durationMillis = 700, easing = FastOutSlowInEasing))
+        } else {
+            // Snap immediately when animations are off — no visible change but slots stay warm.
+            fromVal = kopecks
+            toVal   = kopecks
+            progress.snapTo(1f)
+        }
     }
     val shown = fromVal + ((toVal - fromVal) * progress.value.toDouble()).toLong()
     Text(formatter(shown), style = style, color = color, modifier = modifier)

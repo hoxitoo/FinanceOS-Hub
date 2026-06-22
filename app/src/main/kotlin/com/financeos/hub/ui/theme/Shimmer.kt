@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.runtime.Composable
@@ -64,16 +67,35 @@ data class ShimmerConfig(
 /** Read everywhere via `LocalShimmer.current`. Defaults to [ShimmerConfig.Off] = Standard theme. */
 val LocalShimmer = staticCompositionLocalOf { ShimmerConfig.Off }
 
-/** System "remove animations" accessibility setting (Settings → Accessibility, or developer options). */
+/**
+ * Reactive "remove animations" state — mirrors [rememberPowerSave] pattern.
+ * A [ContentObserver] on ANIMATOR_DURATION_SCALE fires on every accessibility-settings change
+ * so the shimmer layer reacts live (no app restart needed), consistent with power-save behaviour.
+ */
 @Composable
 private fun rememberSystemReduceMotion(): Boolean {
     val context = LocalContext.current
-    return remember {
-        val scale = Settings.Global.getFloat(
-            context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+    val initial = Settings.Global.getFloat(
+        context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+    ) == 0f
+    var reduceMotion by remember { mutableStateOf(initial) }
+    DisposableEffect(Unit) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                val scale = Settings.Global.getFloat(
+                    context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+                )
+                reduceMotion = (scale == 0f)
+            }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer,
         )
-        scale == 0f
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
     }
+    return reduceMotion
 }
 
 /** Reactive battery-saver state — flips live when the user toggles power-save. */

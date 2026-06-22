@@ -12,8 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.LocalShimmer
@@ -68,17 +66,12 @@ fun Modifier.shimmerRipple(
                 val radius = maxR * p
                 val alpha  = (1f - p) * 0.28f
                 if (radius > 0f && alpha > 0f) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0f   to r.color.copy(alpha = alpha),
-                            0.7f to r.color.copy(alpha = alpha * 0.5f),
-                            1f   to Color.Transparent,
-                            center = r.center,
-                            radius = radius,
-                        ),
-                        radius = radius,
-                        center = r.center,
-                    )
+                    // Three concentric circles simulate a soft radial gradient without
+                    // allocating a Brush object on every frame (60fps × active ripples = GC churn).
+                    // Color is an inline Long — copy(alpha) is essentially free.
+                    drawCircle(color = r.color.copy(alpha = alpha * 0.30f), radius = radius,         center = r.center)
+                    drawCircle(color = r.color.copy(alpha = alpha * 0.55f), radius = radius * 0.52f, center = r.center)
+                    drawCircle(color = r.color.copy(alpha = alpha),          radius = radius * 0.18f, center = r.center)
                 }
             }
         }
