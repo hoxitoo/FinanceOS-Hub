@@ -423,10 +423,32 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - `SmsReader.importLast90Days` applies the same guard — rejects SMS if push was already ingested
 - Prevents double-counting on banks that send both SMS and push for every operation (e.g. Sberbank)
 
+## Parser Tests — Full Coverage ✓
+All 11 bank parsers now have unit tests (7 cases each = 77 total parser test cases):
+
+| Bank | File | Status |
+|------|------|--------|
+| Сбербанк | `SberbankParserTest` | ✓ (prior) |
+| Т-Банк | `TbankParserTest` | ✓ (prior) |
+| ВТБ | `VtbParserTest` | ✓ (prior) |
+| Альфа-Банк | `AlfabankParserTest` | ✓ (prior) |
+| Газпромбанк | `GazprombankParserTest` | ✓ (prior) |
+| МБанк | `MBankParserTest` | ✓ (prior) |
+| Райффайзен | `RaiffeisenParserTest` | ✓ (this session) |
+| Росбанк | `RosbankParserTest` | ✓ (this session) |
+| Открытие | `OtkritieParserTest` | ✓ (this session) |
+| МТС Банк | `MtsBankParserTest` | ✓ (this session) |
+| Почта Банк | `PostaBankParserTest` | ✓ (this session) |
+| Россельхоз | `RosselkhozParserTest` | ✓ (this session) |
+
+## Critical Bug Fixed (this session)
+- `ShimmerRipple.kt` — `import androidx.compose.ui.graphics.Color` was dropped by the audit fix that replaced Brush.radialGradient. Color is still used in `RippleSpec.color: Color` and the function signature → compile error. Fixed.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Review `feature/app-icon` branch and merge
+- feature/app-icon already in main (no action needed)
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
+- Consider: encrypt backup with user PIN (currently key is device-scoped, no extra auth)
 
 ## Key File Locations
 | Layer | Path |
