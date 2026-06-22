@@ -355,6 +355,41 @@ Fixed across 3 commits:
 - Settings → "ОПЕРАЦИИ ИЗ SMS": toggle "Читать входящие SMS" + "Импортировать за 90 дней" (requests READ_SMS/RECEIVE_SMS, shows progress, then count). `SettingsViewModel.importSmsHistory()`, `SmsImportUi` state.
 - **Migration note:** existing installs relying on real-time capture must re-enable the toggle (or re-import); intentional per the opt-in design.
 
+## «Мерцание» Shimmer Layer ✓ COMPLETE (all 3 phases)
+
+Two toggles in Settings → «КАСТОМИЗАЦИЯ»:
+- **«Анимации»**: countUp, screenTransitions, touchRipple, holographicCards (variant A) / glassCards (variant B), ScoreRing count-up animation
+- **«Атмосфера Мерцание»**: particles, particlePulse, surfaceGlow, heroBreathing, depthTimeline, insightBorderGlow, semanticGlow, currencyReef
+
+System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables pulse/breathing; `powerSave` disables particles, forces glass cards, disables reef.
+
+### Phase 0 — Infrastructure
+- `Shimmer.kt` — `ShimmerConfig` data class + `LocalShimmer` + `ProvideShimmer` + `rememberSystemReduceMotion` + `rememberPowerSave`
+- `UserPreferences` — `ANIMATIONS_ENABLED`, `ATMOSPHERE_ENABLED`, `CARDS_VARIANT_B` DataStore keys
+- `SettingsScreen/ViewModel` — «КАСТОМИЗАЦИЯ» section, animated variant-B sub-toggle
+
+### Phase 1 — Анимации
+- `AnimatedAmount.kt` — count-up interpolation between Long kopeck values via Float progress
+- `ShimmerCardFx.kt` — `rememberDeviceTilt` (accelerometer, exponential smoothing) + `Modifier.shimmerTilt` (±8° graphicsLayer) + `ShimmerCardSheen` (holographic sweep gradient / glass frost)
+- `ScoreRing.kt` — Animatable arc sweep count-up from 0 on first render
+- `FosNavHost.kt` — `fadeIn(220ms) + scaleIn(0.98f)` / `fadeOut(160ms)` screen transitions
+
+### Phase 2 — Атмосфера
+- `ParticleLayer.kt` — 16 firefly dots (sin/cos analytic, frame loop via `withInfiniteAnimationFrameMillis`); `rememberBreathingScale` — always calls `rememberInfiniteTransition` (1f..1f when inactive, per Compose Rules of Hooks)
+- `InsightsTab.kt` — particles behind LazyColumn; horizontal gradient glow inward from severity border
+- `TransactionsScreen.kt` — depth-of-field alpha on day groups (`1f - groupIndex*0.07f`, min 0.45f), static (safe under reduce-motion)
+- `DashboardScreen.kt` — all 3 hero variants: particles + surface glow shadow + breathing scale; `BankCard` tilt + sheen
+
+### Phase 3 — Semantic + Reef
+- `ScoreRing.kt` — ambient radial glow (22%→0%) clipped to CircleShape, colour = score tier (Positive/Warning/Negative); never leaks to net-worth text
+- `CurrencyReef.kt` — bioluminescent blob organisms per currency (RUB=GlowIndigo, USD=GlowViolet, EUR=GlowPink); triple-layer circles (5/9/14% alpha × sin-pulse); drawn behind multi-currency amount Column in both CalmHero and ContrastHero
+
+### Build fix (commit 5e1bc1b)
+`rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → build failure on CI. Fixed to always call the transition with `1f..1f` bounds when inactive.
+
+### Deferred
+- Bioluminescent touch ripple: needs Compose BOM 2024.09+ for new `ripple()` API
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency
