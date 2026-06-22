@@ -384,11 +384,12 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - `ScoreRing.kt` — ambient radial glow (22%→0%) clipped to CircleShape, colour = score tier (Positive/Warning/Negative); never leaks to net-worth text
 - `CurrencyReef.kt` — bioluminescent blob organisms per currency (RUB=GlowIndigo, USD=GlowViolet, EUR=GlowPink); triple-layer circles (5/9/14% alpha × sin-pulse); drawn behind multi-currency amount Column in both CalmHero and ContrastHero
 
-### Build fix (commit 5e1bc1b)
-`rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → build failure on CI. Fixed to always call the transition with `1f..1f` bounds when inactive.
+### Phase 3.5 — Bioluminescent touch ripple (commit e9faafa)
+- `ShimmerRipple.kt` — `Modifier.shimmerRipple()`. Implemented WITHOUT Material `ripple()` (that needs BOM 2024.09+; we're on 2024.06). Observe-only `awaitEachGesture` reads the press position with `requireUnconsumed = false` and never consumes, so the host `clickable {}` still fires; a translucent radial bloom (GlowViolet, peak α≈0.28) expands via `drawWithContent`. Decorative palette only, low alpha keeps numbers readable. Gated by `LocalShimmer.touchRipple`. Wired into `BankCard`.
 
-### Deferred
-- Bioluminescent touch ripple: needs Compose BOM 2024.09+ for new `ripple()` API
+### Build fixes (commits 5e1bc1b, dc25502)
+- **Real CI blocker** (dc25502): `ParticleLayer.kt` used `var time by remember { mutableStateOf(0f) }` but imported only `getValue`, not `setValue` → `Type 'MutableState<Float>' has no method 'setValue(...)'`. Added `import androidx.compose.runtime.setValue`.
+- (5e1bc1b) `rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → also fixed to always call the transition with `1f..1f` bounds when inactive (latent, would have failed at runtime).
 
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
