@@ -391,10 +391,28 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - **Real CI blocker** (dc25502): `ParticleLayer.kt` used `var time by remember { mutableStateOf(0f) }` but imported only `getValue`, not `setValue` → `Type 'MutableState<Float>' has no method 'setValue(...)'`. Added `import androidx.compose.runtime.setValue`.
 - (5e1bc1b) `rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → also fixed to always call the transition with `1f..1f` bounds when inactive (latent, would have failed at runtime).
 
+## Audit #6 Fixes (Shimmer layer, this session)
+
+5 Compose Rules of Hooks violations and performance issues fixed (commit 3c3718d):
+
+| Severity | File | Fix |
+|----------|------|-----|
+| CRITICAL | `ShimmerCardFx.kt` | `shimmerTilt` called `rememberDeviceTilt`/`animateFloatAsState` after early return → slot-table crash on toggle. All composable calls moved before the guard. |
+| CRITICAL | `AnimatedAmount.kt` | Early return before `remember`/`LaunchedEffect` → slot-table mismatch when animation toggled live. Removed early return; added `enabled` to LaunchedEffect keys. |
+| HIGH | `Shimmer.kt` | `rememberSystemReduceMotion` read scale once via `remember {}` — stale until recomposition. Replaced with `ContentObserver + DisposableEffect` (live, mirrors `rememberPowerSave`). |
+| MEDIUM | `InsightsTab.kt` | `itemsIndexed(narratives)` missing key lambda → index-based reuse, wrong items on list reorder. Fixed: `key = { _, n -> n.id }`. |
+| LOW | `ShimmerRipple.kt` | `Brush.radialGradient` allocated per-frame per-ripple (GC pressure @ 60 fps). Replaced with 3 concentric `drawCircle` + `Color.copy(alpha)` (zero allocation). |
+
+## Branch / Merge History
+- `claude/project-setup-design-sndr3y` → `dev` (PR #2, merged)
+- `dev` → `main` (PR #3, merged)
+- All branches in sync as of 2026-06-22
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Consider: cross-channel (SMS↔push) content-based dedup; document ACCOUNT routing's source-mask dependency
-- Consider: encrypt backup file (currently plaintext JSON — contains balances & masks)
+- Cross-channel (SMS↔push) content-based dedup (same transaction arriving via both channels)
+- Encrypt backup file (currently plaintext JSON — contains balances & card masks)
+- Add `feature/app-icon` branch content (existing branch not yet reviewed)
 
 ## Key File Locations
 | Layer | Path |
