@@ -62,11 +62,12 @@ class BackupManager @Inject constructor(
 
     // ─── Export ───────────────────────────────────────────────────────────────
 
-    /** Reads every table and writes a JSON backup to the user-chosen [uri]. */
+    /** Reads every table and writes an AES-GCM-256 encrypted backup to the user-chosen [uri]. */
     suspend fun exportTo(uri: Uri) {
-        val json = buildJson()
+        val plaintext = buildJson().toByteArray(Charsets.UTF_8)
+        val bytes     = BackupCrypto.encrypt(plaintext)
         context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-            out.write(json.toByteArray(Charsets.UTF_8))
+            out.write(bytes)
         } ?: error("Не удалось открыть файл для записи")
     }
 
@@ -90,8 +91,10 @@ class BackupManager @Inject constructor(
 
     /** Reads a backup file at [uri] and upserts its contents in one transaction. */
     suspend fun restoreFrom(uri: Uri): RestoreCounts {
-        val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        val raw  = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не удалось открыть файл")
+        val text = runCatching { BackupCrypto.decrypt(raw).toString(Charsets.UTF_8) }.getOrNull()
+            ?: error("Не удалось расшифровать файл")
         val root = runCatching { JSONObject(text) }.getOrNull()
             ?: error("Файл повреждён или не является резервной копией")
         if (!root.has("accounts") && !root.has("transactions")) {
@@ -262,11 +265,11 @@ class BackupManager @Inject constructor(
     companion object {
         const val SCHEMA_VERSION = 1
 
-        /** Suggested filename for the save dialog, e.g. financeos-backup-2026-06-22.json */
+        /** Suggested filename for the save dialog, e.g. financeos-backup-2026-06-22.fose */
         fun suggestedFileName(now: Long = System.currentTimeMillis()): String {
             val d = java.time.Instant.ofEpochMilli(now)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-            return "financeos-backup-%04d-%02d-%02d.json".format(d.year, d.monthValue, d.dayOfMonth)
+            return "financeos-backup-%04d-%02d-%02d.fose".format(d.year, d.monthValue, d.dayOfMonth)
         }
     }
 }
