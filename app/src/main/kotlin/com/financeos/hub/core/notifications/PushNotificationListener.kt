@@ -61,6 +61,10 @@ class PushNotificationListener : NotificationListenerService() {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
         val pushId = "push_${sender}_${ts}_${body.hashCode()}"
         if (transactionDao.existsBySmsId(pushId)) return
+        // Cross-channel dedup: skip if an SMS transaction with the same amount already arrived
+        // within ±5 minutes (same bank event delivered via both SMS and push notification).
+        val window = 5 * 60 * 1000L
+        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)

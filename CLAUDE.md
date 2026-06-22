@@ -408,11 +408,25 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - `dev` → `main` (PR #3, merged)
 - All branches in sync as of 2026-06-22
 
+## Post-Audit-6 Features (this session)
+
+### Backup encryption (`core/backup/BackupCrypto.kt`)
+- AES-GCM-256 via Android Keystore (hardware-backed TEE/SE when available)
+- Key alias `fos_backup_key`; 12-byte GCM IV prepended; 128-bit auth tag
+- File format: `FOSENC1:` header (8 bytes) + IV (12 bytes) + ciphertext
+- Backward compat: files without the header (old plaintext exports) are accepted on restore as-is
+- Suggested filename extension changed from `.json` → `.fose`
+
+### Cross-channel SMS↔push dedup (`TransactionDao`, `SmsReader`, `PushNotificationListener`)
+- New `TransactionDao.existsSimilarSmsOrPush(magnitude, fromTs, toTs)` query: checks if any SMS/PUSH transaction with the same absolute amount exists within a ±5-minute window
+- `PushNotificationListener.processPush` now calls this guard after the `existsBySmsId` check — rejects push if SMS already imported the same event
+- `SmsReader.importLast90Days` applies the same guard — rejects SMS if push was already ingested
+- Prevents double-counting on banks that send both SMS and push for every operation (e.g. Sberbank)
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
-- Cross-channel (SMS↔push) content-based dedup (same transaction arriving via both channels)
-- Encrypt backup file (currently plaintext JSON — contains balances & card masks)
-- Add `feature/app-icon` branch content (existing branch not yet reviewed)
+- Review `feature/app-icon` branch and merge
+- Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
 
 ## Key File Locations
 | Layer | Path |
