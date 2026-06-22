@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -53,6 +54,7 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.LocalShimmer
 
 /** Red delete background revealed while swiping a row in either direction. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -232,19 +234,27 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                     )
                 }
             } else {
+                // «Атмосфера» layer: older day-groups recede into the dark (depth-of-field).
+                // Static per-position alpha — no animation, so it is safe under reduce-motion.
+                val depthEnabled = LocalShimmer.current.depthTimeline
                 LazyColumn(
                     contentPadding        = PaddingValues(horizontal = FosDimens.ScreenPadding, vertical = 4.dp),
                     verticalArrangement   = Arrangement.spacedBy(4.dp),
                 ) {
                     state.grouped.entries
                         .sortedByDescending { it.key }
-                        .forEach { (day, txList) ->
+                        .withIndex()
+                        .forEach { (groupIndex, entry) ->
+                            val (day, txList) = entry
+                            val depthAlpha = if (depthEnabled) (1f - groupIndex * 0.07f).coerceAtLeast(0.45f) else 1f
                             item(key = "header_$day") {
                                 Text(
                                     text     = FosFormatter.dayLabelYear(day),
                                     style    = FosType.SectionCap,
                                     color    = FosColors.TextMuted,
-                                    modifier = Modifier.padding(top = FosDimens.ItemGap, bottom = 4.dp),
+                                    modifier = Modifier
+                                        .graphicsLayer { alpha = depthAlpha }
+                                        .padding(top = FosDimens.ItemGap, bottom = 4.dp),
                                 )
                             }
                             items(txList.sortedByDescending { it.timestamp }, key = { it.id }) { tx ->
@@ -258,6 +268,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                                 )
                                 SwipeToDismissBox(
                                     state             = dismissState,
+                                    modifier          = Modifier.graphicsLayer { alpha = depthAlpha },
                                     backgroundContent = { SwipeDeleteBackground(dismissState.dismissDirection) },
                                 ) {
                                     TransactionRow(

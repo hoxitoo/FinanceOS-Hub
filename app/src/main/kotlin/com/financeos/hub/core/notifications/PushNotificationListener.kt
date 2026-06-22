@@ -60,7 +60,7 @@ class PushNotificationListener : NotificationListenerService() {
     private suspend fun processPush(sender: String, body: String, ts: Long) {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
         val pushId = "push_${sender}_${ts}_${body.hashCode()}"
-        if (pushId in transactionDao.getAllSmsHashes()) return
+        if (transactionDao.existsBySmsId(pushId)) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)

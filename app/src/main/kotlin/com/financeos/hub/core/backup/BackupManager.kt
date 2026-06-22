@@ -120,8 +120,9 @@ class BackupManager @Inject constructor(
         }
 
         // FK-safe order: parents (categories, accounts) before children (cards, budgets, transactions).
+        // Use upsertAll (REPLACE) for categories so that user-renamed categories survive restore.
         db.withTransaction {
-            categoryDao.insertAll(categories)
+            categoryDao.upsertAll(categories)
             accounts.forEach { accountDao.upsert(it) }
             goals.forEach    { goalDao.upsert(it) }
             cards.forEach    { cardDao.insert(it) }

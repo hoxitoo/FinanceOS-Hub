@@ -31,20 +31,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
+import com.financeos.hub.ui.components.AnimatedAmount
+import com.financeos.hub.ui.components.CurrencyReef
 import com.financeos.hub.ui.components.LineChart
+import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.ScoreRing
+import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.ui.components.TransactionRow
+import com.financeos.hub.ui.components.rememberBreathingScale
+import com.financeos.hub.ui.components.shimmerRipple
+import com.financeos.hub.ui.components.shimmerTilt
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.LocalShimmer
 import com.financeos.hub.ui.theme.bankBrand
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,6 +202,7 @@ private fun BankCard(
     onClick  : () -> Unit,
 ) {
     val brand    = bankBrand(bank)
+    val shimmer  = LocalShimmer.current
     val allMasks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
     val totals   = accounts.groupBy { it.currency }
         .mapValues { (_, list) -> list.sumOf { it.balanceKopecks } }
@@ -235,12 +246,15 @@ private fun BankCard(
         } else {
             Spacer(Modifier.height(32.dp))
         }
-        // Main bank card — volumetric with gradient depth + symbol badge
+        // Main bank card — volumetric with gradient depth + symbol badge.
+        // «Анимации» layer adds accelerometer parallax + a holographic / glass light sweep.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
+                .shimmerTilt(shimmer.holographicCards || shimmer.glassCards)
                 .clip(RoundedCornerShape(FosDimens.RadiusCard))
+                .shimmerRipple()
                 .background(brand.bg)
                 .clickable { onClick() },
         ) {
@@ -268,6 +282,8 @@ private fun BankCard(
                     .align(Alignment.TopCenter)
                     .background(Color.White.copy(alpha = 0.28f)),
             )
+            // Holographic (A) / glass (B) light sweep — drawn under the content below.
+            ShimmerCardSheen(holographic = shimmer.holographicCards, glass = shimmer.glassCards)
             // Card content
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(
@@ -372,13 +388,18 @@ private fun CalmHero(state: DashboardState) {
         state.financialScore >= 40 -> FosColors.Warning
         else                       -> FosColors.Negative
     }
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             // Score row — ring is compact (72dp) so text fits alongside
             Row(
@@ -400,19 +421,33 @@ private fun CalmHero(state: DashboardState) {
             val byCur = state.netWorthByCurrency
             if (byCur.size <= 1) {
                 val nw = state.netWorthKopecks
-                Text(
-                    FosFormatter.amount(nw),
+                AnimatedAmount(
+                    kopecks = nw,
                     style = FosType.HeroAmount,
                     color = if (nw >= 0) FosColors.TextPrimary else FosColors.Negative,
                 )
             } else {
                 val amtStyle = if (byCur.size >= 3) FosType.HeroAmountMulti else FosType.HeroAmount
-                byCur.entries.take(3).forEach { (cur, kopecks) ->
-                    Text(
-                        FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
-                        style = amtStyle,
-                        color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
-                    )
+                // «Атмосфера» currency reef: bioluminescent organisms, one per currency,
+                // floating behind the amount column. matchParentSize is not available inside
+                // Column, so wrap in a Box that sizes to the column content.
+                Box {
+                    if (shimmer.currencyReef) {
+                        CurrencyReef(
+                            currencies = byCur.keys.toList(),
+                            animated   = shimmer.particlePulse,
+                            modifier   = Modifier.matchParentSize(),
+                        )
+                    }
+                    Column {
+                        byCur.entries.take(3).forEach { (cur, kopecks) ->
+                            Text(
+                                FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
+                                style = amtStyle,
+                                color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(FosDimens.ItemGap))
@@ -430,13 +465,18 @@ private fun CalmHero(state: DashboardState) {
 /** CONTRAST: bold income/expense side-by-side, net worth + forecast below */
 @Composable
 private fun ContrastHero(state: DashboardState) {
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -487,19 +527,30 @@ private fun ContrastHero(state: DashboardState) {
                     val byCur = state.netWorthByCurrency
                     if (byCur.size <= 1) {
                         val netWorth = state.netWorthKopecks
-                        Text(
-                            FosFormatter.amount(netWorth),
+                        AnimatedAmount(
+                            kopecks = netWorth,
                             style = FosType.CardAmount,
                             color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
                         )
                     } else {
                         val amtStyle = if (byCur.size >= 3) FosType.HeroAmountMulti else FosType.CardAmount
-                        byCur.entries.take(3).forEach { (cur, kopecks) ->
-                            Text(
-                                FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
-                                style = amtStyle,
-                                color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
-                            )
+                        Box {
+                            if (shimmer.currencyReef) {
+                                CurrencyReef(
+                                    currencies = byCur.keys.toList(),
+                                    animated   = shimmer.particlePulse,
+                                    modifier   = Modifier.matchParentSize(),
+                                )
+                            }
+                            Column {
+                                byCur.entries.take(3).forEach { (cur, kopecks) ->
+                                    Text(
+                                        FosFormatter.amount(kopecks, FosFormatter.currencySymbol(cur)),
+                                        style = amtStyle,
+                                        color = if (kopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -521,21 +572,26 @@ private fun ContrastHero(state: DashboardState) {
 /** MINIMAL: compact net worth + income/expense chips */
 @Composable
 private fun MinimalHero(state: DashboardState) {
+    val shimmer = LocalShimmer.current
+    val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
+            .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
+        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
             Spacer(Modifier.height(4.dp))
             val byCur = state.netWorthByCurrency
             if (byCur.size <= 1) {
                 val netWorth = state.netWorthKopecks
-                Text(
-                    FosFormatter.amount(netWorth),
+                AnimatedAmount(
+                    kopecks = netWorth,
                     style = FosType.HeroMinimal,
                     color = if (netWorth >= 0) FosColors.TextPrimary else FosColors.Negative,
                 )

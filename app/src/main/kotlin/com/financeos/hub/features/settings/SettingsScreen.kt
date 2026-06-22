@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -129,6 +130,43 @@ fun SettingsScreen(
             }
         }
 
+        // ── Customization («Мерцание») ───────────────────────────────────────────
+        SettingsSection(title = "КАСТОМИЗАЦИЯ") {
+            ToggleRow(
+                label    = "Анимации",
+                sublabel = "Плавные переходы, счётчики чисел, объёмные карты и отклик касания",
+                checked  = state.animationsEnabled,
+                onToggle = viewModel::setAnimationsEnabled,
+            )
+            // Conditional sub-toggle: only relevant when animations (and thus the cards) are on.
+            androidx.compose.animation.AnimatedVisibility(visible = state.animationsEnabled) {
+                Column {
+                    HorizontalDivider(
+                        color = FosColors.Border, thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    Row(modifier = Modifier.padding(start = 12.dp)) {
+                        ToggleRow(
+                            label    = "Карты: глубокое стекло",
+                            sublabel = "Спокойнее и экономнее для батареи (выкл — голографик)",
+                            checked  = state.cardsVariantB,
+                            onToggle = viewModel::setCardsVariantB,
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(
+                color = FosColors.Border, thickness = 0.5.dp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            ToggleRow(
+                label    = "Атмосфера «Мерцание»",
+                sublabel = "Светлячки, свечение и глубина — загадочная атмосфера",
+                checked  = state.atmosphereEnabled,
+                onToggle = viewModel::setAtmosphereEnabled,
+            )
+        }
+
         // ── Notifications ───────────────────────────────────────────────────────
         SettingsSection(title = "УВЕДОМЛЕНИЯ") {
             ToggleRow(
@@ -232,7 +270,7 @@ fun SettingsScreen(
                     }
                 },
             )
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color = FosColors.Border, thickness = 0.5.dp,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -285,7 +323,7 @@ fun SettingsScreen(
                 }
                 Text("↑", style = FosType.BodySemi, color = FosColors.Info)
             }
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color = FosColors.Border, thickness = 0.5.dp,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -358,7 +396,7 @@ fun SettingsScreen(
                 }
                 Text("›", style = FosType.BodySemi, color = FosColors.TextSecondary)
             }
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color     = FosColors.Border,
                 thickness = 0.5.dp,
                 modifier  = Modifier.padding(vertical = 4.dp),

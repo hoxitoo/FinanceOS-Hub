@@ -26,6 +26,10 @@ data class SettingsState(
     val pushListenerEnabled    : Boolean = false,
     val smsRealtimeEnabled     : Boolean = false,
     val lastImportAt           : String? = null,
+    // Кастомизация («Мерцание»)
+    val animationsEnabled      : Boolean = false,
+    val atmosphereEnabled      : Boolean = false,
+    val cardsVariantB          : Boolean = false,
 )
 
 /** Transient status of the manual 90-day SMS import. */
@@ -64,7 +68,14 @@ class SettingsViewModel @Inject constructor(
         ) { threshold, ml, push, sms, last ->
             listOf<Any?>(threshold, ml, push, sms, last)
         },
-    ) { hero, bio, notif, rest ->
+        combine(
+            prefs.animationsEnabled,
+            prefs.atmosphereEnabled,
+            prefs.cardsVariantB,
+        ) { anim, atmo, cardsB ->
+            listOf(anim, atmo, cardsB)
+        },
+    ) { hero, bio, notif, rest, custom ->
         SettingsState(
             heroVariant             = hero,
             biometricEnabled        = bio,
@@ -74,6 +85,9 @@ class SettingsViewModel @Inject constructor(
             pushListenerEnabled     = rest[2] as Boolean,
             smsRealtimeEnabled      = rest[3] as Boolean,
             lastImportAt            = rest[4] as String?,
+            animationsEnabled       = custom[0],
+            atmosphereEnabled       = custom[1],
+            cardsVariantB           = custom[2],
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
 
@@ -109,6 +123,18 @@ class SettingsViewModel @Inject constructor(
 
     fun setSmsRealtimeEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setSmsRealtimeEnabled(enabled)
+    }
+
+    fun setAnimationsEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setAnimationsEnabled(enabled)
+    }
+
+    fun setAtmosphereEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setAtmosphereEnabled(enabled)
+    }
+
+    fun setCardsVariantB(enabled: Boolean) = viewModelScope.launch {
+        prefs.setCardsVariantB(enabled)
     }
 
     fun deleteAllHistory() = viewModelScope.launch(Dispatchers.IO) {

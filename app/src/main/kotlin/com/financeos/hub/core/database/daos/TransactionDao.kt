@@ -33,6 +33,9 @@ interface TransactionDao {
     @Query("SELECT sms_id FROM transactions WHERE sms_id IS NOT NULL")
     suspend fun getAllSmsHashes(): List<String>
 
+    @Query("SELECT COUNT(*) > 0 FROM transactions WHERE sms_id = :smsId")
+    suspend fun existsBySmsId(smsId: String): Boolean
+
     @Query("""
         SELECT category_id, SUM(ABS(amount_kopecks)) as total
         FROM transactions
