@@ -62,8 +62,7 @@ class SmsReceiver : BroadcastReceiver() {
 
     private suspend fun processSms(sender: String, body: String, ts: Long) {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
-        val known  = transactionDao.getAllSmsHashes()
-        if (parsed.smsId in known) return
+        if (transactionDao.existsBySmsId(parsed.smsId)) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)

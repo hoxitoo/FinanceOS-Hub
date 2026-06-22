@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -232,7 +233,7 @@ fun SettingsScreen(
                     }
                 },
             )
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color = FosColors.Border, thickness = 0.5.dp,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -285,7 +286,7 @@ fun SettingsScreen(
                 }
                 Text("↑", style = FosType.BodySemi, color = FosColors.Info)
             }
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color = FosColors.Border, thickness = 0.5.dp,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -358,7 +359,7 @@ fun SettingsScreen(
                 }
                 Text("›", style = FosType.BodySemi, color = FosColors.TextSecondary)
             }
-            androidx.compose.material3.Divider(
+            HorizontalDivider(
                 color     = FosColors.Border,
                 thickness = 0.5.dp,
                 modifier  = Modifier.padding(vertical = 4.dp),
