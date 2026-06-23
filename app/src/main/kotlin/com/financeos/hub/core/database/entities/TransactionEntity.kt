@@ -45,6 +45,10 @@ data class TransactionEntity(
     @ColumnInfo(name = "sms_id") val smsId: String?,                // dedup key
     @ColumnInfo(name = "goal_id") val goalId: String? = null,
     @ColumnInfo(name = "transfer_pair_id") val transferPairId: String? = null,
+    // Account/card last-4 the money LEFT (source) and ARRIVED at (counterparty), when the
+    // bank SMS/push exposes them. Null when the message omits the number → shown as "неизвестно".
+    @ColumnInfo(name = "source_mask") val sourceMask: String? = null,
+    @ColumnInfo(name = "counterparty_mask") val counterpartyMask: String? = null,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),

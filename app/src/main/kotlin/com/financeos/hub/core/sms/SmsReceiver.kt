@@ -79,6 +79,8 @@ class SmsReceiver : BroadcastReceiver() {
             description    = null,
             timestamp      = parsed.timestamp,
             smsId          = parsed.smsId,
+            sourceMask       = parsed.cardMask,
+            counterpartyMask = parsed.counterpartyMask,
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {
