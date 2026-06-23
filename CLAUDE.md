@@ -444,6 +444,20 @@ All 11 bank parsers now have unit tests (7 cases each = 77 total parser test cas
 ## Critical Bug Fixed (this session)
 - `ShimmerRipple.kt` — `import androidx.compose.ui.graphics.Color` was dropped by the audit fix that replaced Brush.radialGradient. Color is still used in `RippleSpec.color: Color` and the function signature → compile error. Fixed.
 
+## Screenshot Bug Fixes (this session)
+
+Three user-reported bugs from real-device screenshots fixed:
+
+| # | Bug | Root cause | Fix |
+|---|-----|-----------|-----|
+| 1 | "Транспорт Перми" auto-categorised as «Другое» | No merchant rule matched generic transit wording; the classifier is **purely rule-based and never learns from manual corrections** | Added 15 public-transport merchant rules (`транспорт`, `тройка`, `подорожник`, `проездной`, `метрополитен`, `маршрутка`, `каршеринг`, `такси`, …) → `cat_transport` |
+| 2 | Auto-parsed salary/income had no category (only manual entry offered «Зарплата») | All 13 system categories were expense-only; income SMS (often `merchant = null`, e.g. Alfa «Зачисление») classified to null | Added 3 income categories (`cat_salary` 💼, `cat_income` 💰, `cat_cashback` 💸) + income rules (`зарплата`, `аванс`, `кэшбэк`, `поступление`, `зачисление`…). New `CategoryDefaults.forType()` gives every INCOME row a `cat_income` fallback when no merchant matches; wired into all 3 ingestion sites (SmsReceiver, PushNotificationListener, SmsReader) |
+| 3 | Transfer «со счета 4\*1139 на счет 4\*3583» counted but didn't fund the goal linked to the destination account | (a) `DEST_MASK`/`SOURCE_CARD` regexes couldn't parse the network-prefixed `4*NNNN` form → both masks lost (source even mis-read as the trailing dest); (b) `TransferRouter` only checked ACCOUNT routes against `tx.accountId` (the **source**), never the destination account the goal was linked to | (a) Both regexes now consume an optional leading network digit `(?:\d\s*)?` before the masking glyph; `SOURCE_CARD` gained a leading «со счёта…» branch so the source wins as the leftmost match. (b) `TransferRouter` resolves the counterparty account via `AccountLinker` and routes **both legs** — money entering an account → +progress, leaving → −progress — so an outgoing transfer INTO a goal-linked savings account now funds it. `onTransactionReversed` mirrors the two-leg sign logic. |
+
+- **DB bumped v4→v5** with `MIGRATION_4_5` (re-runs both `INSERT OR IGNORE` seed helpers — adds the new categories/rules to existing installs, leaves user data untouched); registered in `DatabaseModule`.
+- New test: `TransferPatternsTest` (6 cases) locks the mask-extraction fix.
+- **Note for users:** ML/classifier does **not** learn from manual category edits — categorisation is deterministic rule-based; a new merchant needs a rule (or a manual edit per transaction).
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)

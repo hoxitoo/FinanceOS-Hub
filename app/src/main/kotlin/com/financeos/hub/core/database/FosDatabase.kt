@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -92,6 +92,16 @@ abstract class FosDatabase : RoomDatabase() {
             }
         }
 
+        // Adds income categories (Зарплата / Прочие доходы / Кэшбэк) and the public-transport +
+        // income merchant rules to EXISTING installs. Both insert helpers use INSERT OR IGNORE,
+        // so re-running them only adds the new ids and leaves user data untouched.
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultCategories(db)
+                insertDefaultMerchantRules(db)
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -115,11 +125,16 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("cat_beauty",     "Красота",          "💅"),
                 Triple("cat_pets",       "Животные",         "🐾"),
                 Triple("cat_other",      "Другое",           "💳"),
+                // Income categories — used for auto-categorised INCOME transactions
+                Triple("cat_salary",     "Зарплата",         "💼"),
+                Triple("cat_income",     "Прочие доходы",    "💰"),
+                Triple("cat_cashback",   "Кэшбэк",           "💸"),
             )
             val colors = listOf(
                 "#FFB84D", "#4DFFA0", "#4D9FFF", "#FF6B6B", "#C084FC",
                 "#F472B6", "#34D399", "#A78BFA", "#60A5FA", "#FB923C",
                 "#E879F9", "#2DD4BF", "#94A3B8",
+                "#4DFFA0", "#22D3A6", "#38BDF8",
             )
             cats.forEachIndexed { i, (id, name, emoji) ->
                 db.execSQL(
@@ -209,6 +224,34 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r101", "летуаль",       "cat_beauty"),
                 Triple("r102", "рив гош",       "cat_beauty"),
                 Triple("r103", "салон красоты", "cat_beauty"),
+                // Public transport — city transit cards & operators (e.g. "Транспорт Перми")
+                Triple("r110", "транспорт",     "cat_transport"),
+                Triple("r111", "тройка",        "cat_transport"),
+                Triple("r112", "подорожник",    "cat_transport"),
+                Triple("r113", "проездной",     "cat_transport"),
+                Triple("r114", "метрополитен",  "cat_transport"),
+                Triple("r115", "трамвай",       "cat_transport"),
+                Triple("r116", "троллейбус",    "cat_transport"),
+                Triple("r117", "маршрутка",     "cat_transport"),
+                Triple("r118", "электричка",    "cat_transport"),
+                Triple("r119", "мосгортранс",   "cat_transport"),
+                Triple("r120", "такси",         "cat_transport"),
+                Triple("r121", "gett",          "cat_transport"),
+                Triple("r122", "ситидрайв",     "cat_transport"),
+                Triple("r123", "делимобиль",    "cat_transport"),
+                Triple("r124", "каршеринг",     "cat_transport"),
+                // Income — salary, cashback, generic incoming credits
+                Triple("r130", "зарплата",          "cat_salary"),
+                Triple("r131", "заработная плата",  "cat_salary"),
+                Triple("r132", "аванс",             "cat_salary"),
+                Triple("r133", "оклад",             "cat_salary"),
+                Triple("r134", "кэшбэк",            "cat_cashback"),
+                Triple("r135", "кешбэк",            "cat_cashback"),
+                Triple("r136", "cashback",          "cat_cashback"),
+                Triple("r137", "поступление",       "cat_income"),
+                Triple("r138", "зачисление",        "cat_income"),
+                Triple("r139", "пополнение",        "cat_income"),
+                Triple("r140", "проценты на остаток","cat_income"),
             )
             rules.forEach { (id, pattern, catId) ->
                 db.execSQL(

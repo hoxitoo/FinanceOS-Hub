@@ -4,6 +4,7 @@ import android.content.Context
 import android.provider.Telephony
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
+import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
@@ -69,6 +70,7 @@ class SmsReader @Inject constructor(
                     if (parsed != null && parsed.smsId !in knownIds &&
                         !transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, parsed.timestamp - window, parsed.timestamp + window)) {
                         val categoryId = classifier.classify(parsed.merchant, null)
+                            ?: CategoryDefaults.forType(parsed.type)
                         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),

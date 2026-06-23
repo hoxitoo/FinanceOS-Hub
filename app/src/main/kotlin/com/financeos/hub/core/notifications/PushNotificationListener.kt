@@ -7,6 +7,7 @@ import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.classifier.CategoryClassifier
+import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
@@ -67,6 +68,7 @@ class PushNotificationListener : NotificationListenerService() {
         if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
+            ?: CategoryDefaults.forType(parsed.type)
         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),
