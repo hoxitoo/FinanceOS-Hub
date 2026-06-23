@@ -54,6 +54,7 @@ fun SettingsScreen(
     val state     by viewModel.state.collectAsState()
     val smsImport by viewModel.smsImport.collectAsState()
     val backup    by viewModel.backup.collectAsState()
+    val update    by viewModel.update.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -448,10 +449,78 @@ fun SettingsScreen(
             )
         }
 
+        // ── Updates ──────────────────────────────────────────────────────────────
+        SettingsSection(title = "ОБНОВЛЕНИЯ") {
+            val busy = update is UpdateUi.Checking || update is UpdateUi.Downloading
+
+            val (title, sub, subColor) = when (val u = update) {
+                UpdateUi.Idle            ->
+                    Triple("Проверить обновления", "Текущая версия ${viewModel.currentVersion}", FosColors.TextMuted)
+                UpdateUi.Checking        ->
+                    Triple("Проверка…", "Связываемся с GitHub", FosColors.TextMuted)
+                UpdateUi.UpToDate        ->
+                    Triple("Проверить обновления", "Установлена последняя версия (${viewModel.currentVersion})", FosColors.Positive)
+                is UpdateUi.Available    ->
+                    Triple("Загрузить ${u.release.tagName}", "Доступно новое обновление", FosColors.Info)
+                is UpdateUi.Downloading  ->
+                    Triple("Загрузка…", "${(u.progress * 100).toInt()}%", FosColors.Info)
+                is UpdateUi.ReadyToInstall ->
+                    Triple("Установить ${u.release.tagName}", "Загрузка завершена — нажмите для установки", FosColors.Positive)
+                is UpdateUi.Error        ->
+                    Triple("Проверить обновления", u.message, FosColors.Negative)
+            }
+            val glyph = when (update) {
+                is UpdateUi.Available      -> "↓"
+                is UpdateUi.ReadyToInstall -> "✓"
+                is UpdateUi.Downloading,
+                UpdateUi.Checking          -> "…"
+                else                       -> "↻"
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) {
+                        when (val u = update) {
+                            is UpdateUi.Available      -> viewModel.downloadUpdate(u.release)
+                            is UpdateUi.ReadyToInstall -> viewModel.installUpdate()
+                            else                       -> viewModel.checkForUpdates()
+                        }
+                    }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text(sub, style = FosType.Micro, color = subColor)
+                }
+                Text(glyph, style = FosType.BodySemi, color = FosColors.Info)
+            }
+
+            // Release notes, shown once an update is found.
+            val notes = when (val u = update) {
+                is UpdateUi.Available      -> u.release.notes
+                is UpdateUi.ReadyToInstall -> u.release.notes
+                else                       -> ""
+            }
+            if (notes.isNotBlank()) {
+                HorizontalDivider(
+                    color = FosColors.Border, thickness = 0.5.dp,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+                Text(
+                    notes.take(400),
+                    style = FosType.Micro,
+                    color = FosColors.TextSecondary,
+                )
+            }
+        }
+
         // ── About ────────────────────────────────────────────────────────────────
         SettingsSection(title = "О ПРИЛОЖЕНИИ") {
-            InfoRow("Версия",        "0.1.0-beta")
-            InfoRow("База знаний",   "v1.0 (60 правил)")
+            InfoRow("Версия",        viewModel.currentVersion)
+            InfoRow("База знаний",   "v1.0 (~90 правил)")
             state.lastImportAt?.let { ts ->
                 InfoRow("Последний импорт", ts.take(10))
             }

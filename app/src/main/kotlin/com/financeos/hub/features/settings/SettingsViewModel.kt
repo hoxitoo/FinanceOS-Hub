@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.backup.BackupManager
 import com.financeos.hub.core.sms.SmsReader
+import com.financeos.hub.core.update.UpdateChecker
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,12 +48,24 @@ sealed interface BackupUi {
     data class Error(val message: String) : BackupUi
 }
 
+/** Transient status of the «Проверить обновления» flow. */
+sealed interface UpdateUi {
+    data object Idle : UpdateUi
+    data object Checking : UpdateUi
+    data object UpToDate : UpdateUi
+    data class Available(val release: UpdateChecker.Release) : UpdateUi
+    data class Downloading(val progress: Float) : UpdateUi
+    data class ReadyToInstall(val release: UpdateChecker.Release) : UpdateUi
+    data class Error(val message: String) : UpdateUi
+}
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs        : UserPreferences,
     private val txRepo       : TransactionRepository,
     private val smsReader    : SmsReader,
     private val backupManager: BackupManager,
+    private val updateChecker: UpdateChecker,
 ) : ViewModel() {
 
     val state = combine(
@@ -176,4 +189,49 @@ class SettingsViewModel @Inject constructor(
     fun dismissBackup() { _backup.value = BackupUi.Idle }
 
     val suggestedBackupName: String get() = BackupManager.suggestedFileName()
+
+    // ─── App updates ──────────────────────────────────────────────────────────
+
+    private val _update = MutableStateFlow<UpdateUi>(UpdateUi.Idle)
+    val update = _update.asStateFlow()
+
+    private var downloadedApk: java.io.File? = null
+
+    /** Version currently installed (suffix-stripped), shown in the «О приложении» row. */
+    val currentVersion: String get() = updateChecker.currentVersion
+
+    fun checkForUpdates() = viewModelScope.launch {
+        _update.value = UpdateUi.Checking
+        _update.value = when (val r = updateChecker.check()) {
+            is UpdateChecker.CheckResult.UpToDate  -> UpdateUi.UpToDate
+            is UpdateChecker.CheckResult.Available -> UpdateUi.Available(r.release)
+            is UpdateChecker.CheckResult.Error     -> UpdateUi.Error(r.message)
+        }
+    }
+
+    fun downloadUpdate(release: UpdateChecker.Release) = viewModelScope.launch {
+        _update.value = UpdateUi.Downloading(0f)
+        runCatching {
+            updateChecker.download(release) { p -> _update.value = UpdateUi.Downloading(p) }
+        }.fold(
+            onSuccess = { file ->
+                downloadedApk = file
+                _update.value = UpdateUi.ReadyToInstall(release)
+            },
+            onFailure = { _update.value = UpdateUi.Error(it.message ?: "Не удалось загрузить обновление") },
+        )
+    }
+
+    /** Returns true if the install intent was launched; false if the OS blocks unknown sources. */
+    fun installUpdate(): Boolean {
+        val file = downloadedApk ?: return false
+        if (!updateChecker.canInstall()) {
+            updateChecker.openUnknownSourcesSettings()
+            return false
+        }
+        updateChecker.installApk(file)
+        return true
+    }
+
+    fun dismissUpdate() { _update.value = UpdateUi.Idle }
 }

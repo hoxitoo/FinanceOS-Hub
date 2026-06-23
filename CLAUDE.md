@@ -458,11 +458,52 @@ Three user-reported bugs from real-device screenshots fixed:
 - New test: `TransferPatternsTest` (6 cases) locks the mask-extraction fix.
 - **Note for users:** ML/classifier does **not** learn from manual category edits — categorisation is deterministic rule-based; a new merchant needs a rule (or a manual edit per transaction).
 
+## In-App Self-Update + Release Pipeline ✓ COMPLETE (this session)
+
+Ship the app to friends as a sideloadable APK with one-tap in-app updates.
+
+### Release pipeline (`.github/workflows/release-apk.yml`)
+- Triggers on push to `main` (+ `workflow_dispatch`); `permissions: contents: write`.
+- Builds the debug APK with `FOS_BUILD_NUMBER=${{ github.run_number }}`, publishes a GitHub
+  Release tagged `v0.1.0.<run>` with the APK attached (`softprops/action-gh-release@v2`,
+  `make_latest: true`).
+
+### Stable debug signing (required for updates to install)
+- `app/debug.keystore` — committed, password `android`, alias `androiddebugkey`. `.gitignore`
+  has `!app/debug.keystore` to un-ignore it (debug key only, never used for release).
+- `app/build.gradle.kts` — `signingConfigs.shared` points at it; `debug { signingConfig = shared }`.
+  Without one shared signature, CI's per-run auto-generated debug keys would block updates with
+  a signature mismatch.
+- **Removed `applicationIdSuffix = ".debug"`** so the distributed debug build keeps the real
+  package `com.financeos.hub` and updates replace the same package the user installed.
+
+### Versioning (`app/build.gradle.kts`)
+- Reads `FOS_BUILD_NUMBER` env → `versionCode = run`, `versionName = "0.1.0.<run>"` (falls back
+  to `1` / `"0.1.0"` locally). `buildConfigField("String","GITHUB_REPO","hoxitoo/financeos-hub")`.
+
+### Updater (`core/update/UpdateChecker.kt`, @Singleton)
+- Plain `HttpURLConnection` + `org.json` (no new dependency). Queries
+  `/repos/{GITHUB_REPO}/releases/latest`, picks the `.apk` asset, compares the normalised tag
+  (`normalize`: strips leading `v` + `-debug` suffix) numerically component-wise (`isNewer`).
+- `download()` streams the APK into `cacheDir/updates/` (covered by existing `provider_paths`
+  `cache-path "."`), reports 0..1 progress. `installApk()` fires `ACTION_VIEW` via FileProvider
+  (`${packageName}.provider`, matches CSV export). `canInstall()` / `openUnknownSourcesSettings()`
+  handle the Android 8+ per-app unknown-sources gate.
+- Only networked component in the app — `INTERNET` + `REQUEST_INSTALL_PACKAGES` added to manifest
+  (commented as update-only; no user data leaves the device).
+
+### UI (`features/settings/`)
+- `SettingsViewModel` — `UpdateUi` (Idle/Checking/UpToDate/Available/Downloading/ReadyToInstall/
+  Error), `checkForUpdates()`, `downloadUpdate()`, `installUpdate()`, `currentVersion`.
+- `SettingsScreen` — new «ОБНОВЛЕНИЯ» section: single state-driven row (check → download →
+  install) + release-notes preview. «О ПРИЛОЖЕНИИ» version row now reads `BuildConfig.VERSION_NAME`.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
 - Consider: encrypt backup with user PIN (currently key is device-scoped, no extra auth)
+- Consider: signed **release** APK channel (keystore in GitHub Secrets) for Play-Store-grade builds
 
 ## Key File Locations
 | Layer | Path |
