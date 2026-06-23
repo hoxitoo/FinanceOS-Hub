@@ -407,6 +407,8 @@ System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables
 - `claude/project-setup-design-sndr3y` → `dev` (PR #2, merged)
 - `dev` → `main` (PR #3, merged)
 - All branches in sync as of 2026-06-22
+- **PR #10** open: `claude/project-setup-design-sndr3y` → `dev` (self-update feature, CI green ✅)
+- **Next**: merge PR #10 → then create dev → main PR to trigger first APK release
 
 ## Post-Audit-6 Features (this session)
 
