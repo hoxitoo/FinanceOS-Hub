@@ -4,6 +4,7 @@ import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.banks.AlfabankParser
 import com.financeos.hub.core.parser.banks.GazprombankParser
 import com.financeos.hub.core.parser.banks.MBankParser
+import com.financeos.hub.core.parser.banks.MkbParser
 import com.financeos.hub.core.parser.banks.MtsBankParser
 import com.financeos.hub.core.parser.banks.OtkritieParser
 import com.financeos.hub.core.parser.banks.PostaBankParser
@@ -38,4 +39,6 @@ abstract class ParserModule {
     @Binds @IntoSet abstract fun bindRosselkhoz(p: RosselkhozParser) : BankParser
     // KG banks
     @Binds @IntoSet abstract fun bindMBank(p: MBankParser)           : BankParser
+    // P4 banks (МКБ и др.)
+    @Binds @IntoSet abstract fun bindMkb(p: MkbParser)               : BankParser
 }
