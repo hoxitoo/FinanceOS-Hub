@@ -101,6 +101,28 @@ app/
 Parser unit tests: 5 banks × 6 test cases each (`BankParserTest.kt`)  
 Behavioral analytics tests: 28 cases (`BehavioralAnalyzerTest.kt`)
 
+## Install & Update (sideload)
+
+The app ships as a sideloadable APK — no Play Store needed.
+
+**Get the APK.** Every push to `main` triggers the `Release APK` workflow
+(`.github/workflows/release-apk.yml`), which builds the debug APK and publishes it as a
+**GitHub Release**. Download `FinanceOS-Hub-vX.apk` from the
+[Releases page](https://github.com/hoxitoo/financeos-hub/releases/latest), open it on an
+Android device, and allow installation from this source.
+
+**Self-update.** Inside the app, **Настройки → Обновления → Проверить обновления** queries
+the GitHub Releases API, compares the latest tag against the installed `versionName`, and —
+if newer — downloads the APK and launches the system installer. This is the *only* feature
+that uses the network (`INTERNET` + `REQUEST_INSTALL_PACKAGES`); no user data leaves the
+device.
+
+**Stable signing.** All debug APKs (CI and local) are signed with the repo-committed
+`app/debug.keystore` (password `android`, debug-only). A single shared signature is what lets
+the in-app updater install a newer build over an older one without a signature mismatch. The
+distributed debug build drops the `.debug` applicationId suffix so updates replace the same
+package the user installed.
+
 ## ML Classification (pre-trained, inference-only)
 
 The ML layer uses **frozen, pre-trained** TFLite models bundled in

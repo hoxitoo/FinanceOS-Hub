@@ -81,6 +81,8 @@ class PushNotificationListener : NotificationListenerService() {
             description   = null,
             timestamp     = ts,
             smsId         = pushId,
+            sourceMask       = parsed.cardMask,
+            counterpartyMask = parsed.counterpartyMask,
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {

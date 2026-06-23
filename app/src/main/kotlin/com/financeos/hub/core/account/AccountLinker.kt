@@ -10,9 +10,10 @@ import javax.inject.Singleton
  *
  * Resolution order:
  *  1. Card mask present → exact match in accounts.card_mask or card table.
- *  2. Card mask absent → find the ONE active account whose bank name contains
- *     a known keyword for [bankId] (e.g. "alfabank" → "альфа"). Returns null
- *     when 0 or 2+ accounts match (ambiguous — user must link manually).
+ *  2. Card mask absent OR unmatched (e.g. account-number tail "408*01139" → "1139") →
+ *     find the ONE active account whose bank name contains a known keyword for [bankId]
+ *     (e.g. "sberbank" → "сбер"). Returns null when 0 or 2+ accounts match (ambiguous —
+ *     user must link manually via the account card).
  *
  * Balance sync prefers the bank-provided "Остаток"/"Доступно" (authoritative
  * post-op balance); if absent, the signed transaction amount is used as a delta.
@@ -33,8 +34,9 @@ class AccountLinker @Inject constructor(
             // Prefer card mask: exact match on the account itself, then on linked card rows.
             accountDao.findByCardMask(mask)?.let { return it.id }
             cardDao.findAccountIdByMask(mask)?.let { return it }
-            // Mask present but unknown — don't guess; wrong linking is worse than no linking.
-            return null
+            // Mask present but no registered card matches — could be an account-number tail
+            // (e.g. "408*01139" → captured as "1139") rather than a real card last-4.
+            // Fall through to bank-name fallback so single-bank installs still link correctly.
         }
         // No card mask in the push/SMS — fall back to bank-sender identity.
         if (bankId == null) return null

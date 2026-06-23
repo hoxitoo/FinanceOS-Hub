@@ -185,6 +185,7 @@ class BackupManager @Inject constructor(
         putNullable("merchant", merchant); putNullable("description", description)
         put("timestamp", timestamp); putNullable("smsId", smsId)
         putNullable("goalId", goalId); putNullable("transferPairId", transferPairId)
+        putNullable("sourceMask", sourceMask); putNullable("counterpartyMask", counterpartyMask)
         put("isDeleted", isDeleted); putNullable("deletedAt", deletedAt)
         put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
@@ -256,6 +257,7 @@ class BackupManager @Inject constructor(
         merchant = optStringOrNull("merchant"), description = optStringOrNull("description"),
         timestamp = getLong("timestamp"), smsId = optStringOrNull("smsId"),
         goalId = optStringOrNull("goalId"), transferPairId = optStringOrNull("transferPairId"),
+        sourceMask = optStringOrNull("sourceMask"), counterpartyMask = optStringOrNull("counterpartyMask"),
         isDeleted = optBoolean("isDeleted", false),
         deletedAt = optLongOrNull("deletedAt"),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
