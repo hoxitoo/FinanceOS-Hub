@@ -26,9 +26,12 @@ object TransferPatterns {
         RegexOption.IGNORE_CASE,
     )
 
-    // Destination card / account last-4: "на карту *1234", "на счёт •• 1234", "на карту 1234".
+    // Destination card / account last-4: "на карту *1234", "на счёт •• 1234", "на карту 1234",
+    // and the card-network-prefixed form "на счёт 4*3583" (a leading network digit before the
+    // masking glyph). The optional `(?:\d\s*)?` consumes that prefix digit; regex backtracking
+    // still lets a bare "на счёт 1234" capture all four digits.
     private val DEST_MASK = Regex(
-        """на\s+(?:карту|счёт|счет|карте|счёте|счете)\s*[*•·]{0,2}\s*(\d{4})""",
+        """на\s+(?:карту|счёт|счет|карте|счёте|счете)\s*(?:\d\s*)?[*•·]{0,2}\s*(\d{4})""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -41,10 +44,14 @@ object TransferPatterns {
     )
 
     // Source card mask in common Russian push/SMS formats:
-    //   VISA/MIR + 4 digits (Sberbank), Карта *NNNN or Карта NNNN (Tbank/Alfa SMS),
-    //   ••NNNN / ··NNNN / *NNNN at end of line (Alfa push, others).
+    //   "со счёта 4*1139" / "с карты *1139" (transfer source — listed FIRST so it wins as the
+    //   leftmost match over a trailing destination mask), VISA/MIR + 4 digits (Sberbank),
+    //   Карта *NNNN or Карта NNNN (Tbank/Alfa SMS), ••NNNN / *NNNN at end of line (Alfa push).
     private val SOURCE_CARD = Regex(
-        "(?:(?:VISA|MIR|МИР|MC|MASTERCARD)\\s*(\\d{4})|Карта\\s+[*•·]{0,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})\\s*$)",
+        "(?:со?\\s+(?:счёта|счета|карты|карте)\\s*(?:\\d\\s*)?[*•·]{0,2}\\s*(\\d{4})" +
+            "|(?:VISA|MIR|МИР|MC|MASTERCARD)\\s*(\\d{4})" +
+            "|Карта\\s+[*•·]{0,2}\\s*(\\d{4})" +
+            "|[*•·]{1,2}\\s*(\\d{4})\\s*$)",
         setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
 

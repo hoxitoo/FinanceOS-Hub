@@ -1,5 +1,6 @@
 package com.financeos.hub.core.transfer
 
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
@@ -24,6 +25,7 @@ class TransferRouter @Inject constructor(
     private val goalRepo: GoalRepository,
     private val transactionDao: TransactionDao,
     private val notificationHelper: NotificationHelper,
+    private val accountLinker: AccountLinker,
 ) {
     /**
      * Called AFTER a transaction row is inserted. Handles goal routing + internal pairing
@@ -42,18 +44,27 @@ class TransferRouter @Inject constructor(
             // (A) Goal routing
             val routes = transferRouteRepo.getAllActive()
 
-            // ACCOUNT routes fire for BOTH directions: inbound → +progress, outbound → −progress.
-            // This lets a user say "Путешествия = my Alfa Travel account": depositing 10k adds to
-            // the goal; withdrawing 5k reduces it.
-            val accountRoute = routes.firstOrNull { r ->
-                r.matchType == TransferMatchType.ACCOUNT &&
-                tx.accountId != null &&
-                r.matchValue == tx.accountId
+            // A transfer touches up to TWO tracked accounts:
+            //   • the account this SMS/push is booked on (tx.accountId — the source for an
+            //     outgoing transfer, the destination for an incoming one), and
+            //   • the counterparty account named in the body ("на счёт *NNNN"), resolved here.
+            // A goal linked to an account moves with the money flowing into/out of THAT account:
+            // money arriving → +progress, money leaving → −progress. Without the counterparty
+            // leg, an outgoing transfer INTO a goal-linked savings account never funded the goal,
+            // because the push is booked on the (unlinked) source account.
+            val destAccountId = counterpartyMask
+                ?.let { accountLinker.resolveAccountId(it) }
+                ?.takeIf { it != tx.accountId }
+            val accountLegs = buildList {
+                tx.accountId?.let { add(it to if (outgoing) -magnitude else magnitude) }
+                destAccountId?.let { add(it to if (outgoing) magnitude else -magnitude) }
             }
-            if (accountRoute != null) {
-                val delta = if (outgoing) -magnitude else magnitude
-                goalRepo.contribute(accountRoute.goalId, delta)
-                transactionDao.setGoal(tx.id, accountRoute.goalId)
+            for ((accId, delta) in accountLegs) {
+                val route = routes.firstOrNull { r ->
+                    r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accId
+                } ?: continue
+                goalRepo.contribute(route.goalId, delta)
+                transactionDao.setGoal(tx.id, route.goalId)
                 return   // routed; skip pairing
             }
 
@@ -111,12 +122,17 @@ class TransferRouter @Inject constructor(
             val goalId = tx.goalId ?: return
             val magnitude = abs(tx.amountKopecks)
             val accountRoute = transferRouteRepo.getAllActive().firstOrNull {
-                it.goalId == goalId &&
-                it.matchType == TransferMatchType.ACCOUNT &&
-                tx.accountId != null &&
-                it.matchValue == tx.accountId
+                it.goalId == goalId && it.matchType == TransferMatchType.ACCOUNT
             }
-            val appliedDelta = if (accountRoute != null) tx.amountKopecks else magnitude
+            // Mirror exactly what onTransactionInserted applied to the goal:
+            //  • own-account leg (route on tx.accountId)  → signed amount (tx.amountKopecks)
+            //  • counterparty leg (route on the dest acct) → the opposite sign
+            //  • CARD/KEYWORD                              → +magnitude (outgoing only)
+            val appliedDelta = when {
+                accountRoute == null -> magnitude
+                accountRoute.matchValue == tx.accountId -> tx.amountKopecks
+                else -> -tx.amountKopecks
+            }
             goalRepo.contribute(goalId, -appliedDelta)
         }
     }

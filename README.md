@@ -9,7 +9,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Auto-import** | Reads SMS from 11 Russian banks (P1/P2/P3); imports last 90 days on first launch; native permission dialog in onboarding |
 | **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS |
 | **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`) |
-| **Smart categorization** | Dictionary classifier with 60+ merchant rules; optional TFLite ML layer |
+| **Smart categorization** | Deterministic dictionary classifier (~90 merchant rules incl. transit + income); optional pre-trained TFLite ML layer (inference-only, no on-device learning) |
 | **Account linking** | Card mask from SMS/push (e.g. ••2548) auto-links transactions to the correct account; "Остаток" balance synced from bank messages |
 | **Multi-currency** | RUB / USD / EUR / KGS (Сом) support per account; hero shows each currency on its own line |
 | **Manual entry** | Add (with account picker + income-source presets), edit, delete transactions |
@@ -73,9 +73,9 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (13 categories, 60 merchant rules)
-│   ├── parser/         # BankParser interface, ParserEngine, 5 bank parsers (@IntoSet DI)
-│   ├── classifier/     # DictionaryClassifier, CategoryClassifier interface
+│   ├── database/       # Entities, DAOs, FosDatabase (16 categories, ~90 merchant rules)
+│   ├── parser/         # BankParser interface, ParserEngine, 11 bank parsers + TransferPatterns (@IntoSet DI)
+│   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import)
 │   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
@@ -101,17 +101,22 @@ app/
 Parser unit tests: 5 banks × 6 test cases each (`BankParserTest.kt`)  
 Behavioral analytics tests: 28 cases (`BehavioralAnalyzerTest.kt`)
 
-## Optional: Enable ML Classification
+## ML Classification (pre-trained, inference-only)
 
-Place trained TFLite model files in `app/src/main/assets/models/`:
+The ML layer uses **frozen, pre-trained** TFLite models bundled in
+`app/src/main/assets/models/` — they run inference on-device but **never train or learn
+on-device**. The weights are fixed at build time; correcting a transaction's category does
+not retrain anything. To improve the model you retrain offline and ship a new `.tflite`.
 
 | File | Shape | Purpose |
 |------|-------|---------|
-| `category_classifier.tflite` | `float[256]` → `float[13]` | SMS merchant → category (13 classes) |
+| `merchant_classifier.tflite` | `float[1][256]` → `float[1][13]` | SMS merchant → category (13 expense classes, ≥0.40 confidence else dictionary) |
 | `spending_predictor.tflite` | `float[1][30][1]` → `float[1][1]` | End-of-month spend forecast |
 | `behavioral_cluster.tflite` | `float[1][7]` → `float[1][5]` | User archetype (5 clusters) |
 
-Without model files the app runs entirely on rule-based classifiers — no runtime errors.
+Without the model files the app runs entirely on the rule-based classifiers — no runtime
+errors. Income categories and any merchant the model can't place fall back to the
+dictionary rules + `CategoryDefaults`.
 
 ## Design System
 

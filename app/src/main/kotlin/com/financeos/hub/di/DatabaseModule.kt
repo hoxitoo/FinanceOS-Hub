@@ -27,7 +27,12 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext ctx: Context): FosDatabase =
         Room.databaseBuilder(ctx, FosDatabase::class.java, "financeos.db")
             .addCallback(FosDatabase.PREPOPULATE_CALLBACK)
-            .addMigrations(FosDatabase.MIGRATION_1_2, FosDatabase.MIGRATION_2_3, FosDatabase.MIGRATION_3_4)
+            .addMigrations(
+                FosDatabase.MIGRATION_1_2,
+                FosDatabase.MIGRATION_2_3,
+                FosDatabase.MIGRATION_3_4,
+                FosDatabase.MIGRATION_4_5,
+            )
             .build()
 
     @Provides fun provideAccountDao(db: FosDatabase): AccountDao             = db.accountDao()
