@@ -453,21 +453,31 @@ fun SettingsScreen(
         SettingsSection(title = "ОБНОВЛЕНИЯ") {
             val busy = update is UpdateUi.Checking || update is UpdateUi.Downloading
 
-            val (title, sub, subColor) = when (val u = update) {
-                UpdateUi.Idle            ->
-                    Triple("Проверить обновления", "Текущая версия ${viewModel.currentVersion}", FosColors.TextMuted)
-                UpdateUi.Checking        ->
-                    Triple("Проверка…", "Связываемся с GitHub", FosColors.TextMuted)
-                UpdateUi.UpToDate        ->
-                    Triple("Проверить обновления", "Установлена последняя версия (${viewModel.currentVersion})", FosColors.Positive)
-                is UpdateUi.Available    ->
-                    Triple("Загрузить ${u.release.tagName}", "Доступно новое обновление", FosColors.Info)
-                is UpdateUi.Downloading  ->
-                    Triple("Загрузка…", "${(u.progress * 100).toInt()}%", FosColors.Info)
-                is UpdateUi.ReadyToInstall ->
-                    Triple("Установить ${u.release.tagName}", "Загрузка завершена — нажмите для установки", FosColors.Positive)
-                is UpdateUi.Error        ->
-                    Triple("Проверить обновления", u.message, FosColors.Negative)
+            val title = when (val u = update) {
+                UpdateUi.Idle              -> "Проверить обновления"
+                UpdateUi.Checking          -> "Проверка…"
+                UpdateUi.UpToDate          -> "Проверить обновления"
+                is UpdateUi.Available      -> "Загрузить ${u.release.tagName}"
+                is UpdateUi.Downloading    -> "Загрузка…"
+                is UpdateUi.ReadyToInstall -> "Установить ${u.release.tagName}"
+                is UpdateUi.Error          -> "Проверить обновления"
+                else                       -> "Проверить обновления"
+            }
+            val sub = when (val u = update) {
+                UpdateUi.Idle              -> "Текущая версия ${viewModel.currentVersion}"
+                UpdateUi.Checking          -> "Связываемся с GitHub"
+                UpdateUi.UpToDate          -> "Установлена последняя версия (${viewModel.currentVersion})"
+                is UpdateUi.Available      -> "Доступно новое обновление"
+                is UpdateUi.Downloading    -> "${(u.progress * 100).toInt()}%"
+                is UpdateUi.ReadyToInstall -> "Загрузка завершена — нажмите для установки"
+                is UpdateUi.Error          -> u.message
+                else                       -> ""
+            }
+            val subColor = when (update) {
+                UpdateUi.UpToDate, is UpdateUi.ReadyToInstall -> FosColors.Positive
+                is UpdateUi.Available, is UpdateUi.Downloading -> FosColors.Info
+                is UpdateUi.Error -> FosColors.Negative
+                else -> FosColors.TextMuted
             }
             val glyph = when (update) {
                 is UpdateUi.Available      -> "↓"

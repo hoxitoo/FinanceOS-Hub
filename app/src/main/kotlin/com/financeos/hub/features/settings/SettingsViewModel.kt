@@ -206,6 +206,7 @@ class SettingsViewModel @Inject constructor(
             is UpdateChecker.CheckResult.UpToDate  -> UpdateUi.UpToDate
             is UpdateChecker.CheckResult.Available -> UpdateUi.Available(r.release)
             is UpdateChecker.CheckResult.Error     -> UpdateUi.Error(r.message)
+            else                                   -> UpdateUi.Idle
         }
     }
 
