@@ -103,7 +103,7 @@ class UpdateChecker @Inject constructor(
                 val total = if (release.sizeBytes > 0) release.sizeBytes
                             else conn.contentLengthLong.coerceAtLeast(1L)
                 conn.inputStream.use { input ->
-                    out.outputStream.use { output ->
+                    out.outputStream().use { output ->
                         val buf = ByteArray(16 * 1024)
                         var downloaded = 0L
                         var read = input.read(buf)
