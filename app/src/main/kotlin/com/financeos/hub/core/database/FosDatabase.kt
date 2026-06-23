@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -99,6 +99,17 @@ abstract class FosDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 insertDefaultCategories(db)
                 insertDefaultMerchantRules(db)
+            }
+        }
+
+        // Persists the source / destination account masks parsed from bank SMS & push, so the
+        // transaction detail sheet can show "Счёт списания" / "Счёт зачисления". Pre-existing
+        // rows keep NULL (rendered as "неизвестно") — no backfill is possible, the raw body
+        // was never stored.
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN source_mask TEXT")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN counterparty_mask TEXT")
             }
         }
 

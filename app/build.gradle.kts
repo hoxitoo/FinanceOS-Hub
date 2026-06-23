@@ -9,17 +9,40 @@ android {
     namespace   = "com.financeos.hub"
     compileSdk  = 34
 
+    // CI injects FOS_BUILD_NUMBER (the GitHub Actions run number) so every release gets a
+    // monotonically increasing versionCode and a unique versionName the in-app updater can
+    // compare against the latest GitHub Release tag. Local builds fall back to 1 / "0.1.0".
+    val buildNumber  = (System.getenv("FOS_BUILD_NUMBER") ?: "0").toIntOrNull() ?: 0
+    val baseVersion  = "0.1.0"
+    val resolvedName = if (buildNumber > 0) "$baseVersion.$buildNumber" else baseVersion
+
     defaultConfig {
         applicationId   = "com.financeos.hub"
         minSdk          = 26
         targetSdk       = 34
-        versionCode     = 1
-        versionName     = "0.1.0"
+        versionCode     = if (buildNumber > 0) buildNumber else 1
+        versionName     = resolvedName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // Repository the in-app updater queries for new releases (GitHub Releases API).
+        buildConfigField("String", "GITHUB_REPO", "\"hoxitoo/financeos-hub\"")
+
         ksp {
             arg("room.incremental", "true")
+        }
+    }
+
+    signingConfigs {
+        // A fixed, repo-committed debug keystore (password "android"). Every CI-built and
+        // locally-built debug APK is therefore signed with the SAME key, so the in-app
+        // updater can install a newer build over an older one without a signature mismatch.
+        // This is a debug key only — it is intentionally not secret and never used for release.
+        create("shared") {
+            storeFile     = file("debug.keystore")
+            storePassword = "android"
+            keyAlias      = "androiddebugkey"
+            keyPassword   = "android"
         }
     }
 
@@ -34,7 +57,9 @@ android {
         }
         debug {
             isDebuggable        = true
-            applicationIdSuffix = ".debug"
+            signingConfig       = signingConfigs.getByName("shared")
+            // Note: no applicationIdSuffix — the distributed debug build keeps the real
+            // applicationId so in-app updates replace the same package the user installed.
             versionNameSuffix   = "-debug"
         }
     }

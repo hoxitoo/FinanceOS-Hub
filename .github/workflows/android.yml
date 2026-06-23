@@ -1,13 +1,11 @@
 name: Android CI
 
 on:
+  # Automatic builds only on main. Other branches are validated via pull_request
+  # checks (the merge gate) — not on every push.
   push:
     branches:
       - main
-      - dev
-      - 'claude/**'
-      - 'feature/**'
-      - 'fix/**'
   pull_request:
     branches:
       - main
@@ -73,8 +71,8 @@ jobs:
     name: Build Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Only runs on push to main or dev — not on PRs
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    # Only runs on push to main — not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
 
     steps:

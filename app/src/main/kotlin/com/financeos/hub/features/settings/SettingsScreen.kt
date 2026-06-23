@@ -54,6 +54,7 @@ fun SettingsScreen(
     val state     by viewModel.state.collectAsState()
     val smsImport by viewModel.smsImport.collectAsState()
     val backup    by viewModel.backup.collectAsState()
+    val update    by viewModel.update.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -448,10 +449,88 @@ fun SettingsScreen(
             )
         }
 
+        // ── Updates ──────────────────────────────────────────────────────────────
+        SettingsSection(title = "ОБНОВЛЕНИЯ") {
+            val busy = update is UpdateUi.Checking || update is UpdateUi.Downloading
+
+            val title = when (val u = update) {
+                UpdateUi.Idle              -> "Проверить обновления"
+                UpdateUi.Checking          -> "Проверка…"
+                UpdateUi.UpToDate          -> "Проверить обновления"
+                is UpdateUi.Available      -> "Загрузить ${u.release.tagName}"
+                is UpdateUi.Downloading    -> "Загрузка…"
+                is UpdateUi.ReadyToInstall -> "Установить ${u.release.tagName}"
+                is UpdateUi.Error          -> "Проверить обновления"
+                else                       -> "Проверить обновления"
+            }
+            val sub = when (val u = update) {
+                UpdateUi.Idle              -> "Текущая версия ${viewModel.currentVersion}"
+                UpdateUi.Checking          -> "Связываемся с GitHub"
+                UpdateUi.UpToDate          -> "Установлена последняя версия (${viewModel.currentVersion})"
+                is UpdateUi.Available      -> "Доступно новое обновление"
+                is UpdateUi.Downloading    -> "${(u.progress * 100).toInt()}%"
+                is UpdateUi.ReadyToInstall -> "Загрузка завершена — нажмите для установки"
+                is UpdateUi.Error          -> u.message
+                else                       -> ""
+            }
+            val subColor = when (update) {
+                UpdateUi.UpToDate, is UpdateUi.ReadyToInstall -> FosColors.Positive
+                is UpdateUi.Available, is UpdateUi.Downloading -> FosColors.Info
+                is UpdateUi.Error -> FosColors.Negative
+                else -> FosColors.TextMuted
+            }
+            val glyph = when (update) {
+                is UpdateUi.Available      -> "↓"
+                is UpdateUi.ReadyToInstall -> "✓"
+                is UpdateUi.Downloading,
+                UpdateUi.Checking          -> "…"
+                else                       -> "↻"
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) {
+                        when (val u = update) {
+                            is UpdateUi.Available      -> viewModel.downloadUpdate(u.release)
+                            is UpdateUi.ReadyToInstall -> viewModel.installUpdate()
+                            else                       -> viewModel.checkForUpdates()
+                        }
+                    }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = FosType.BodySemi, color = FosColors.TextPrimary)
+                    Text(sub, style = FosType.Micro, color = subColor)
+                }
+                Text(glyph, style = FosType.BodySemi, color = FosColors.Info)
+            }
+
+            // Release notes, shown once an update is found.
+            val notes = when (val u = update) {
+                is UpdateUi.Available      -> u.release.notes
+                is UpdateUi.ReadyToInstall -> u.release.notes
+                else                       -> ""
+            }
+            if (notes.isNotBlank()) {
+                HorizontalDivider(
+                    color = FosColors.Border, thickness = 0.5.dp,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+                Text(
+                    notes.take(400),
+                    style = FosType.Micro,
+                    color = FosColors.TextSecondary,
+                )
+            }
+        }
+
         // ── About ────────────────────────────────────────────────────────────────
         SettingsSection(title = "О ПРИЛОЖЕНИИ") {
-            InfoRow("Версия",        "0.1.0-beta")
-            InfoRow("База знаний",   "v1.0 (60 правил)")
+            InfoRow("Версия",        viewModel.currentVersion)
+            InfoRow("База знаний",   "v1.0 (~90 правил)")
             state.lastImportAt?.let { ts ->
                 InfoRow("Последний импорт", ts.take(10))
             }

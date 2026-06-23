@@ -60,8 +60,18 @@ fun TransactionDetailSheet(
     var categoryId  by remember { mutableStateOf(transaction.categoryId) }
     var showConfirm by remember { mutableStateOf(false) }
 
-    val isExpense = transaction.type == TransactionType.EXPENSE
-    val amtColor  = if (isExpense) FosColors.Negative else FosColors.Positive
+    // Expense red, income green; a TRANSFER is neither → neutral (mirrors TransactionRow).
+    val isTransfer = transaction.type == TransactionType.TRANSFER
+    val amtColor   = when (transaction.type) {
+        TransactionType.EXPENSE  -> FosColors.Negative
+        TransactionType.INCOME   -> FosColors.Positive
+        TransactionType.TRANSFER -> FosColors.TextPrimary
+    }
+    val amtText = if (isTransfer) {
+        "↔ ${FosFormatter.amount(kotlin.math.abs(transaction.amountKopecks))}"
+    } else {
+        FosFormatter.signedAmount(transaction.amountKopecks)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -84,7 +94,7 @@ fun TransactionDetailSheet(
             ) {
                 Column {
                     Text(
-                        text  = FosFormatter.signedAmount(transaction.amountKopecks),
+                        text  = amtText,
                         style = FosType.HeroAmount,
                         color = amtColor,
                     )
@@ -111,6 +121,16 @@ fun TransactionDetailSheet(
                 colors          = addSheetTextFieldColors(),
                 modifier        = Modifier.fillMaxWidth(),
             )
+
+            // Account requisites — which account the money left / arrived at, parsed from the
+            // bank SMS/push. Only meaningful for ingested transactions; manual entries skip it.
+            val src = transaction.source
+            if (src == com.financeos.hub.core.database.entities.TransactionSource.SMS ||
+                src == com.financeos.hub.core.database.entities.TransactionSource.PUSH
+            ) {
+                AccountMaskRow("Счёт списания", transaction.sourceMask)
+                AccountMaskRow("Счёт зачисления", transaction.counterpartyMask)
+            }
 
             // Note field
             OutlinedTextField(
@@ -187,6 +207,23 @@ fun TransactionDetailSheet(
                     Text("Отмена", color = FosColors.TextSecondary)
                 }
             },
+        )
+    }
+}
+
+/** Read-only label → account/card mask row. Shows "неизвестно" when the bank message omitted it. */
+@Composable
+private fun AccountMaskRow(label: String, mask: String?) {
+    Row(
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically,
+    ) {
+        Text(label, style = FosType.Label, color = FosColors.TextMuted)
+        Text(
+            text  = mask?.takeIf { it.isNotBlank() }?.let { "••$it" } ?: "неизвестно",
+            style = if (mask.isNullOrBlank()) FosType.Body else FosType.SmallBold,
+            color = if (mask.isNullOrBlank()) FosColors.TextMuted else FosColors.TextPrimary,
         )
     }
 }
