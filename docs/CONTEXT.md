@@ -67,7 +67,7 @@ currency: String
 isActive: Boolean
 ```
 
-### CategoryEntity (13 system categories)
+### CategoryEntity (16 system categories: 13 expense + 3 income)
 ```
 id, name, emoji, color (hex)
 isSystem: Boolean
@@ -90,12 +90,30 @@ deadlineAt: Long?
 isCompleted: Boolean
 ```
 
-## Default Categories (13)
+## Default Categories (16)
 ```
+Expense (13):
 cat_food, cat_grocery, cat_transport, cat_housing, cat_health,
 cat_shopping, cat_telecom, cat_entertain, cat_education, cat_travel,
 cat_beauty, cat_pets, cat_other
+Income (3):
+cat_salary (Зарплата 💼), cat_income (Прочие доходы 💰), cat_cashback (Кэшбэк 💸)
 ```
+
+## Categorisation — how it actually works
+Two-stage, **deterministic** — there is no on-device learning loop:
+1. `DictionaryClassifier` — ~90 seeded merchant rules (literal/regex substring match on
+   `merchant + description`, lowercased, first match wins, compiled once and cached).
+2. `MLCategoryClassifier` (optional, behind the ML toggle) — a **pre-trained, frozen**
+   TFLite model (`merchant_classifier.tflite`, 256→13 softmax). Inference only; the
+   weights ship in the APK and never change on device. Below 0.40 confidence it defers
+   to the dictionary. Its output space is the 13 **expense** categories only.
+3. Fallback — `CategoryDefaults.forType(type)`: any INCOME row that still has no category
+   defaults to `cat_income`. Applied at all 3 ingestion sites.
+
+The classifier does **not** learn from manual category edits. Correcting a transaction
+changes only that row; to teach the app a new merchant, add a merchant rule (the ML model
+would need offline retraining + a new `.tflite`).
 
 ## SMS Parsers (P1 Banks)
 Each `BankParser` declares `senderPatterns: List<Regex>`.
