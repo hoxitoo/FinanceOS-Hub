@@ -60,7 +60,7 @@ app/
 ## Current Phase Status
 - [x] Gradle skeleton + AndroidManifest
 - [x] Design system (FosColors, FosType, FosDimens, FosTheme, FosFormatter)
-- [x] Database layer (entities, DAOs, FosDatabase, 13 categories + 60 merchant rules)
+- [x] Database layer (entities, DAOs, FosDatabase, 16 categories [13 expense + 3 income] + ~90 merchant rules)
 - [x] Parser layer (5 P1 banks, ParserEngine, @IntoSet DI)
 - [x] SmsReceiver (real-time) + SmsReader (90-day import)
 - [x] DictionaryClassifier
