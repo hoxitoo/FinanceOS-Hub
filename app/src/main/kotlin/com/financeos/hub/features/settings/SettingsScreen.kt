@@ -166,6 +166,16 @@ fun SettingsScreen(
                 checked  = state.atmosphereEnabled,
                 onToggle = viewModel::setAtmosphereEnabled,
             )
+            HorizontalDivider(
+                color = FosColors.Border, thickness = 0.5.dp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            ToggleRow(
+                label    = "Кот-режим 🐱",
+                sublabel = "Котик в шапке экрана меняет настроение по финансовому здоровью; следы лапок вместо светлячков",
+                checked  = state.catModeEnabled,
+                onToggle = viewModel::setCatModeEnabled,
+            )
         }
 
         // ── Notifications ───────────────────────────────────────────────────────

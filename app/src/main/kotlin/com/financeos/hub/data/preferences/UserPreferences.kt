@@ -36,6 +36,8 @@ class UserPreferences @Inject constructor(
         val ATMOSPHERE_ENABLED         = booleanPreferencesKey("atmosphere_enabled")
         /** Conditional sub-tumbler under #1: bank cards use variant B (deep glass) instead of A (holographic). */
         val CARDS_VARIANT_B            = booleanPreferencesKey("cards_variant_b")
+        /** «Кот-режим»: a mood-matched cat mascot in the hero + paw-print particles. */
+        val CAT_MODE_ENABLED           = booleanPreferencesKey("cat_mode_enabled")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -78,6 +80,10 @@ class UserPreferences @Inject constructor(
     /** Bank cards: variant B (deep glass) when true, variant A (holographic) when false. */
     val cardsVariantB: Flow<Boolean> = context.dataStore.data
         .map { it[CARDS_VARIANT_B] ?: false }
+
+    /** «Кот-режим» — мяу-маскот в герое + следы лапок вместо светлячков. Off by default. */
+    val catModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[CAT_MODE_ENABLED] ?: false }
 
     suspend fun setOnboardingComplete(done: Boolean) {
         context.dataStore.edit { it[ONBOARDING_COMPLETE] = done }
@@ -125,5 +131,9 @@ class UserPreferences @Inject constructor(
 
     suspend fun setCardsVariantB(enabled: Boolean) {
         context.dataStore.edit { it[CARDS_VARIANT_B] = enabled }
+    }
+
+    suspend fun setCatModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[CAT_MODE_ENABLED] = enabled }
     }
 }

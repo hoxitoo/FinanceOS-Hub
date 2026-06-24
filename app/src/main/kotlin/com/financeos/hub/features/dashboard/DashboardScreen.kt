@@ -43,7 +43,9 @@ import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.CurrencyReef
 import com.financeos.hub.ui.components.LineChart
+import com.financeos.hub.ui.components.CatMascot
 import com.financeos.hub.ui.components.ParticleLayer
+import com.financeos.hub.ui.components.PawParticleLayer
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.ui.components.TransactionRow
@@ -63,6 +65,7 @@ fun DashboardScreen(
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val shimmer = LocalShimmer.current
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
     val addAccountSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -93,15 +96,28 @@ fun DashboardScreen(
                         color = FosColors.TextSecondary,
                     )
                 }
-                Text(
-                    text     = "⚙",
-                    style    = FosType.IconAction,
-                    color    = FosColors.TextSecondary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(FosDimens.RadiusIcon))
-                        .clickable { onSettingsClick() }
-                        .padding(8.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // «Кот-режим»: persistent mood-matched mascot. Sits in the header so it is
+                    // visible regardless of the hero variant (CALM/CONTRAST/MINIMAL) and never
+                    // overlaps a monetary number. Mood follows the financial-health score.
+                    if (shimmer.catMascot) {
+                        CatMascot(
+                            score    = state.financialScore,
+                            animated = shimmer.catMascotAnimated,
+                            modifier = Modifier.size(44.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        text     = "⚙",
+                        style    = FosType.IconAction,
+                        color    = FosColors.TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(FosDimens.RadiusIcon))
+                            .clickable { onSettingsClick() }
+                            .padding(8.dp),
+                    )
+                }
             }
         }
 
@@ -399,7 +415,8 @@ private fun CalmHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             // Score row — ring is compact (72dp) so text fits alongside
             Row(
@@ -476,7 +493,8 @@ private fun ContrastHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -583,7 +601,8 @@ private fun MinimalHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.particles) ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)
             Spacer(Modifier.height(4.dp))

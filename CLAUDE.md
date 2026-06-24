@@ -544,6 +544,42 @@ Expert audit across 8 dimensions (3 parallel subagents). 9 genuine bugs fixed:
 | MEDIUM | `TransferPatterns.kt` | `AMOUNT` and `BALANCE` regexes used `\s` in a char class, which matches `\n` — multiline push bodies could bleed across lines → `toDoubleOrNull` returns null → transfer/balance silently dropped. Replaced `\s` with explicit horizontal-whitespace set `[ \t  ]` |
 | MEDIUM | `BioluminescentIndication.kt` | `remember(blooms, color)` — `blooms` SnapshotStateList as a `remember` key allocated a new `IndicationInstance` on every bloom add/remove (GC pressure at 60fps). Changed to `remember(color)` only; Compose already tracks `blooms` reads inside `drawIndication()` |
 
+## «Кот-режим» (Cat Mode) ✓ COMPLETE (this session)
+
+A third customization tumbler (Settings → «КАСТОМИЗАЦИЯ») that adds a mood-matched cat mascot and
+paw-print particles. Standalone — works without «Анимации»/«Атмосфера», off by default.
+
+### Assets (`app/src/main/res/drawable/`)
+9 cat assets committed (`f3d8fed`): 5 WebP (verified true alpha, corners α=0) + 4 vector drawables.
+- Mood WebP: `cat_mood_excited`, `cat_mood_neutral`, `cat_mood_sad`, `cat_mood_loaf`, `cat_face_mono`
+- Vectors: `cat_mood_sleeping` (curled + zzZ), `cat_silhouette` (icon), `cat_paw_glow` + `cat_paw_ghost` (particles)
+
+### Mood system (`ui/components/CatMascot.kt`)
+- `CatMood` enum + `catMoodFor(score)` — thresholds IDENTICAL to `ScoreRing` colour tiers so the cat
+  and ring never disagree: ≥70 EXCITED / 40–69 NEUTRAL / 20–39 SAD / <20 SLEEPING.
+- `CatMascot(score, animated)` — `Image` via `painterResource` (handles both WebP + vector); optional
+  ±2 % vertical "bob" idle via always-called `rememberInfiniteTransition` (Rules of Hooks), origin
+  anchored to feet. Static (scaleY=1f) when `animated=false`.
+- `PawParticleLayer(count, animated)` — paw-print replacement for `ParticleLayer`'s fireflies. Same
+  analytic-drift maths (one accumulated time value, loop only while `animated`). Glow/ghost paws
+  alternated for a trail feel; drawn via `with(painter){ draw(size, alpha) }` inside `translate`+`rotate`.
+
+### Wiring
+- `UserPreferences.CAT_MODE_ENABLED` (+ flow + setter), default false
+- `ShimmerConfig.catMode` + derived `catMascot` (= catMode), `catMascotAnimated` (catMode && !reduceMotion
+  && !powerSave), `catPawParticles` (catMode && particles). Wired into `ProvideShimmer`.
+- `SettingsViewModel`/`SettingsScreen` — toggle in «КАСТОМИЗАЦИЯ» (inner combine widened to 4)
+- `DashboardScreen` — mascot in the **header** (next to ⚙, 44dp) so it shows for every hero variant and
+  never overlaps a monetary number; firefly→paw swap in all 3 heroes
+- `InsightsTab` — same firefly→paw swap
+- **Build note:** project does not compile in this env — network policy blocks `dl.google.com` (AGP
+  download). Verified by review; paw drawing uses the canonical `with(painter){ draw() }` Canvas idiom.
+
+### Cat Mode — possible follow-ups (not done)
+- Cat-flavoured push notification copy ("мяу"-styled CRITICAL insights)
+- Mascot tap → playful toast/caption
+- Swap fireflies→paws in remaining atmosphere surfaces if any are added
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)

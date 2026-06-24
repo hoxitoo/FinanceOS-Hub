@@ -31,6 +31,7 @@ data class SettingsState(
     val animationsEnabled      : Boolean = false,
     val atmosphereEnabled      : Boolean = false,
     val cardsVariantB          : Boolean = false,
+    val catModeEnabled         : Boolean = false,
 )
 
 /** Transient status of the manual 90-day SMS import. */
@@ -85,8 +86,9 @@ class SettingsViewModel @Inject constructor(
             prefs.animationsEnabled,
             prefs.atmosphereEnabled,
             prefs.cardsVariantB,
-        ) { anim, atmo, cardsB ->
-            listOf(anim, atmo, cardsB)
+            prefs.catModeEnabled,
+        ) { anim, atmo, cardsB, cat ->
+            listOf(anim, atmo, cardsB, cat)
         },
     ) { hero, bio, notif, rest, custom ->
         SettingsState(
@@ -101,6 +103,7 @@ class SettingsViewModel @Inject constructor(
             animationsEnabled       = custom[0],
             atmosphereEnabled       = custom[1],
             cardsVariantB           = custom[2],
+            catModeEnabled          = custom[3],
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
 
@@ -148,6 +151,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setCardsVariantB(enabled: Boolean) = viewModelScope.launch {
         prefs.setCardsVariantB(enabled)
+    }
+
+    fun setCatModeEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setCatModeEnabled(enabled)
     }
 
     fun deleteAllHistory() = viewModelScope.launch(Dispatchers.IO) {
