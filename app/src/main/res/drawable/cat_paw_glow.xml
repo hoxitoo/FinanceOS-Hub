@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cat paw print — glowing neon blue outline style, for Cat Mode particle trail -->
+<!-- Cat paw print — solid violet fill. Final on-screen transparency is controlled by the
+     draw-time alpha in PawParticleLayer, so the fill itself is opaque (otherwise the baked-in
+     low alpha would double-attenuate and make the paw nearly invisible). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="64dp"
     android:height="64dp"
@@ -8,36 +10,26 @@
 
     <!-- Main pad -->
     <path
-        android:fillColor="#334DAAFF"
-        android:strokeColor="#4DAAFF"
-        android:strokeWidth="1.5"
-        android:pathData="M32,34 C24,34 20,28 20,24 C20,18 24,14 32,14 C40,14 44,18 44,24 C44,28 40,34 32,34 Z" />
+        android:fillColor="#9B5CFF"
+        android:pathData="M32,36 C23,36 18,29 18,24 C18,17 24,13 32,13 C40,13 46,17 46,24 C46,29 41,36 32,36 Z" />
 
     <!-- Top-left toe -->
     <path
-        android:fillColor="#224DAAFF"
-        android:strokeColor="#4DAAFF"
-        android:strokeWidth="1.2"
-        android:pathData="M20,20 C16,20 13,17 13,13 C13,9 16,6 20,6 C24,6 27,9 27,13 C27,17 24,20 20,20 Z" />
+        android:fillColor="#9B5CFF"
+        android:pathData="M19,21 C14.6,21 11,17.6 11,13 C11,8.4 14.6,5 19,5 C23.4,5 27,8.4 27,13 C27,17.6 23.4,21 19,21 Z" />
 
     <!-- Top-right toe -->
     <path
-        android:fillColor="#224DAAFF"
-        android:strokeColor="#4DAAFF"
-        android:strokeWidth="1.2"
-        android:pathData="M44,20 C40,20 37,17 37,13 C37,9 40,6 44,6 C48,6 51,9 51,13 C51,17 48,20 44,20 Z" />
+        android:fillColor="#9B5CFF"
+        android:pathData="M45,21 C40.6,21 37,17.6 37,13 C37,8.4 40.6,5 45,5 C49.4,5 53,8.4 53,13 C53,17.6 49.4,21 45,21 Z" />
 
     <!-- Bottom-left toe -->
     <path
-        android:fillColor="#224DAAFF"
-        android:strokeColor="#4DAAFF"
-        android:strokeWidth="1.2"
-        android:pathData="M14,30 C10,30 7,27 7,23 C7,19 10,16 14,16 C18,16 21,19 21,23 C21,27 18,30 14,30 Z" />
+        android:fillColor="#9B5CFF"
+        android:pathData="M12,32 C8,32 5,28.6 5,24.5 C5,20.4 8,17 12,17 C16,17 19,20.4 19,24.5 C19,28.6 16,32 12,32 Z" />
 
     <!-- Bottom-right toe -->
     <path
-        android:fillColor="#224DAAFF"
-        android:strokeColor="#4DAAFF"
-        android:strokeWidth="1.2"
-        android:pathData="M50,30 C46,30 43,27 43,23 C43,19 46,16 50,16 C54,16 57,19 57,23 C57,27 54,30 50,30 Z" />
+        android:fillColor="#9B5CFF"
+        android:pathData="M52,32 C48,32 45,28.6 45,24.5 C45,20.4 48,17 52,17 C56,17 59,20.4 59,24.5 C59,28.6 56,32 52,32 Z" />
 </vector>
