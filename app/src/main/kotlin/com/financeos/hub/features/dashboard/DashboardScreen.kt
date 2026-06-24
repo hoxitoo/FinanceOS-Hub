@@ -97,10 +97,10 @@ fun DashboardScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // «Кот-режим»: persistent mood-matched mascot. Sits in the header so it is
-                    // visible regardless of the hero variant (CALM/CONTRAST/MINIMAL) and never
-                    // overlaps a monetary number. Mood follows the financial-health score.
-                    if (shimmer.catMascot) {
+                    // «Кот-режим»: persistent mood-matched mascot in the header for the CONTRAST /
+                    // MINIMAL heroes (which have no score ring). On CALM the cat face lives inside the
+                    // score ring instead, so the header mascot is hidden there to avoid two cats.
+                    if (shimmer.catMascot && state.heroVariant != "CALM") {
                         CatMascot(
                             score    = state.financialScore,
                             animated = shimmer.catMascotAnimated,
@@ -424,7 +424,11 @@ private fun CalmHero(state: DashboardState) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                ScoreRing(score = state.financialScore, modifier = Modifier.size(72.dp))
+                ScoreRing(
+                    score    = state.financialScore,
+                    modifier = Modifier.size(72.dp),
+                    catFace  = shimmer.catMascot,
+                )
                 Column {
                     Text("Финансовое здоровье", style = FosType.Micro, color = FosColors.TextMuted)
                     Spacer(Modifier.height(2.dp))
