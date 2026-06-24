@@ -67,10 +67,12 @@ fun AddGoalSheet(
 ) {
     val editing = existing != null
 
-    var name             by remember { mutableStateOf(existing?.name ?: "") }
-    var targetDigits     by remember { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
-    var selectedEmoji    by remember { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
-    var deadline         by remember { mutableStateOf(existing?.deadlineAt) }
+    // Key on existing?.id so the form resets correctly when the sheet is reused for a
+    // different goal (e.g. edit goal A → dismiss → edit goal B) while still in composition.
+    var name             by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
+    var targetDigits     by remember(existing?.id) { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
+    var selectedEmoji    by remember(existing?.id) { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
+    var deadline         by remember(existing?.id) { mutableStateOf(existing?.deadlineAt) }
     var linkedAccountId  by remember { mutableStateOf<String?>(null) }
     var showDatePicker   by remember { mutableStateOf(false) }
 

@@ -527,6 +527,23 @@ Fix:
   auto-reconcile retroactively; it self-heals on the next push for that card (now that the card
   resolves), or via a one-time manual balance edit. All future ingests are fully covered.
 
+## Audit #7 ✓ COMPLETE (this session)
+
+Expert audit across 8 dimensions (3 parallel subagents). 9 genuine bugs fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH | `AnalyticsEngine.kt` | `buildScoreInput` and `buildInsightData` both used offsets `0..2` (current partial month + 2 prior) for `last3Income` and `avg3Expense`. Changed to `1..3` (3 completed months only) — current-month partial income made stability score drop to 0 early in month; partial expense made cushion score overstate by up to 15 pts |
+| HIGH | `DashboardViewModel.kt` | `runCatching{}` inside `collectLatest` swallowed `CancellationException` — when a new TX emission arrived, `collectLatest` cancelled the old block but all 3 heavy engine calls (`computeScore/forecastMonthEnd/sparkline30Days`) still ran to completion. Replaced with `try/catch` that re-throws `CancellationException` |
+| HIGH | `BudgetViewModel.kt` | `month`/`from`/`to` computed once at ViewModel construction — budget showed wrong month's data if app left open past midnight. Replaced with a `_monthTick` `MutableStateFlow` + midnight `delay` loop inside `init`, then `flatMapLatest` so the query window recomputes on month change |
+| HIGH | `TransactionDetailSheet.kt` | All four `remember {}` state fields had no key — if a different transaction was shown while the sheet was still in composition, the old merchant/note/categoryId remained stale. Fixed: `remember(transaction.id)` |
+| HIGH | `AddGoalSheet.kt` | All four `remember {}` fields had no key — edit goal A → dismiss → edit goal B showed goal A's prefilled data. Fixed: `remember(existing?.id)` |
+| HIGH | `UpdateChecker.download()` | `apkUrl` from GitHub API JSON was not validated to be HTTPS before opening a connection — a MITM could substitute `http://evil/malware.apk`. Added guard: `if (!apkUrl.startsWith("https://"))` throws before connecting |
+| HIGH | `UpdateChecker.check()` | `runCatching{}.getOrElse{}` swallowed `CancellationException` — a cancelled update check kept the IO thread blocked for up to 15 s on network timeout. Added `if (e is CancellationException) throw e` in the catch handler |
+| MEDIUM | `GoalRepository.contribute()` | `completedAt` was never cleared when a reversal brought `savedKopecks` back below target — goals card showed "completed on <date>" for an incomplete goal. Fixed: `completedAt = when { completed && g.completedAt == null → now; !completed → null; else → g.completedAt }` |
+| MEDIUM | `TransferPatterns.kt` | `AMOUNT` and `BALANCE` regexes used `\s` in a char class, which matches `\n` — multiline push bodies could bleed across lines → `toDoubleOrNull` returns null → transfer/balance silently dropped. Replaced `\s` with explicit horizontal-whitespace set `[ \t  ]` |
+| MEDIUM | `BioluminescentIndication.kt` | `remember(blooms, color)` — `blooms` SnapshotStateList as a `remember` key allocated a new `IndicationInstance` on every bloom add/remove (GC pressure at 60fps). Changed to `remember(color)` only; Compose already tracks `blooms` reads inside `drawIndication()` |
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)

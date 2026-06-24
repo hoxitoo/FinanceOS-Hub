@@ -36,10 +36,12 @@ object TransferPatterns {
     )
 
     // Amount somewhere in the body, with optional currency suffix.
-    // Whitespace class covers regular space plus NBSP (U+00A0) and narrow NBSP (U+202F) separators.
+    // Explicitly enumerate horizontal-whitespace separators (space, tab, NBSP U+00A0, narrow NBSP
+    // U+202F) instead of using \s, which matches \n and would let the digit span bleed across
+    // line boundaries in multiline push bodies → toDoubleOrNull returning null → transfer dropped.
     // Allow 1 or 2 decimal places — some Alfa pushes emit "-468,7 ₽" (one digit).
     private val AMOUNT = Regex(
-        "([\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*(?:RUB|₽|руб|р)",
+        "([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)[ \\t]*(?:RUB|₽|руб|р)",
         RegexOption.IGNORE_CASE,
     )
 
@@ -56,8 +58,9 @@ object TransferPatterns {
     )
 
     // Post-operation balance: "Остаток: 16 000 ₽", "Доступно: 5000,00 RUB", "Баланс: 1 234р"
+    // Same horizontal-whitespace-only restriction as AMOUNT to prevent cross-line capture.
     private val BALANCE = Regex(
-        "(?:Остаток|Доступно|Баланс):?\\s*([\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
+        "(?:Остаток|Доступно|Баланс):?[ \\t]*([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
         RegexOption.IGNORE_CASE,
     )
 

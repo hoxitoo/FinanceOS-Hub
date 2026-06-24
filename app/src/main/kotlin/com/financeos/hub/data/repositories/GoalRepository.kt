@@ -38,8 +38,14 @@ class GoalRepository @Inject constructor(
                 g.copy(
                     savedKopecks = newSaved.coerceAtMost(g.targetKopecks),
                     isCompleted  = completed,
-                    completedAt  = if (completed && g.completedAt == null)
-                                       System.currentTimeMillis() else g.completedAt,
+                    // Set completedAt only on the first completion; clear it when a reversal
+                    // (negative amountKopecks) brings the goal back below target — otherwise the
+                    // goal card shows "completed on <date>" even after the funding is undone.
+                    completedAt  = when {
+                        completed && g.completedAt == null -> System.currentTimeMillis()
+                        !completed                         -> null
+                        else                               -> g.completedAt
+                    },
                     updatedAt    = System.currentTimeMillis(),
                 )
             )

@@ -14,6 +14,7 @@ import com.financeos.hub.data.repositories.CardRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
@@ -61,9 +62,12 @@ class DashboardViewModel @Inject constructor(
             txRepo.observeCurrentMonth()
                 .debounce(500)
                 .collectLatest {
-                    runCatching { engine.computeScore().total }.onSuccess  { _score.value     = it }
-                    runCatching { engine.forecastMonthEnd() }.onSuccess    { _forecast.value  = it }
-                    runCatching { engine.sparkline30Days() }.onSuccess     { _sparkline.value = it }
+                    // Re-throw CancellationException so collectLatest can cancel in-flight work
+                    // when a new emission arrives — bare runCatching{} would swallow it and
+                    // let all three expensive DB calls run to completion even after cancellation.
+                    try { _score.value     = engine.computeScore().total  } catch (e: Exception) { if (e is CancellationException) throw e }
+                    try { _forecast.value  = engine.forecastMonthEnd()    } catch (e: Exception) { if (e is CancellationException) throw e }
+                    try { _sparkline.value = engine.sparkline30Days()     } catch (e: Exception) { if (e is CancellationException) throw e }
                 }
         }
     }

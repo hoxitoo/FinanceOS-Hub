@@ -282,11 +282,15 @@ class AnalyticsEngine @Inject constructor(
             it.type == TransactionType.EXPENSE && it.categoryId in mandatoryCats
         }.sumOf { abs(it.amountKopecks) }
 
-        val last3Income = (0..2).map { offset ->
+        // Use completed months only (offsets 1–3, not 0–2): the current month is in progress and
+        // its partial income/expense would deflate stability and inflate the cushion score early
+        // in the month (before salary arrives). Mirrors generateNarratives which explicitly avoids
+        // offset 0 for the same reason.
+        val last3Income = (1..3).map { offset ->
             val (f, t) = monthBounds(month.minusMonths(offset.toLong()))
             getTxSync(f, t).filter { it.type == TransactionType.INCOME }.sumOf { it.amountKopecks }
         }
-        val avg3Expense = (0..2).map { offset ->
+        val avg3Expense = (1..3).map { offset ->
             val (f, t) = monthBounds(month.minusMonths(offset.toLong()))
             getTxSync(f, t).filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
         }.average().toLong()
@@ -323,7 +327,7 @@ class AnalyticsEngine @Inject constructor(
             else null
         }.maxByOrNull { it.third }?.let { (_, name, d) -> name to d }
 
-        val avg3Expense = (0..2).map { offset ->
+        val avg3Expense = (1..3).map { offset ->
             val (f, t) = monthBounds(month.minusMonths(offset.toLong()))
             getTxSync(f, t).filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
         }.average().toLong()

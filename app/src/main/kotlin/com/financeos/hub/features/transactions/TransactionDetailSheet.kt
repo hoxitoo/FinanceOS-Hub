@@ -55,10 +55,13 @@ fun TransactionDetailSheet(
     onSave      : (merchant: String, categoryId: String?, note: String?) -> Unit,
     onDelete    : () -> Unit,
 ) {
-    var merchant    by remember { mutableStateOf(transaction.merchant ?: "") }
-    var note        by remember { mutableStateOf(transaction.description ?: "") }
-    var categoryId  by remember { mutableStateOf(transaction.categoryId) }
-    var showConfirm by remember { mutableStateOf(false) }
+    // Key on transaction.id: if a different tx is shown while this composable is still in
+    // the composition (e.g. rapid tap during sheet dismiss animation), remember returns
+    // fresh state for the new transaction instead of the previous one's stale values.
+    var merchant    by remember(transaction.id) { mutableStateOf(transaction.merchant ?: "") }
+    var note        by remember(transaction.id) { mutableStateOf(transaction.description ?: "") }
+    var categoryId  by remember(transaction.id) { mutableStateOf(transaction.categoryId) }
+    var showConfirm by remember(transaction.id) { mutableStateOf(false) }
 
     // Expense red, income green; a TRANSFER is neither → neutral (mirrors TransactionRow).
     val isTransfer = transaction.type == TransactionType.TRANSFER
