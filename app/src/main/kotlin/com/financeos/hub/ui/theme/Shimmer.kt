@@ -68,8 +68,11 @@ data class ShimmerConfig(
     val catMascot         : Boolean get() = catMode
     /** Mascot's idle bob/breathing — suppressed under reduce-motion / power-save. */
     val catMascotAnimated : Boolean get() = catMode && !reduceMotion && !powerSave
-    /** Paw-print particles REPLACE the fireflies — only where particles are already drawn. */
-    val catPawParticles   : Boolean get() = catMode && particles
+    /** Paw-print particles are part of Cat Mode itself — they do NOT require the «Атмосфера»
+     *  toggle, so enabling Cat Mode alone shows them (still off under power-save). */
+    val catPawParticles   : Boolean get() = catMode && !powerSave
+    /** Paw drift/pulse animation — suppressed under reduce-motion / power-save (paws stay static). */
+    val catParticlePulse  : Boolean get() = catMode && !reduceMotion && !powerSave
 
     companion object { val Off = ShimmerConfig() }
 }
