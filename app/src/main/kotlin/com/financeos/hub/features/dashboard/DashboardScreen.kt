@@ -104,9 +104,9 @@ fun DashboardScreen(
                         CatMascot(
                             score    = state.financialScore,
                             animated = shimmer.catMascotAnimated,
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(56.dp),
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(6.dp))
                     }
                     Text(
                         text     = "⚙",
@@ -415,7 +415,7 @@ private fun CalmHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             // Score row — ring is compact (72dp) so text fits alongside
@@ -493,7 +493,7 @@ private fun ContrastHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Row(
@@ -601,7 +601,7 @@ private fun MinimalHero(state: DashboardState) {
             .background(FosColors.Surface)
             .padding(FosDimens.CardPadding),
     ) {
-        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         Column {
             Text("Состояние", style = FosType.Label, color = FosColors.TextSecondary)

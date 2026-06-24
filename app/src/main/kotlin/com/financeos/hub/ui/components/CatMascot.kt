@@ -132,8 +132,8 @@ fun PawParticleLayer(
                 ay        = 0.02f + rnd.nextFloat() * 0.05f,
                 speed     = 0.10f + rnd.nextFloat() * 0.25f,
                 phase     = rnd.nextFloat() * 6.2832f,
-                sizePx    = with(density) { (12f + rnd.nextFloat() * 10f).dp.toPx() },
-                baseAlpha = 0.18f + rnd.nextFloat() * 0.30f,
+                sizePx    = with(density) { (18f + rnd.nextFloat() * 12f).dp.toPx() },
+                baseAlpha = 0.30f + rnd.nextFloat() * 0.35f,
                 glow      = (i % 2 == 0),
                 spin      = (rnd.nextFloat() - 0.5f) * 0.9f,
             )

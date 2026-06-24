@@ -42,7 +42,7 @@ fun InsightsTab(state: AnalyticsState) {
     val shimmer = LocalShimmer.current
     Box(modifier = Modifier.fillMaxSize().background(FosColors.Background)) {
         if (shimmer.catPawParticles) {
-            PawParticleLayer(count = 12, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+            PawParticleLayer(count = 12, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         } else if (shimmer.particles) {
             ParticleLayer(count = 20, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         }
