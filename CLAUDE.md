@@ -507,6 +507,15 @@ Ship the app to friends as a sideloadable APK with one-tap in-app updates.
 - Consider: encrypt backup with user PIN (currently key is device-scoped, no extra auth)
 - Consider: signed **release** APK channel (keystore in GitHub Secrets) for Play-Store-grade builds
 
+## Planned — Account Types & Card UI (NOT yet implemented)
+Full design spec: `docs/CONTEXT.md` → "Roadmap — Planned Features (Account Types & Card UI)".
+Four items, all captured as planned work:
+1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`, and `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry` (`List<BankSpec>`); adding a bank = one entry. (МКБ + Цифра shipped missing from the picker for exactly this reason.)
+2. **Branded card UI** — replace flat colour+letter with per-bank gradient/logo `CardSkin` (user to supply references; trademark caveat for Play Store).
+3. **Brokerage/investment accounts** (БКС, Альфа-Инвестиции) — `AccountKind.INVESTMENT`, single ₽ valuation, separate "Инвестиции" subtotal, excluded from cash net worth, top-ups routed as TRANSFER.
+4. **Credit cards** — `AccountKind.CREDIT`, excluded from "Доступно" net worth, shown as separate debt line; purchases count as spend but repayments are TRANSFERs (never expenses — else double-count).
+- **Foundation for items 3–4:** add `AccountEntity.kind: AccountKind` (DB migration v6→v7) + net-worth split by kind. Suggested order: foundation → credit → investment → registry/UI refactor.
+
 ## Key File Locations
 | Layer | Path |
 |---|---|

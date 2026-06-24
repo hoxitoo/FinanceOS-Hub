@@ -294,3 +294,79 @@ val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positiv
 ### LazyColumn key stability
 - All `items()` calls use `key = { it.id }` or equivalent unique key
 - This prevents Compose from reusing wrong item composables when the list is filtered/sorted
+
+---
+
+## Roadmap — Planned Features (Account Types & Card UI)
+
+> Status: **PLANNED, not yet implemented.** Design notes captured so the work can be picked up later.
+> Foundational dependency: all three account-related items below want a new
+> `AccountEntity.kind: AccountKind (CASH | INVESTMENT | CREDIT | SAVINGS)` column
+> (DB migration v6→v7) and a net-worth aggregation split by kind. Build that first,
+> then layer the rest. The branded-card UI is an independent UI-only track.
+
+### 1. Bank registry — single source of truth (refactor)
+**Problem:** a bank's name/colour/letter/keywords are currently duplicated across
+**three** unconnected places, and adding a bank means editing all three (МКБ + Цифра
+shipped with the card display but were missing from the account picker for exactly this reason):
+- `ui/theme/BankColors.kt` → `bankBrand()` (brand colour mapping)
+- `features/dashboard/DashboardScreen.kt` → `BankSymbolBadge()` (letter abbreviation)
+- `features/dashboard/AddAccountSheet.kt` → `BANKS` list (picker chips)
+
+**Plan:** collapse into one `BankRegistry` (a `List<BankSpec>` where
+`BankSpec(id, displayName, keywords, brand, badge/logo, cardSkin)`).
+`bankBrand()`, `BankSymbolBadge`, and the picker all derive from it.
+Adding a bank = one `BankSpec` entry. Also lets `AccountLinker.BANK_KEYWORDS`
+read from the same source (currently a 4th duplicate).
+
+### 2. Branded card UI redesign
+Replace the flat "brand colour + single letter" card with bank-authentic styling.
+Extend the brand model to a card *skin*:
+```kotlin
+data class BankBrand(
+    val gradient: List<Color>,   // diagonal brand gradient (BankCard already uses linearGradient)
+    val onBg: Color,
+    val logo: Int? = null,       // R.drawable.logo_* vector — replaces the letter badge
+    val pattern: CardPattern = NONE  // Alfa wave, Tinkoff stripe, etc.
+)
+```
+- Logos: per-bank vector drawables in `res/drawable`; `BankSymbolBadge` renders the
+  logo when present, falls back to the letter for unknown banks.
+- **Licence caveat:** bank logos are trademarks — fine for a sideloaded "for friends"
+  build, risky for Play Store distribution. Keep a letter-only fallback skin.
+- User will supply brand references; map each to a `CardSkin`.
+
+### 3. Brokerage / investment accounts (БКС, Альфа-Инвестиции)
+- New `AccountKind.INVESTMENT`. Stores ONE number: total portfolio valuation in ₽
+  (`balanceKopecks`), updated from a broker push ("Стоимость портфеля: …") or by the
+  user manually (weekly is fine for an offline app). No per-security holdings in v1.
+- **Excluded from the "Доступно" (cash) net worth.** Dashboard gets a separate
+  **"Инвестиции"** section with its own subtotal; net worth shown as two lines —
+  "Доступно" (cash) and "Капитал" (cash + investments).
+- Topping up a broker account is a **TRANSFER**, not an expense — already handled by
+  the existing `TransferRouter` / `TransactionType.TRANSFER`, so it won't pollute
+  spend analytics. (No live quotes — app is offline by design.)
+- Future (optional): `HoldingEntity(ticker, qty, avgPrice)` for per-security detail —
+  a separate large layer, deferred.
+
+### 4. Credit cards (visible in cards, excluded from balance)
+- New `AccountKind.CREDIT`. **Excluded from "Доступно" net worth.** Optionally shown as
+  a separate "Долг: −N ₽" line (red / `FosColors.Negative`). Card stays visible in the
+  card list with a "Кредитная" badge. Conceptually a negative `balanceKopecks` (amount
+  owed) plus a credit limit; available-on-card = `limit − debt`.
+- **Operation semantics differ — this is the subtle part:**
+  | Operation | Meaning | Treatment |
+  |---|---|---|
+  | Покупка по кредитке | debt ↑, but it IS a spend | counts in spend analytics; NOT in cash balance |
+  | Погашение (свой кэш → кредитка) | debt ↓, cash ↓ | **TRANSFER, not an expense** |
+  | Пополнение / возврат | debt ↓ | reduces debt |
+- **Critical pitfall:** a credit-card repayment must NOT be booked as an expense, or a
+  single 1 000 ₽ purchase becomes 2 000 ₽ of "spend" (the purchase + the repayment).
+  Catch repayment as a transfer "cash account → credit account" and route it through
+  the existing `TransferRouter` (same mechanism as goal funding).
+
+### Suggested implementation order
+1. `AccountKind` column + migration + net-worth split by kind (foundation)
+2. Credit cards (excluded from balance, transfer-routed repayments)
+3. Investment accounts (separate subtotal, transfer-routed top-ups)
+4. Bank registry refactor + branded card UI (independent UI track; do once references arrive)
