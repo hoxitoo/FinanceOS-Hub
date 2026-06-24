@@ -1,11 +1,14 @@
 package com.financeos.hub.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -30,6 +33,7 @@ import kotlin.math.roundToInt
 fun ScoreRing(
     score    : Int,         // 0–100
     modifier : Modifier = Modifier,
+    catFace  : Boolean = false,   // «Кот-режим»: show the mood cat face in the centre, ring fills around it
 ) {
     // Colour is keyed to the target score so it never sweeps through red→yellow→green while counting.
     val shimmer = LocalShimmer.current
@@ -97,10 +101,23 @@ fun ScoreRing(
             }
         }
 
-        Text(
-            text  = "$shownScore",
-            style = FosType.CardAmount,
-            color = color,
-        )
+        if (catFace) {
+            // «Кот-режим»: the mood-matched cat face fills the inner disc; the arc above fills
+            // around it. 0.74 leaves room for the ring stroke (10 % per side) + a small gap.
+            Image(
+                painter            = painterResource(catFaceFor(score)),
+                contentDescription = "Финансовое здоровье: $shownScore из 100",
+                contentScale       = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize(0.74f)
+                    .clip(CircleShape),
+            )
+        } else {
+            Text(
+                text  = "$shownScore",
+                style = FosType.CardAmount,
+                color = color,
+            )
+        }
     }
 }

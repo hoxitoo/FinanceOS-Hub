@@ -50,6 +50,14 @@ fun catMoodFor(score: Int): CatMood = when {
     else        -> CatMood.SLEEPING
 }
 
+/** Mood-matched cat FACE crop (head only) for the score ring centre. Same score tiers as above. */
+fun catFaceFor(score: Int): Int = when {
+    score >= 70 -> R.drawable.cat_face_excited
+    score >= 40 -> R.drawable.cat_face_neutral
+    score >= 20 -> R.drawable.cat_face_sad
+    else        -> R.drawable.cat_face_sleeping
+}
+
 /**
  * The cat mascot, mood-matched to [score]. Drawn as a static image, with an optional gentle idle
  * "bob" (±2 % vertical scale) when [animated] — the same lightweight motion budget as the hero's
