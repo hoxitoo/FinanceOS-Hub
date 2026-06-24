@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.financeos.hub.core.analytics.AnalyticsWorker
 import com.financeos.hub.core.notifications.NotificationHelper
+import com.financeos.hub.core.update.UpdateCheckWorker
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -20,6 +21,7 @@ class FinanceOsApplication : Application(), Configuration.Provider {
         PDFBoxResourceLoader.init(applicationContext)
         notificationHelper.createChannels()
         AnalyticsWorker.schedule(this)
+        UpdateCheckWorker.schedule(this)
     }
 
     override val workManagerConfiguration: Configuration

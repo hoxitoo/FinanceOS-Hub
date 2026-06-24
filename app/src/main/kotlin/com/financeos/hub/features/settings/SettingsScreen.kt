@@ -535,6 +535,18 @@ fun SettingsScreen(
                     color = FosColors.TextSecondary,
                 )
             }
+            HorizontalDivider(
+                color = FosColors.Border, thickness = 0.5.dp,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            // Background auto-check: a daily WorkManager job pushes a notification when a newer
+            // release appears, so the user doesn't have to open this screen to learn about updates.
+            ToggleRow(
+                label    = "Уведомлять о новой версии",
+                sublabel = "Приложение само проверит GitHub и пришлёт push, когда выйдет обновление",
+                checked  = state.updateNotifyEnabled,
+                onToggle = viewModel::setUpdateNotifyEnabled,
+            )
         }
 
         // ── About ────────────────────────────────────────────────────────────────
