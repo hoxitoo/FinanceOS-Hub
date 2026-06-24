@@ -60,7 +60,10 @@ class BioluminescentIndication(private val color: Color) : Indication {
             }
         }
 
-        return remember(blooms, color) {
+        // Key only on color, not on blooms: the bloom SnapshotStateList is read inside
+        // drawIndication() where Compose already tracks the read, so adding it as a remember key
+        // causes a new IndicationInstance to be allocated on every bloom add/remove (GC at 60fps).
+        return remember(color) {
             object : IndicationInstance {
                 override fun ContentDrawScope.drawIndication() {
                     drawContent()

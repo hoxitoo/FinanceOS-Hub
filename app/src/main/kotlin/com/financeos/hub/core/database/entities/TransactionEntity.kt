@@ -49,6 +49,10 @@ data class TransactionEntity(
     // bank SMS/push exposes them. Null when the message omits the number → shown as "неизвестно".
     @ColumnInfo(name = "source_mask") val sourceMask: String? = null,
     @ColumnInfo(name = "counterparty_mask") val counterpartyMask: String? = null,
+    // Bank-reported post-operation balance ("Остаток"/"Доступно") for the source card, when the
+    // SMS/push exposes it. Null when omitted. Used to reconcile an account to the authoritative
+    // balance when the card is linked after the transaction was already ingested.
+    @ColumnInfo(name = "balance_kopecks") val balanceKopecks: Long? = null,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),

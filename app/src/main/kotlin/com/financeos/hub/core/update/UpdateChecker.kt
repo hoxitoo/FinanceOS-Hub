@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.financeos.hub.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -82,7 +83,13 @@ class UpdateChecker @Inject constructor(
 
             if (isNewer(release.versionName, currentVersion)) CheckResult.Available(release)
             else CheckResult.UpToDate
-        }.getOrElse { CheckResult.Error(it.message ?: "Ошибка проверки обновлений") }
+        }.getOrElse { e ->
+            // Re-throw CancellationException so structured concurrency is not broken: if the
+            // user navigates away mid-check, the IO thread is released instead of blocking for
+            // up to 15 s on the network timeout.
+            if (e is CancellationException) throw e
+            CheckResult.Error(e.message ?: "Ошибка проверки обновлений")
+        }
     }
 
     /** Downloads the release APK into the cache, reporting 0f..1f progress. Returns the file. */
@@ -91,6 +98,10 @@ class UpdateChecker @Inject constructor(
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }   // keep only the freshest download
             val out  = File(dir, "financeos-${release.tagName}.apk")
+            // Reject non-HTTPS URLs before opening a connection to prevent MITM substitution
+            // (an HTTP URL or an HTTPS→HTTP redirect would allow an attacker-controlled APK).
+            if (!release.apkUrl.startsWith("https://", ignoreCase = true))
+                error("Небезопасная ссылка на APK (требуется HTTPS)")
             val conn = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout         = 15_000
                 readTimeout            = 30_000

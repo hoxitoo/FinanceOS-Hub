@@ -11,8 +11,10 @@ import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.parser.ParserEngine
 import com.financeos.hub.core.transfer.TransferRouter
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import java.util.UUID
 import javax.inject.Inject
 
@@ -85,6 +87,7 @@ class SmsReader @Inject constructor(
                             smsId         = parsed.smsId,
                             sourceMask       = parsed.cardMask,
                             counterpartyMask = parsed.counterpartyMask,
+                            balanceKopecks   = parsed.balanceKopecks,
                         )
                         val rowIds = transactionDao.insertAll(listOf(entity))
                         knownIds.add(parsed.smsId)  // always add so next loop iteration skips it
@@ -100,5 +103,8 @@ class SmsReader @Inject constructor(
             }
         }
         emit(ImportProgress(processed, imported, total, done = true))
-    }
+    // flowOn shifts all upstream cursor/DB work to IO — without this, the flow{} body runs on
+    // whichever dispatcher collects it (typically Dispatchers.Main from ViewModelScope), causing
+    // StrictMode violations and potential ANRs during the 90-day ContentResolver cursor scan.
+    }.flowOn(Dispatchers.IO)
 }

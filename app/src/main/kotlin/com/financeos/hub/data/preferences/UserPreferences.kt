@@ -36,6 +36,14 @@ class UserPreferences @Inject constructor(
         val ATMOSPHERE_ENABLED         = booleanPreferencesKey("atmosphere_enabled")
         /** Conditional sub-tumbler under #1: bank cards use variant B (deep glass) instead of A (holographic). */
         val CARDS_VARIANT_B            = booleanPreferencesKey("cards_variant_b")
+        /** «Кот-режим»: a mood-matched cat mascot in the hero + paw-print particles. */
+        val CAT_MODE_ENABLED           = booleanPreferencesKey("cat_mode_enabled")
+
+        // ── Обновления ─────────────────────────────────────────────────────────
+        /** Background check for a new GitHub release → push notification. Default ON. */
+        val UPDATE_NOTIFICATIONS_ENABLED = booleanPreferencesKey("update_notifications_enabled")
+        /** Last release version we already notified about — prevents re-notifying every cycle. */
+        val LAST_NOTIFIED_VERSION        = stringPreferencesKey("last_notified_version")
     }
 
     val onboardingComplete: Flow<Boolean> = context.dataStore.data
@@ -78,6 +86,18 @@ class UserPreferences @Inject constructor(
     /** Bank cards: variant B (deep glass) when true, variant A (holographic) when false. */
     val cardsVariantB: Flow<Boolean> = context.dataStore.data
         .map { it[CARDS_VARIANT_B] ?: false }
+
+    /** «Кот-режим» — мяу-маскот в герое + следы лапок вместо светлячков. Off by default. */
+    val catModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[CAT_MODE_ENABLED] ?: false }
+
+    /** Уведомлять о новой версии приложения. On by default. */
+    val updateNotificationsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[UPDATE_NOTIFICATIONS_ENABLED] ?: true }
+
+    /** Last release version the user was already notified about (null if never). */
+    val lastNotifiedVersion: Flow<String?> = context.dataStore.data
+        .map { it[LAST_NOTIFIED_VERSION] }
 
     suspend fun setOnboardingComplete(done: Boolean) {
         context.dataStore.edit { it[ONBOARDING_COMPLETE] = done }
@@ -125,5 +145,17 @@ class UserPreferences @Inject constructor(
 
     suspend fun setCardsVariantB(enabled: Boolean) {
         context.dataStore.edit { it[CARDS_VARIANT_B] = enabled }
+    }
+
+    suspend fun setCatModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[CAT_MODE_ENABLED] = enabled }
+    }
+
+    suspend fun setUpdateNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[UPDATE_NOTIFICATIONS_ENABLED] = enabled }
+    }
+
+    suspend fun setLastNotifiedVersion(version: String) {
+        context.dataStore.edit { it[LAST_NOTIFIED_VERSION] = version }
     }
 }

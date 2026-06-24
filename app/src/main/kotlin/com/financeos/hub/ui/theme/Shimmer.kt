@@ -39,6 +39,7 @@ data class ShimmerConfig(
     val animations   : Boolean = false,   // Tumbler 1
     val atmosphere   : Boolean = false,   // Tumbler 2
     val cardsVariantB: Boolean = false,   // conditional sub-toggle under #1
+    val catMode      : Boolean = false,   // Tumbler 3 · «Кот-режим»
     val reduceMotion : Boolean = false,
     val powerSave    : Boolean = false,
 ) {
@@ -61,6 +62,14 @@ data class ShimmerConfig(
     val insightBorderGlow : Boolean get() = atmosphere
     val semanticGlow      : Boolean get() = atmosphere   // phase 3
     val currencyReef      : Boolean get() = atmosphere   // phase 3
+
+    // ── Tumbler 3 · «Кот-режим» ───────────────────────────────────────────────
+    /** The mood-matched cat mascot in the hero — shown whenever cat mode is on. */
+    val catMascot         : Boolean get() = catMode
+    /** Mascot's idle bob/breathing — suppressed under reduce-motion / power-save. */
+    val catMascotAnimated : Boolean get() = catMode && !reduceMotion && !powerSave
+    /** Paw-print particles REPLACE the fireflies — only where particles are already drawn. */
+    val catPawParticles   : Boolean get() = catMode && particles
 
     companion object { val Off = ShimmerConfig() }
 }
@@ -124,14 +133,16 @@ fun ProvideShimmer(prefs: UserPreferences, content: @Composable () -> Unit) {
     val animations   by prefs.animationsEnabled.collectAsState(initial = false)
     val atmosphere   by prefs.atmosphereEnabled.collectAsState(initial = false)
     val cardsVariantB by prefs.cardsVariantB.collectAsState(initial = false)
+    val catMode      by prefs.catModeEnabled.collectAsState(initial = false)
     val reduceMotion = rememberSystemReduceMotion()
     val powerSave    = rememberPowerSave()
 
-    val config = remember(animations, atmosphere, cardsVariantB, reduceMotion, powerSave) {
+    val config = remember(animations, atmosphere, cardsVariantB, catMode, reduceMotion, powerSave) {
         ShimmerConfig(
             animations    = animations,
             atmosphere    = atmosphere,
             cardsVariantB = cardsVariantB,
+            catMode       = catMode,
             reduceMotion  = reduceMotion,
             powerSave     = powerSave,
         )
