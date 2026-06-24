@@ -113,6 +113,41 @@ interface TransactionDao {
     @Query("UPDATE transactions SET goal_id = :goalId, updated_at = :now WHERE id = :id")
     suspend fun setGoal(id: String, goalId: String?, now: Long = System.currentTimeMillis())
 
+    /**
+     * Retroactively attaches orphan (unlinked) SMS/PUSH transactions for a card [mask] to
+     * [accountId]. Used when the user registers a card AFTER its transactions were already
+     * ingested (the bank may report a balance for a card the app could not yet resolve to an
+     * account — especially when one bank has several accounts). Only touches rows still
+     * unlinked, so an already-correctly-attributed transaction is never stolen. Returns the
+     * number of rows linked.
+     */
+    @Query("""
+        UPDATE transactions
+        SET account_id = :accountId, updated_at = :now
+        WHERE account_id IS NULL
+          AND is_deleted = 0
+          AND source_mask = :mask
+          AND source IN ('SMS', 'PUSH')
+    """)
+    suspend fun linkOrphansToAccount(accountId: String, mask: String, now: Long = System.currentTimeMillis()): Int
+
+    /**
+     * The most recent bank-authoritative post-op balance across ALL of [accountId]'s cards.
+     * Used to reconcile the account to the true balance after re-linking orphans. Both cards of
+     * a multi-card account draw on the same balance, so the latest "Остаток" for any of them is
+     * the current account balance.
+     */
+    @Query("""
+        SELECT balance_kopecks FROM transactions
+        WHERE account_id = :accountId
+          AND is_deleted = 0
+          AND balance_kopecks IS NOT NULL
+          AND source IN ('SMS', 'PUSH')
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """)
+    suspend fun latestBalanceForAccount(accountId: String): Long?
+
     @Query("""
         SELECT SUM(ABS(amount_kopecks)) FROM transactions
         WHERE is_deleted = 0

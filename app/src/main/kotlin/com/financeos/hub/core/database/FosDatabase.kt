@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -110,6 +110,15 @@ abstract class FosDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN source_mask TEXT")
                 db.execSQL("ALTER TABLE transactions ADD COLUMN counterparty_mask TEXT")
+            }
+        }
+
+        // Persists the bank-reported post-operation balance ("Остаток"/"Доступно") on each
+        // ingested SMS/PUSH transaction. Lets a later account/card link reconcile the account
+        // to the authoritative balance instead of dropping it. Pre-existing rows keep NULL.
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN balance_kopecks INTEGER")
             }
         }
 

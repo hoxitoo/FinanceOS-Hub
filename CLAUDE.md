@@ -500,6 +500,33 @@ Ship the app to friends as a sideloadable APK with one-tap in-app updates.
 - `SettingsScreen` — new «ОБНОВЛЕНИЯ» section: single state-driven row (check → download →
   install) + release-notes preview. «О ПРИЛОЖЕНИИ» version row now reads `BuildConfig.VERSION_NAME`.
 
+## Balance Sync Fix — Retroactive Re-link (this session)
+
+User-reported bug (screenshots): an Alfa push «−43 ₽ … Остаток: 6 287,48 ₽; ··2548» recorded
+the transaction, but the «текущий» account balance stayed at 6 330,48 (off by exactly the txn
+amount). Card ··2548 is a **second** card on a multi-card account, and the user has **5 Alfa
+accounts**.
+
+Root cause: at ingest time `AccountLinker.resolveAccountId("2548", "alfabank")` returned `null` —
+card ··2548 wasn't yet resolvable to the account, and with 5 Alfa accounts the bank-name fallback
+is ambiguous (multiple matches → null). So `syncBalance` no-op'd and the bank-authoritative
+`Остаток` was dropped. Registering/adding the card later did **nothing retroactive**: the already-
+ingested transaction was never re-linked and the balance never reconciled.
+
+Fix:
+- **`balance_kopecks` column on `transactions`** (DB **v6→v7**, `MIGRATION_6_7`, registered in
+  `DatabaseModule`). Every ingested SMS/PUSH row now persists `parsed.balanceKopecks` (all 3 sites:
+  `SmsReceiver`, `PushNotificationListener`, `SmsReader`).
+- **`AccountLinker.relinkOrphans(accountId, cardMask)`** — attaches orphan (`account_id IS NULL`)
+  SMS/PUSH transactions with that `source_mask` to the account (`TransactionDao.linkOrphansToAccount`,
+  only touches still-unlinked rows so nothing is stolen), then reconciles the account to the most
+  recent bank-authoritative balance across its cards (`TransactionDao.latestBalanceForAccount`).
+  Uses authoritative balance only — never a delta — so no double-count.
+- Wired into `DashboardViewModel.createAccount` and `addCard` (`AccountLinker` injected).
+- **Note:** the row already stuck before the migration has no stored balance, so it won't
+  auto-reconcile retroactively; it self-heals on the next push for that card (now that the card
+  resolves), or via a one-time manual balance edit. All future ingests are fully covered.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)

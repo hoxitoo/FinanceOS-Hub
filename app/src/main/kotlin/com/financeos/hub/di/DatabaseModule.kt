@@ -33,6 +33,7 @@ object DatabaseModule {
                 FosDatabase.MIGRATION_3_4,
                 FosDatabase.MIGRATION_4_5,
                 FosDatabase.MIGRATION_5_6,
+                FosDatabase.MIGRATION_6_7,
             )
             .build()
 

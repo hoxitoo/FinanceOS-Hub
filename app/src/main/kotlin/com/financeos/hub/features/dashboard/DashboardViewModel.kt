@@ -2,6 +2,7 @@ package com.financeos.hub.features.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.analytics.AnalyticsEngine
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
@@ -48,6 +49,7 @@ class DashboardViewModel @Inject constructor(
     categoryRepo            : CategoryRepository,
     private val prefs       : UserPreferences,
     private val engine      : AnalyticsEngine,
+    private val accountLinker: AccountLinker,
 ) : ViewModel() {
 
     private val _score     = MutableStateFlow(0)
@@ -135,16 +137,18 @@ class DashboardViewModel @Inject constructor(
 
     fun createAccount(name: String, bank: String, cardMask: String?, balanceKopecks: Long, currency: String = "RUB") {
         viewModelScope.launch {
-            accountRepo.upsert(
-                AccountEntity(
-                    id             = UUID.randomUUID().toString(),
-                    name           = name,
-                    bank           = bank,
-                    cardMask       = cardMask,
-                    balanceKopecks = balanceKopecks,
-                    currency       = currency,
-                )
+            val account = AccountEntity(
+                id             = UUID.randomUUID().toString(),
+                name           = name,
+                bank           = bank,
+                cardMask       = cardMask,
+                balanceKopecks = balanceKopecks,
+                currency       = currency,
             )
+            accountRepo.upsert(account)
+            // Attach any transactions already ingested for this card (and reconcile to the
+            // bank-authoritative balance) — they may have arrived before the account existed.
+            accountLinker.relinkOrphans(account.id, cardMask)
         }
     }
 
@@ -162,7 +166,13 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun addCard(card: CardEntity) {
-        viewModelScope.launch { cardRepo.addCard(card) }
+        viewModelScope.launch {
+            cardRepo.addCard(card)
+            // Re-link orphan transactions for this newly-registered card to its account and
+            // reconcile the balance to the latest bank-reported "Остаток" (fixes the case where
+            // a push for a second card landed before the card was added → balance left stale).
+            accountLinker.relinkOrphans(card.accountId, card.cardMask)
+        }
     }
 
     fun deleteCard(id: String) {
