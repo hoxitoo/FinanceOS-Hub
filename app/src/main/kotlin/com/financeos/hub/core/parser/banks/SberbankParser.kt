@@ -12,8 +12,11 @@ class SberbankParser @Inject constructor() : BankParser {
     override val senderPatterns = listOf(Regex("SBERBANK|900|СБЕРБАНК"))
 
     // "VISA1234 18.06.25 12:34 Оплата 1 500р МАГАЗИН Баланс: 12 345,67р"
+    // "Счёт карты MIR-1238 21:07 Покупка 100р SPORTLOTEREI_SP Баланс: 15 351.89р"
+    // [-\s]* handles both "MIR-1238" (dash) and "MIR1234" (no separator) forms.
+    // (?:[\d.]+\s+)? makes the date prefix optional (some SMS omit DD.MM.YY, show only HH:MM).
     private val expenseRu = Regex(
-        """(?:VISA|MASTERCARD|МИР|MIR)\s*(\d{4})\s+[\d.]+\s+[\d:]+\s+(?:Оплата|Покупка|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+(?:Баланс|Остаток):\s*([\d\s]+(?:[.,]\d{2})?)\s*р""",
+        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Оплата|Покупка|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+(?:Баланс|Остаток):\s*([\d\s]+(?:[.,]\d{2})?)\s*р""",
         RegexOption.IGNORE_CASE
     )
 
@@ -21,7 +24,7 @@ class SberbankParser @Inject constructor() : BankParser {
     // NOTE: "Перевод" intentionally excluded — a transfer SMS is frequently OUTGOING and
     // would be misclassified as income (sign inversion), corrupting analytics.
     private val incomeRu = Regex(
-        """(?:VISA|MASTERCARD|МИР|MIR)\s*(\d{4})\s+[\d.]+\s+[\d:]+\s+(?:Зачисление|Пополнение)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
+        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Зачисление|Пополнение)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
         RegexOption.IGNORE_CASE
     )
 
