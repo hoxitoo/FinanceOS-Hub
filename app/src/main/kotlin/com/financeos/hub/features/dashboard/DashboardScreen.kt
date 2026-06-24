@@ -331,6 +331,8 @@ private fun BankSymbolBadge(bank: String, onBg: Color) {
         "росбанк" in b || "rosbank" in b                                     -> "Р"
         "открыт" in b || "otkritie" in b                                     -> "О"
         "райф"  in b || "raiff" in b                                         -> "Р"
+        "мкб"   in b || "mkb"   in b || "московский кредитный" in b         -> "М"
+        "цифра" in b || "cifra" in b                                         -> "Ц"
         else -> bank.firstOrNull()?.uppercase() ?: "?"
     }
     Box(
