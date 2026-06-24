@@ -11,6 +11,7 @@ import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.data.preferences.UserPreferences
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -37,6 +38,9 @@ class AnalyticsWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
+            // Re-throw CancellationException so WorkManager's cooperative cancellation works
+            // correctly — swallowing it causes the worker to return retry instead of aborting.
+            if (e is CancellationException) throw e
             Result.retry()
         }
     }
