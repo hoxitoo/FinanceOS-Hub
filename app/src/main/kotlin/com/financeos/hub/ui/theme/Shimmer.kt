@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -135,5 +136,15 @@ fun ProvideShimmer(prefs: UserPreferences, content: @Composable () -> Unit) {
             powerSave     = powerSave,
         )
     }
-    CompositionLocalProvider(LocalShimmer provides config, content = content)
+    // While «Анимации» is on, replace the platform Material ripple app-wide with the
+    // bioluminescent bloom so every default `clickable` highlights from the touch point.
+    // When off, leave LocalIndication untouched → standard ripple, exactly as before.
+    val bioIndication = remember { BioluminescentIndication(FosColors.Shimmer.GlowViolet) }
+    CompositionLocalProvider(LocalShimmer provides config) {
+        if (config.touchRipple) {
+            CompositionLocalProvider(LocalIndication provides bioIndication, content = content)
+        } else {
+            content()
+        }
+    }
 }

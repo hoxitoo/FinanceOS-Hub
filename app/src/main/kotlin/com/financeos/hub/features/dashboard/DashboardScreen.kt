@@ -48,7 +48,6 @@ import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.ui.components.TransactionRow
 import com.financeos.hub.ui.components.rememberBreathingScale
-import com.financeos.hub.ui.components.shimmerRipple
 import com.financeos.hub.ui.components.shimmerTilt
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -254,7 +253,6 @@ private fun BankCard(
                 .height(160.dp)
                 .shimmerTilt(shimmer.holographicCards || shimmer.glassCards)
                 .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .shimmerRipple()
                 .background(brand.bg)
                 .clickable { onClick() },
         ) {
