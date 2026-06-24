@@ -2,6 +2,7 @@ package com.financeos.hub.core.account
 
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.CardDao
+import com.financeos.hub.core.database.daos.TransactionDao
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,6 +24,7 @@ import javax.inject.Singleton
 class AccountLinker @Inject constructor(
     private val accountDao: AccountDao,
     private val cardDao: CardDao,
+    private val transactionDao: TransactionDao,
 ) {
     /**
      * Returns the id of the account that owns [cardMask], or — when no mask is
@@ -60,6 +62,25 @@ class AccountLinker @Inject constructor(
         } else {
             val acc = accountDao.getById(id) ?: return
             accountDao.updateBalance(id, acc.balanceKopecks + signedDelta)
+        }
+    }
+
+    /**
+     * Retroactively attaches orphan SMS/PUSH transactions for [cardMask] to [accountId] and
+     * reconciles the account to the latest bank-authoritative balance. Call this when the user
+     * registers a card or creates an account: transactions for that card may have been ingested
+     * earlier while the app could not resolve them (e.g. the card was unknown and the bank has
+     * several accounts → ambiguous fallback → balance silently dropped). No-op when [cardMask]
+     * is blank or nothing was orphaned.
+     */
+    suspend fun relinkOrphans(accountId: String, cardMask: String?) {
+        val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return
+        val linked = transactionDao.linkOrphansToAccount(accountId, mask)
+        if (linked > 0) {
+            // Reconcile to the most recent authoritative "Остаток" across the account's cards.
+            transactionDao.latestBalanceForAccount(accountId)?.let { authoritative ->
+                accountDao.updateBalance(accountId, authoritative)
+            }
         }
     }
 

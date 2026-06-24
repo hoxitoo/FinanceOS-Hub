@@ -30,6 +30,7 @@ import com.financeos.hub.core.analytics.InsightSeverity
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.ParticleLayer
+import com.financeos.hub.ui.components.PawParticleLayer
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -40,7 +41,9 @@ import com.financeos.hub.ui.theme.LocalShimmer
 fun InsightsTab(state: AnalyticsState) {
     val shimmer = LocalShimmer.current
     Box(modifier = Modifier.fillMaxSize().background(FosColors.Background)) {
-        if (shimmer.particles) {
+        if (shimmer.catPawParticles) {
+            PawParticleLayer(count = 12, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
+        } else if (shimmer.particles) {
             ParticleLayer(count = 20, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
         }
         LazyColumn(

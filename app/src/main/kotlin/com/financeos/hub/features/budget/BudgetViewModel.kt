@@ -11,11 +11,16 @@ import com.financeos.hub.data.repositories.BudgetRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
@@ -45,33 +50,51 @@ class BudgetViewModel @Inject constructor(
     private val userPreferences   : UserPreferences,
 ) : ViewModel() {
 
-    private val zone  = ZoneId.systemDefault()
-    private val month = YearMonth.now()
-    private val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-    private val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+    private val zone = ZoneId.systemDefault()
 
     // Track which budgets already had an alert sent this session to avoid spam
     private val alertedBudgets = mutableSetOf<String>()
 
-    val state = combine(
-        budgetRepo.observeAll(),
-        txRepo.observeExpensesByCategory(from, to),
-        categoryRepo.observeAll(),
-    ) { budgets, catExpenses, categories ->
-        val catMap   = categories.associate { it.id to it.name }
-        val spentMap = catExpenses.associate { it.category_id.orEmpty() to it.total }
+    // Emits Unit at startup and once again at each calendar midnight so the query window
+    // always covers the current month, even when the app is left open overnight.
+    private val _monthTick = MutableStateFlow(Unit)
 
-        val envelopes = budgets.map { budget ->
-            BudgetEnvelope(
-                budgetId     = budget.id,
-                categoryName = catMap[budget.categoryId] ?: "Другое",
-                limitKopecks = budget.limitKopecks,
-                spentKopecks = spentMap[budget.categoryId] ?: 0L,
-            )
+    init {
+        viewModelScope.launch {
+            while (true) {
+                val now      = LocalDateTime.now()
+                val midnight = now.toLocalDate().plusDays(1).atStartOfDay()
+                delay(Duration.between(now, midnight).toMillis())
+                alertedBudgets.clear()   // reset per-session alert tracker for the new month
+                _monthTick.value = Unit
+            }
         }
+    }
 
-        checkAndFireAlerts(envelopes)
-        BudgetState(envelopes = envelopes, categories = categories)
+    val state = _monthTick.flatMapLatest {
+        val month = YearMonth.now()
+        val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+        combine(
+            budgetRepo.observeAll(),
+            txRepo.observeExpensesByCategory(from, to),
+            categoryRepo.observeAll(),
+        ) { budgets, catExpenses, categories ->
+            val catMap   = categories.associate { it.id to it.name }
+            val spentMap = catExpenses.associate { it.category_id.orEmpty() to it.total }
+
+            val envelopes = budgets.map { budget ->
+                BudgetEnvelope(
+                    budgetId     = budget.id,
+                    categoryName = catMap[budget.categoryId] ?: "Другое",
+                    limitKopecks = budget.limitKopecks,
+                    spentKopecks = spentMap[budget.categoryId] ?: 0L,
+                )
+            }
+
+            checkAndFireAlerts(envelopes)
+            BudgetState(envelopes = envelopes, categories = categories)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BudgetState())
 
     fun createBudget(categoryId: String, limitKopecks: Long, period: BudgetPeriod) {

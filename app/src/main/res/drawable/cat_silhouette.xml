@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Black cat silhouette — profile sitting pose. Used for icon/adaptive icon variant. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Full black cat silhouette, profile sitting right, tail curled left -->
+
+    <!-- Tail -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M20,90 C16,90 12,80 14,65 C16,52 22,48 26,52 C24,60 22,72 24,80 C26,86 24,90 20,90 Z" />
+
+    <!-- Body -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M30,90 C22,90 20,78 20,68 C20,52 26,40 38,36 C50,32 64,36 70,48 C76,60 72,76 62,84 C54,90 38,90 30,90 Z" />
+
+    <!-- Neck -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M44,38 C40,34 38,28 40,22 C42,16 48,12 54,12 C60,12 66,16 68,22 C70,28 68,34 64,38 C58,42 50,42 44,38 Z" />
+
+    <!-- Head -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M40,24 C40,14 46,8 54,8 C62,8 68,14 68,24 C68,34 62,40 54,40 C46,40 40,34 40,24 Z" />
+
+    <!-- Left ear (front) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M42,18 L38,6 L50,14 Z" />
+
+    <!-- Right ear (back, partially visible) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M60,16 L58,6 L68,12 Z" />
+
+    <!-- Eye (small white highlight) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M58,22 C58,20 60,19 62,20 C64,21 64,23 62,24 C60,25 58,24 58,22 Z" />
+
+    <!-- Sitting paws / base -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M26,90 C26,84 30,80 36,80 C42,80 46,84 46,90 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M50,90 C50,84 54,80 60,80 C66,80 70,84 70,90 Z" />
+</vector>

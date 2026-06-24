@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -38,6 +39,14 @@ class PushNotificationListener : NotificationListenerService() {
         android.util.Log.e("PushListener", "Push processing failed", t)
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Cancel in-flight coroutines when the service is torn down (e.g. permission revoked
+        // or system kill/restart). Without this, the SupervisorJob stays live indefinitely and
+        // any in-flight suspend calls keep references to DAOs/repos after the service is gone.
+        scope.cancel()
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val sender = PACKAGE_TO_SENDER[sbn.packageName] ?: return
@@ -83,6 +92,7 @@ class PushNotificationListener : NotificationListenerService() {
             smsId         = pushId,
             sourceMask       = parsed.cardMask,
             counterpartyMask = parsed.counterpartyMask,
+            balanceKopecks   = parsed.balanceKopecks,
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {

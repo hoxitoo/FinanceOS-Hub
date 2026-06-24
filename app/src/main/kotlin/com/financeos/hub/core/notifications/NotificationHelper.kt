@@ -25,6 +25,7 @@ class NotificationHelper @Inject constructor(
         const val CHANNEL_BUDGET  = "fos_budget"
         const val CHANNEL_WEEKLY  = "fos_weekly"
         const val CHANNEL_INSIGHT = "fos_insight"
+        const val CHANNEL_UPDATE  = "fos_update"
 
         const val EXTRA_ROUTE = "fos_route"
 
@@ -32,6 +33,7 @@ class NotificationHelper @Inject constructor(
         private const val ID_WEEKLY       = 1002
         private const val ID_INSIGHT_BASE = 2000
         private const val ID_TRANSFER     = 3001
+        private const val ID_UPDATE       = 4001
     }
 
     private fun deepLinkIntent(route: String): PendingIntent =
@@ -71,6 +73,14 @@ class NotificationHelper @Inject constructor(
                 "Инсайты",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply { description = "Финансовые наблюдения и рекомендации" }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_UPDATE,
+                "Обновления",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply { description = "Уведомления о новой версии приложения" }
         )
     }
 
@@ -152,6 +162,27 @@ class NotificationHelper @Inject constructor(
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_TRANSFER, notification)
+    }
+
+    /** Fired by [UpdateCheckWorker] when a newer GitHub release is found. Deep-links to Settings. */
+    @SuppressLint("MissingPermission")
+    fun sendUpdateAvailable(versionName: String, notes: String) {
+        if (!hasNotificationPermission()) return
+        val body = buildString {
+            append("Доступна версия $versionName. Откройте настройки, чтобы обновить.")
+            if (notes.isNotBlank()) append("\n\n").append(notes.take(240))
+        }
+        val notification = NotificationCompat.Builder(context, CHANNEL_UPDATE)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Новая версия FinanceOS")
+            .setContentText("Доступна версия $versionName — нажмите, чтобы обновить")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(deepLinkIntent("settings"))
+            .build()
+
+        NotificationManagerCompat.from(context).notify(ID_UPDATE, notification)
     }
 
     private fun formatCompact(kopecks: Long): String {

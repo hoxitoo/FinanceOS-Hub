@@ -500,6 +500,129 @@ Ship the app to friends as a sideloadable APK with one-tap in-app updates.
 - `SettingsScreen` — new «ОБНОВЛЕНИЯ» section: single state-driven row (check → download →
   install) + release-notes preview. «О ПРИЛОЖЕНИИ» version row now reads `BuildConfig.VERSION_NAME`.
 
+## Balance Sync Fix — Retroactive Re-link (this session)
+
+User-reported bug (screenshots): an Alfa push «−43 ₽ … Остаток: 6 287,48 ₽; ··2548» recorded
+the transaction, but the «текущий» account balance stayed at 6 330,48 (off by exactly the txn
+amount). Card ··2548 is a **second** card on a multi-card account, and the user has **5 Alfa
+accounts**.
+
+Root cause: at ingest time `AccountLinker.resolveAccountId("2548", "alfabank")` returned `null` —
+card ··2548 wasn't yet resolvable to the account, and with 5 Alfa accounts the bank-name fallback
+is ambiguous (multiple matches → null). So `syncBalance` no-op'd and the bank-authoritative
+`Остаток` was dropped. Registering/adding the card later did **nothing retroactive**: the already-
+ingested transaction was never re-linked and the balance never reconciled.
+
+Fix:
+- **`balance_kopecks` column on `transactions`** (DB **v6→v7**, `MIGRATION_6_7`, registered in
+  `DatabaseModule`). Every ingested SMS/PUSH row now persists `parsed.balanceKopecks` (all 3 sites:
+  `SmsReceiver`, `PushNotificationListener`, `SmsReader`).
+- **`AccountLinker.relinkOrphans(accountId, cardMask)`** — attaches orphan (`account_id IS NULL`)
+  SMS/PUSH transactions with that `source_mask` to the account (`TransactionDao.linkOrphansToAccount`,
+  only touches still-unlinked rows so nothing is stolen), then reconciles the account to the most
+  recent bank-authoritative balance across its cards (`TransactionDao.latestBalanceForAccount`).
+  Uses authoritative balance only — never a delta — so no double-count.
+- Wired into `DashboardViewModel.createAccount` and `addCard` (`AccountLinker` injected).
+- **Note:** the row already stuck before the migration has no stored balance, so it won't
+  auto-reconcile retroactively; it self-heals on the next push for that card (now that the card
+  resolves), or via a one-time manual balance edit. All future ingests are fully covered.
+
+## Audit #7 ✓ COMPLETE (this session)
+
+Expert audit across 8 dimensions (3 parallel subagents). 9 genuine bugs fixed:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH | `AnalyticsEngine.kt` | `buildScoreInput` and `buildInsightData` both used offsets `0..2` (current partial month + 2 prior) for `last3Income` and `avg3Expense`. Changed to `1..3` (3 completed months only) — current-month partial income made stability score drop to 0 early in month; partial expense made cushion score overstate by up to 15 pts |
+| HIGH | `DashboardViewModel.kt` | `runCatching{}` inside `collectLatest` swallowed `CancellationException` — when a new TX emission arrived, `collectLatest` cancelled the old block but all 3 heavy engine calls (`computeScore/forecastMonthEnd/sparkline30Days`) still ran to completion. Replaced with `try/catch` that re-throws `CancellationException` |
+| HIGH | `BudgetViewModel.kt` | `month`/`from`/`to` computed once at ViewModel construction — budget showed wrong month's data if app left open past midnight. Replaced with a `_monthTick` `MutableStateFlow` + midnight `delay` loop inside `init`, then `flatMapLatest` so the query window recomputes on month change |
+| HIGH | `TransactionDetailSheet.kt` | All four `remember {}` state fields had no key — if a different transaction was shown while the sheet was still in composition, the old merchant/note/categoryId remained stale. Fixed: `remember(transaction.id)` |
+| HIGH | `AddGoalSheet.kt` | All four `remember {}` fields had no key — edit goal A → dismiss → edit goal B showed goal A's prefilled data. Fixed: `remember(existing?.id)` |
+| HIGH | `UpdateChecker.download()` | `apkUrl` from GitHub API JSON was not validated to be HTTPS before opening a connection — a MITM could substitute `http://evil/malware.apk`. Added guard: `if (!apkUrl.startsWith("https://"))` throws before connecting |
+| HIGH | `UpdateChecker.check()` | `runCatching{}.getOrElse{}` swallowed `CancellationException` — a cancelled update check kept the IO thread blocked for up to 15 s on network timeout. Added `if (e is CancellationException) throw e` in the catch handler |
+| MEDIUM | `GoalRepository.contribute()` | `completedAt` was never cleared when a reversal brought `savedKopecks` back below target — goals card showed "completed on <date>" for an incomplete goal. Fixed: `completedAt = when { completed && g.completedAt == null → now; !completed → null; else → g.completedAt }` |
+| MEDIUM | `TransferPatterns.kt` | `AMOUNT` and `BALANCE` regexes used `\s` in a char class, which matches `\n` — multiline push bodies could bleed across lines → `toDoubleOrNull` returns null → transfer/balance silently dropped. Replaced `\s` with explicit horizontal-whitespace set `[ \t  ]` |
+| MEDIUM | `BioluminescentIndication.kt` | `remember(blooms, color)` — `blooms` SnapshotStateList as a `remember` key allocated a new `IndicationInstance` on every bloom add/remove (GC pressure at 60fps). Changed to `remember(color)` only; Compose already tracks `blooms` reads inside `drawIndication()` |
+
+## «Кот-режим» (Cat Mode) ✓ COMPLETE (this session)
+
+A third customization tumbler (Settings → «КАСТОМИЗАЦИЯ») that adds a mood-matched cat mascot and
+paw-print particles. Standalone — works without «Анимации»/«Атмосфера», off by default.
+
+### Assets (`app/src/main/res/drawable/`)
+9 cat assets committed (`f3d8fed`): 5 WebP (verified true alpha, corners α=0) + 4 vector drawables.
+- Mood WebP: `cat_mood_excited`, `cat_mood_neutral`, `cat_mood_sad`, `cat_mood_loaf`, `cat_face_mono`
+- Vectors: `cat_mood_sleeping` (curled + zzZ), `cat_silhouette` (icon), `cat_paw_glow` + `cat_paw_ghost` (particles)
+
+### Mood system (`ui/components/CatMascot.kt`)
+- `CatMood` enum + `catMoodFor(score)` — thresholds IDENTICAL to `ScoreRing` colour tiers so the cat
+  and ring never disagree: ≥70 EXCITED / 40–69 NEUTRAL / 20–39 SAD / <20 SLEEPING.
+- `CatMascot(score, animated)` — `Image` via `painterResource` (handles both WebP + vector); optional
+  ±2 % vertical "bob" idle via always-called `rememberInfiniteTransition` (Rules of Hooks), origin
+  anchored to feet. Static (scaleY=1f) when `animated=false`.
+- `PawParticleLayer(count, animated)` — paw-print replacement for `ParticleLayer`'s fireflies. Same
+  analytic-drift maths (one accumulated time value, loop only while `animated`). Glow/ghost paws
+  alternated for a trail feel; drawn via `with(painter){ draw(size, alpha) }` inside `translate`+`rotate`.
+
+### Wiring
+- `UserPreferences.CAT_MODE_ENABLED` (+ flow + setter), default false
+- `ShimmerConfig.catMode` + derived `catMascot` (= catMode), `catMascotAnimated` (catMode && !reduceMotion
+  && !powerSave), `catPawParticles` (catMode && particles). Wired into `ProvideShimmer`.
+- `SettingsViewModel`/`SettingsScreen` — toggle in «КАСТОМИЗАЦИЯ» (inner combine widened to 4)
+- `DashboardScreen` — mascot in the **header** (next to ⚙, 44dp) so it shows for every hero variant and
+  never overlaps a monetary number; firefly→paw swap in all 3 heroes
+- `InsightsTab` — same firefly→paw swap
+- **Build note:** project does not compile in this env — network policy blocks `dl.google.com` (AGP
+  download). Verified by review; paw drawing uses the canonical `with(painter){ draw() }` Canvas idiom.
+
+### Cat Mode — possible follow-ups (not done)
+- Cat-flavoured push notification copy ("мяу"-styled CRITICAL insights)
+- Mascot tap → playful toast/caption
+- Swap fireflies→paws in remaining atmosphere surfaces if any are added
+
+## Background Update Notifications ✓ COMPLETE (this session)
+
+The app now proactively pushes a notification when a newer GitHub release exists — no need to open
+Settings to discover updates. The push deep-links to Settings → «ОБНОВЛЕНИЯ» where the existing
+in-app download/install flow takes over (the worker never downloads/installs by itself).
+
+### `UpdateCheckWorker` (`core/update/UpdateCheckWorker.kt`, `@HiltWorker`)
+- Periodic WorkManager job, **12 h** interval, `NetworkType.CONNECTED` constraint, KEEP policy.
+- `doWork()`: respects the opt-out toggle (returns `success` without network work when off); calls
+  `UpdateChecker.check()`; on `Available` fires `NotificationHelper.sendUpdateAvailable` **once per
+  version** (de-duped via `lastNotifiedVersion` pref). Re-throws `CancellationException`; returns
+  `success` (not `retry`) on error so a no-release/transient-network repo isn't hammered every backoff.
+- On `UpToDate` reconciles `lastNotifiedVersion` → installed version (clears the sticky marker once
+  the user has caught up — fixes the audit-flagged stale-suppression edge case).
+- Scheduled in `FinanceOsApplication.onCreate()` next to `AnalyticsWorker`.
+
+### Notification (`NotificationHelper`)
+- New channel `fos_update` ("Обновления", DEFAULT importance), registered in `createChannels()`.
+- `sendUpdateAvailable(version, notes)` — BigText with release notes, deep-links to `"settings"`
+  (already in the `deepLinkable` whitelist), guarded by `hasNotificationPermission()`.
+
+### Prefs + UI
+- `UserPreferences.UPDATE_NOTIFICATIONS_ENABLED` (default **true**) + `LAST_NOTIFIED_VERSION`.
+- Settings → «ОБНОВЛЕНИЯ»: new toggle "Уведомлять о новой версии" (`SettingsState.updateNotifyEnabled`,
+  inner custom combine widened 4→5).
+
+## Audit #8 ✓ COMPLETE (cat mode + update feature, this session)
+
+3 parallel expert audits (UI/Compose · WorkManager/Hilt · state-wiring). Findings:
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH (pre-existing) | `core/analytics/AnalyticsWorker.kt` | **Missing `@HiltWorker` annotation** → `HiltWorkerFactory` could not instantiate it; the daily analytics/insight worker **silently never ran** since it was added. Added `@HiltWorker` + import. |
+| MEDIUM | `core/update/UpdateCheckWorker.kt` | Sticky `lastNotifiedVersion` was never reconciled once the user updated → contrived case could suppress a legitimate re-notify. Now reset to installed version on `UpToDate`. |
+- **Clean (verified correct, no change needed):** `with(painter){draw()}` inside Canvas `translate`+`rotate`
+  (canonical API, compiles); Compose Rules of Hooks in `CatMascot`/`PawParticleLayer` (all hooks
+  unconditional, mirror `ParticleLayer`); 5-arg `combine` overloads + index mapping + casts in
+  `SettingsViewModel`; `ShimmerConfig` `remember` keys complete; defaults consistent across
+  state/pref/config; deep-link `"settings"` end-to-end; `ACCESS_NETWORK_STATE` auto-merged from the
+  work-runtime AAR.
+- **Accepted (not fixed):** `density` not in `PawParticleLayer`'s `remember(count)` key — identical to
+  the pre-existing `ParticleLayer` pattern (config change recreates the Activity anyway).
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)

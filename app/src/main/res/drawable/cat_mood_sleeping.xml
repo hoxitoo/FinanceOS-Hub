@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sleeping cat — curled up with zzZ, purple neon glow. Score < 20 state. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="80dp"
+    android:viewportWidth="120"
+    android:viewportHeight="80">
+
+    <!-- Neon glow halo -->
+    <path
+        android:fillColor="#339B5CFF"
+        android:pathData="M22,55 C22,38 35,24 52,22 C72,20 88,32 90,50 C92,65 80,74 62,74 C42,74 22,68 22,55 Z" />
+
+    <!-- Body (curled oval) -->
+    <path
+        android:fillColor="#2D2F3E"
+        android:pathData="M25,55 C25,40 37,27 53,25 C71,23 87,35 88,52 C89,66 77,72 60,72 C40,72 25,66 25,55 Z" />
+
+    <!-- Tail curving around -->
+    <path
+        android:fillColor="#383A4D"
+        android:strokeColor="#9B5CFF"
+        android:strokeWidth="2"
+        android:pathData="M28,65 C20,60 18,48 25,40 C30,35 38,34 42,38" />
+
+    <!-- Head on left side -->
+    <path
+        android:fillColor="#2D2F3E"
+        android:pathData="M35,42 C28,42 22,48 22,55 C22,60 26,65 32,66 C40,67 46,62 46,55 C46,47 41,42 35,42 Z" />
+
+    <!-- Left ear -->
+    <path
+        android:fillColor="#2D2F3E"
+        android:pathData="M24,44 L20,35 L30,40 Z" />
+
+    <!-- Right ear -->
+    <path
+        android:fillColor="#2D2F3E"
+        android:pathData="M40,40 L38,31 L46,38 Z" />
+
+    <!-- Closed eyes (happy sleeping arcs) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1A1A2E"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M28,53 Q31,50 34,53" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1A1A2E"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M36,53 Q39,50 42,53" />
+
+    <!-- Nose -->
+    <path
+        android:fillColor="#9B5CFF"
+        android:pathData="M34,57 L35,55 L36,57 Z" />
+
+    <!-- Neon outline glow -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9B5CFF"
+        android:strokeWidth="2.5"
+        android:pathData="M22,44 L20,35 L30,40 M40,40 L38,31 L46,38 M25,55 C25,40 37,27 53,25 C71,23 87,35 88,52 C89,66 77,72 60,72 C40,72 25,66 25,55 Z" />
+
+    <!-- zzZ letters -->
+    <!-- small z -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#CC9B5CFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M62,28 L68,28 L62,22 L68,22" />
+
+    <!-- medium Z -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#BB9B5CFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M70,22 L78,22 L70,14 L78,14" />
+
+    <!-- large Z -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#AA9B5CFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M80,16 L90,16 L80,6 L90,6" />
+</vector>
