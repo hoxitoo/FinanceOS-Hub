@@ -34,7 +34,7 @@ import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
-private val BANKS = listOf("Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "МБанк", "Другой")
+private val BANKS = listOf("Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "МБанк", "МКБ", "Цифра Банк", "Другой")
 private val CURRENCIES = listOf("RUB" to "₽ Рубль", "USD" to "$ Доллар", "EUR" to "€ Евро", "KGS" to "сом Сом")
 
 @OptIn(ExperimentalMaterial3Api::class)
