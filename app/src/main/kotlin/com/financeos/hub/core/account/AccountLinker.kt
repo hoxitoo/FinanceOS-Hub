@@ -78,6 +78,7 @@ class AccountLinker @Inject constructor(
             "postabank"      to listOf("почта банк", "pochta", "pochtabank"),
             "rosselkhozbank" to listOf("россельхоз", "рсхб", "rshb"),
             "mbank"          to listOf("mbank", "мбанк", "m bank"),
+            "mkb"            to listOf("мкб", "mkb", "московский кредитный"),
         )
     }
 }

@@ -116,6 +116,9 @@ class PushNotificationListener : NotificationListenerService() {
             "ru.rshb.mbank"                     to "RSHB",
             // KG
             "com.maanavan.mb_kyrgyzstan"        to "MBANK",
+            // P4
+            "ru.mkb.mobilebank"                 to "MKB",
+            "ru.mkb.android"                    to "MKB",
         )
 
         fun isPermissionGranted(context: Context): Boolean =
