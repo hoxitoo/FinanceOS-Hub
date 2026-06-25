@@ -165,6 +165,15 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Manual "пересчитать баланс": adopt every orphan SMS/PUSH transaction whose card belongs to
+     * this account and snap the balance to the bank's latest "Остаток". The reliable fix when a
+     * debit on a second card didn't update the balance because it didn't resolve at ingest time.
+     */
+    fun reconcileAccount(accountId: String) {
+        viewModelScope.launch { accountLinker.reconcileAccount(accountId, force = true) }
+    }
+
     fun deleteAccount(id: String) {
         viewModelScope.launch { accountRepo.deactivate(id) }
     }
