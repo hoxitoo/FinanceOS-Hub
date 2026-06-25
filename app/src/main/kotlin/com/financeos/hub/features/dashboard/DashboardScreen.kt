@@ -204,6 +204,7 @@ fun DashboardScreen(
             onEditBalance = { account, newKopecks ->
                 vm.updateAccountBalance(account, newKopecks)
             },
+            onReconcile  = { id -> vm.reconcileAccount(id) },
             onDelete     = { id -> vm.deleteAccount(id) },
         )
     }

@@ -84,6 +84,40 @@ class AccountLinker @Inject constructor(
         }
     }
 
+    /**
+     * Full repair of [accountId]: adopts EVERY orphan SMS/PUSH transaction whose card mask belongs
+     * to this account (its own mask + every registered card), then snaps the balance to the most
+     * recent bank-authoritative "Остаток" among the account's transactions.
+     *
+     * This is the reliable fix for the recurring "card linked after its transactions" gap: a debit
+     * on a second card that didn't resolve at ingest stays orphaned (account_id NULL) and so never
+     * moved the balance — [relinkOrphans] only covers a single mask and only reconciles when that
+     * mask linked something. Idempotent (only adopts still-unlinked rows, never applies a delta), so
+     * it's safe to call after every ingest and from a manual "пересчитать" action.
+     */
+    suspend fun reconcileAccount(accountId: String, force: Boolean = false) {
+        var linked = 0
+        accountMasks(accountId).forEach { linked += transactionDao.linkOrphansToAccount(accountId, it) }
+        // Snap to the bank's latest "Остаток" only when we actually adopted orphans (auto path) or
+        // the user explicitly asked (force). This keeps the routine post-ingest call a no-op in the
+        // common case, so it never overrides the per-transaction delta that syncBalance just applied.
+        if (linked > 0 || force) {
+            transactionDao.latestBalanceForAccount(accountId)?.let { authoritative ->
+                accountDao.updateBalance(accountId, authoritative)
+            }
+        }
+    }
+
+    /** All card last-4s that belong to [accountId]: the account's own mask + its registered cards. */
+    private suspend fun accountMasks(accountId: String): List<String> {
+        val own = accountDao.getById(accountId)?.cardMask?.trim()?.takeIf { it.isNotBlank() }
+        val cardMasks = cardDao.getAllActive()
+            .filter { it.accountId == accountId }
+            .map { it.cardMask.trim() }
+            .filter { it.isNotBlank() }
+        return (listOfNotNull(own) + cardMasks).distinct()
+    }
+
     companion object {
         /** Maps parser bankId (lowercase) → substrings to look for in AccountEntity.bank (lowercase). */
         private val BANK_KEYWORDS: Map<String, List<String>> = mapOf(
