@@ -140,16 +140,40 @@ class TransactionsViewModel @Inject constructor(
 
     fun updateTransaction(
         tx         : TransactionEntity,
+        newType    : TransactionType,
         merchant   : String,
         categoryId : String?,
         note       : String?,
     ) {
         viewModelScope.launch {
+            // Reclassifying away from TRANSFER (e.g. "перевод другу" → расход) must undo any goal
+            // routing this transfer applied, otherwise the goal stays inflated by money now counted
+            // as a plain expense/income.
+            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
+            if (leftTransfer && tx.goalId != null) {
+                transferRouter.onTransactionReversed(tx)
+            }
+            // Re-sign the amount to match the new type: expense negative, income positive; a transfer
+            // keeps its original direction. Magnitude is preserved, so balances are unaffected — only
+            // how analytics counts the row changes.
+            val mag = kotlin.math.abs(tx.amountKopecks)
+            val newAmount = when (newType) {
+                TransactionType.EXPENSE  -> -mag
+                TransactionType.INCOME   ->  mag
+                TransactionType.TRANSFER -> tx.amountKopecks
+            }
             txRepo.update(
                 tx.copy(
-                    merchant    = merchant.ifBlank { null },
-                    categoryId  = categoryId,
-                    description = note,
+                    type           = newType,
+                    amountKopecks  = newAmount,
+                    merchant       = merchant.ifBlank { null },
+                    categoryId     = categoryId,
+                    description    = note,
+                    // Once it is no longer a transfer, drop the transfer-only links so it can't be
+                    // re-paired or counted against a goal.
+                    goalId         = if (leftTransfer) null else tx.goalId,
+                    transferPairId = if (leftTransfer) null else tx.transferPairId,
+                    updatedAt      = System.currentTimeMillis(),
                 )
             )
         }

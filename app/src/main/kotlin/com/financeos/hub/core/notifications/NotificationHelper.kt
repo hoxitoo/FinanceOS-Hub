@@ -146,19 +146,24 @@ class NotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(ID_INSIGHT_BASE + id, notification)
     }
 
-    /** Fired when an outgoing transfer wasn't auto-routed to any savings goal. */
+    /**
+     * Fired when an outgoing transfer wasn't auto-routed (no matching own-account counterpart and no
+     * goal link). It may be money sent to someone (a расход) or a savings contribution — the user
+     * decides, so this deep-links to the operations list where the transaction's type can be changed.
+     */
     @SuppressLint("MissingPermission")
     fun notifyUnroutedTransfer(magnitudeKopecks: Long) {
         if (!hasNotificationPermission()) return
-        val text = "Перевод ${com.financeos.hub.ui.theme.FosFormatter.amount(magnitudeKopecks)} — назначить в накопительную цель?"
+        val amount = com.financeos.hub.ui.theme.FosFormatter.amount(magnitudeKopecks)
+        val text = "Перевод $amount — это расход или в накопительную цель? Нажмите, чтобы выбрать."
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Перевод не отнесён к цели")
+            .setContentTitle("Перевод не распределён")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
-            .setContentIntent(deepLinkIntent("goals"))
+            .setContentIntent(deepLinkIntent("transactions"))
             .build()
 
         NotificationManagerCompat.from(context).notify(ID_TRANSFER, notification)
