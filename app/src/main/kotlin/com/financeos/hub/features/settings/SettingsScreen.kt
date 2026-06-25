@@ -21,9 +21,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,6 +93,41 @@ fun SettingsScreen(
     val restoreBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { viewModel.restoreBackup(it) } }
+
+    // Real OS-level notification state — separate from the in-app pref. `areNotificationsEnabled()`
+    // reflects BOTH the Android 13+ POST_NOTIFICATIONS runtime grant AND the user toggling the app's
+    // notifications off in system settings on any version, so the toggle can't silently disagree with
+    // the system. Refreshed on every resume so returning from system settings updates the warning.
+    var systemNotifsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        systemNotifsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        systemNotifsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+    // Opens this app's notification settings (for when the system has blocked them and the runtime
+    // request can't help — e.g. the user picked "Don't allow", or on pre-13 where there's no prompt).
+    fun openAppNotificationSettings() {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+    // Called when the user switches the in-app push toggle ON while the OS is blocking notifications:
+    // on 13+ with no prior denial, prompt; otherwise deep-link to the app's notification settings.
+    fun ensureSystemNotifications() {
+        if (systemNotifsEnabled) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            openAppNotificationSettings()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -184,9 +223,38 @@ fun SettingsScreen(
                 label    = "Push-уведомления",
                 sublabel = "Оповещения о бюджете и инсайтах",
                 checked  = state.notificationsEnabled,
-                onToggle = viewModel::setNotificationsEnabled,
+                onToggle = { enabled ->
+                    viewModel.setNotificationsEnabled(enabled)
+                    // Enabling the in-app pref is meaningless if the OS blocks notifications — request
+                    // the system permission (or deep-link to settings) so the two can't disagree.
+                    if (enabled) ensureSystemNotifications()
+                },
             )
-            if (state.notificationsEnabled) {
+            // Surface the mismatch the user hit: pref ON but the OS is blocking delivery.
+            if (state.notificationsEnabled && !systemNotifsEnabled) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Уведомления отключены в системе — приложение не сможет их отправлять",
+                        style    = FosType.Micro,
+                        color    = FosColors.Negative,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick        = { openAppNotificationSettings() },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 8.dp, vertical = 0.dp
+                        ),
+                    ) {
+                        Text("Открыть", style = FosType.Label, color = FosColors.Info)
+                    }
+                }
+            }
+            if (state.notificationsEnabled && systemNotifsEnabled) {
                 Spacer(Modifier.height(12.dp))
                 Row(
                     modifier              = Modifier.fillMaxWidth(),
