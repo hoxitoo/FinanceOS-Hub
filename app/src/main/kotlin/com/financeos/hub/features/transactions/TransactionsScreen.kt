@@ -311,8 +311,8 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 categoryName = state.categoryName(tx.categoryId),
                 sheetState   = detailSheetState,
                 onDismiss    = { selectedTx = null },
-                onSave       = { merchant, catId, note ->
-                    vm.updateTransaction(tx, merchant, catId, note)
+                onSave       = { type, merchant, catId, note ->
+                    vm.updateTransaction(tx, type, merchant, catId, note)
                 },
                 onDelete     = { vm.deleteTransaction(tx.id) },
             )

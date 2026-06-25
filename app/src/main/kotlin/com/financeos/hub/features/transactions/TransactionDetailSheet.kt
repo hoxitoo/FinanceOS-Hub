@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.CategoryEntity
@@ -52,28 +53,30 @@ fun TransactionDetailSheet(
     categoryName: String,
     sheetState  : SheetState,
     onDismiss   : () -> Unit,
-    onSave      : (merchant: String, categoryId: String?, note: String?) -> Unit,
+    onSave      : (type: TransactionType, merchant: String, categoryId: String?, note: String?) -> Unit,
     onDelete    : () -> Unit,
 ) {
     // Key on transaction.id: if a different tx is shown while this composable is still in
     // the composition (e.g. rapid tap during sheet dismiss animation), remember returns
     // fresh state for the new transaction instead of the previous one's stale values.
-    var merchant    by remember(transaction.id) { mutableStateOf(transaction.merchant ?: "") }
-    var note        by remember(transaction.id) { mutableStateOf(transaction.description ?: "") }
-    var categoryId  by remember(transaction.id) { mutableStateOf(transaction.categoryId) }
-    var showConfirm by remember(transaction.id) { mutableStateOf(false) }
+    var merchant     by remember(transaction.id) { mutableStateOf(transaction.merchant ?: "") }
+    var note         by remember(transaction.id) { mutableStateOf(transaction.description ?: "") }
+    var categoryId   by remember(transaction.id) { mutableStateOf(transaction.categoryId) }
+    var selectedType by remember(transaction.id) { mutableStateOf(transaction.type) }
+    var showConfirm  by remember(transaction.id) { mutableStateOf(false) }
 
-    // Expense red, income green; a TRANSFER is neither → neutral (mirrors TransactionRow).
-    val isTransfer = transaction.type == TransactionType.TRANSFER
-    val amtColor   = when (transaction.type) {
+    // The header colour/sign follow the CURRENTLY-SELECTED type so reclassifying a transfer to a
+    // расход immediately reflects red/− before the user even saves. (mirrors TransactionRow rules)
+    val amtColor   = when (selectedType) {
         TransactionType.EXPENSE  -> FosColors.Negative
         TransactionType.INCOME   -> FosColors.Positive
         TransactionType.TRANSFER -> FosColors.TextPrimary
     }
-    val amtText = if (isTransfer) {
-        "↔ ${FosFormatter.amount(kotlin.math.abs(transaction.amountKopecks))}"
-    } else {
-        FosFormatter.signedAmount(transaction.amountKopecks)
+    val mag = kotlin.math.abs(transaction.amountKopecks)
+    val amtText = when (selectedType) {
+        TransactionType.TRANSFER -> "↔ ${FosFormatter.amount(mag)}"
+        TransactionType.INCOME   -> FosFormatter.signedAmount(mag)
+        TransactionType.EXPENSE  -> FosFormatter.signedAmount(-mag)
     }
 
     ModalBottomSheet(
@@ -135,6 +138,15 @@ fun TransactionDetailSheet(
                 AccountMaskRow("Счёт зачисления", transaction.counterpartyMask)
             }
 
+            // Type selector — lets the user reclassify, e.g. an outgoing «перевод другу» that the
+            // app booked as a neutral TRANSFER but is really a расход (money left for good).
+            Text("Тип операции", style = FosType.SectionCap, color = FosColors.TextMuted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TypeChip("Расход",  selectedType == TransactionType.EXPENSE,  FosColors.Negative,  Modifier.weight(1f)) { selectedType = TransactionType.EXPENSE }
+                TypeChip("Доход",   selectedType == TransactionType.INCOME,   FosColors.Positive,  Modifier.weight(1f)) { selectedType = TransactionType.INCOME }
+                TypeChip("Перевод", selectedType == TransactionType.TRANSFER, FosColors.TextPrimary, Modifier.weight(1f)) { selectedType = TransactionType.TRANSFER }
+            }
+
             // Note field
             OutlinedTextField(
                 value           = note,
@@ -171,7 +183,7 @@ fun TransactionDetailSheet(
             // Save
             Button(
                 onClick  = {
-                    onSave(merchant, categoryId, note.ifBlank { null })
+                    onSave(selectedType, merchant, categoryId, note.ifBlank { null })
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -227,6 +239,32 @@ private fun AccountMaskRow(label: String, mask: String?) {
             text  = mask?.takeIf { it.isNotBlank() }?.let { "••$it" } ?: "неизвестно",
             style = if (mask.isNullOrBlank()) FosType.Body else FosType.SmallBold,
             color = if (mask.isNullOrBlank()) FosColors.TextMuted else FosColors.TextPrimary,
+        )
+    }
+}
+
+/** Pill toggle used by the type selector (Расход / Доход / Перевод). */
+@Composable
+private fun TypeChip(
+    label    : String,
+    selected : Boolean,
+    accent   : Color,
+    modifier : Modifier = Modifier,
+    onClick  : () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(FosDimens.RadiusChip))
+            .background(if (selected) accent.copy(alpha = 0.14f) else FosColors.Surface2)
+            .border(1.dp, if (selected) accent else FosColors.Border, RoundedCornerShape(FosDimens.RadiusChip))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text  = label,
+            style = FosType.Label,
+            color = if (selected) accent else FosColors.TextSecondary,
         )
     }
 }
