@@ -87,6 +87,10 @@ class SmsReceiver : BroadcastReceiver() {
         if (rowIds.firstOrNull() != -1L) {
             accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+            // Self-heal: a resolved transaction adopts any earlier orphan rows for this account's
+            // cards (e.g. a debit on a second card that didn't resolve before the card was added)
+            // and snaps the balance to the bank's latest "Остаток". No-op when there's nothing to adopt.
+            if (accountId != null) accountLinker.reconcileAccount(accountId)
         }
     }
 }

@@ -98,6 +98,9 @@ class PushNotificationListener : NotificationListenerService() {
         if (rowIds.firstOrNull() != -1L) {
             accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
+            // Self-heal: adopt earlier orphan rows for this account's cards and snap to the bank's
+            // latest "Остаток". No-op when there's nothing to adopt.
+            if (accountId != null) accountLinker.reconcileAccount(accountId)
         }
     }
 

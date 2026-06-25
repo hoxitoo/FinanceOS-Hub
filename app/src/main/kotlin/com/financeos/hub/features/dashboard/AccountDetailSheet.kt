@@ -63,6 +63,7 @@ fun AccountDetailSheet(
     onAddCard    : (card: CardEntity) -> Unit,
     onDeleteCard : (cardId: String) -> Unit,
     onEditBalance: (account: AccountEntity, newKopecks: Long) -> Unit,
+    onReconcile  : (accountId: String) -> Unit,
     onDelete     : (accountId: String) -> Unit,
 ) {
     var showAddAccount    by remember { mutableStateOf(false) }
@@ -124,6 +125,7 @@ fun AccountDetailSheet(
                         onAddCard     = { addCardForAccount = account; cardMaskInput = "" },
                         onDeleteCard  = onDeleteCard,
                         onEditBalance = onEditBalance,
+                        onReconcile   = onReconcile,
                         onDelete      = onDelete,
                     )
                 }
@@ -235,6 +237,7 @@ private fun AccountRow(
     onAddCard    : () -> Unit,
     onDeleteCard : (String) -> Unit,
     onEditBalance: (AccountEntity, Long) -> Unit,
+    onReconcile  : (String) -> Unit,
     onDelete     : (String) -> Unit,
 ) {
     var editText     by remember { mutableStateOf("") }
@@ -267,11 +270,20 @@ private fun AccountRow(
                     color = if (account.balanceKopecks >= 0) FosColors.TextPrimary else FosColors.Negative,
                 )
             }
-            TextButton(
-                onClick        = onAddCard,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Text("+ Карта", style = FosType.Label, color = FosColors.Info)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Пересчитать: re-adopt orphan card transactions + snap to the bank's latest "Остаток".
+                TextButton(
+                    onClick        = { onReconcile(account.id) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("↻ Пересчёт", style = FosType.Label, color = FosColors.TextSecondary)
+                }
+                TextButton(
+                    onClick        = onAddCard,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("+ Карта", style = FosType.Label, color = FosColors.Info)
+                }
             }
         }
         // Card chips. Primary (account.cardMask) is part of the account and not deletable here.
