@@ -8,11 +8,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.financeos.hub.MainActivity
+import com.financeos.hub.R
 import com.financeos.hub.data.preferences.UserPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +34,9 @@ class NotificationHelper @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val catMode = AtomicBoolean(false)
 
+    /** The monochrome cat-face push asset, decoded once on first cat-mode notification. */
+    @Volatile private var catLargeIconCache: Bitmap? = null
+
     init {
         scope.launch { prefs.catModeEnabled.collect { catMode.set(it) } }
     }
@@ -38,6 +44,17 @@ class NotificationHelper @Inject constructor(
     /** Prepends 🐱 to the title when Cat Mode is active. */
     private fun title(text: String): String =
         if (catMode.get()) "🐱 $text" else text
+
+    /**
+     * The cat-face bitmap to show as the notification's large icon when Cat Mode is on, else null
+     * (NotificationCompat treats a null large icon as "none"). Decoded lazily and cached.
+     */
+    private fun catLargeIcon(): Bitmap? {
+        if (!catMode.get()) return null
+        return catLargeIconCache ?: runCatching {
+            BitmapFactory.decodeResource(context.resources, R.drawable.cat_face_mono)
+        }.getOrNull()?.also { catLargeIconCache = it }
+    }
     companion object {
         const val CHANNEL_BUDGET  = "fos_budget"
         const val CHANNEL_WEEKLY  = "fos_weekly"
@@ -114,6 +131,7 @@ class NotificationHelper @Inject constructor(
         if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setLargeIcon(catLargeIcon())
             .setContentTitle(title("Бюджет: $categoryName"))
             .setContentText("Использовано $spentPercent% лимита")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -137,6 +155,7 @@ class NotificationHelper @Inject constructor(
 
         val notification = NotificationCompat.Builder(context, CHANNEL_WEEKLY)
             .setSmallIcon(android.R.drawable.ic_menu_report_image)
+            .setLargeIcon(catLargeIcon())
             .setContentTitle(title("Еженедельный отчёт"))
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -152,6 +171,7 @@ class NotificationHelper @Inject constructor(
         if (!hasNotificationPermission()) return
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setLargeIcon(catLargeIcon())
             .setContentTitle(title("Финансовый инсайт"))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -175,6 +195,7 @@ class NotificationHelper @Inject constructor(
         val text = "Перевод $amount — это расход или в накопительную цель? Нажмите, чтобы выбрать."
         val notification = NotificationCompat.Builder(context, CHANNEL_INSIGHT)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setLargeIcon(catLargeIcon())
             .setContentTitle(title("Перевод не распределён"))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -196,6 +217,7 @@ class NotificationHelper @Inject constructor(
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATE)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setLargeIcon(catLargeIcon())
             .setContentTitle(title("Новая версия FinanceOS"))
             .setContentText("Доступна версия $versionName — нажмите, чтобы обновить")
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
