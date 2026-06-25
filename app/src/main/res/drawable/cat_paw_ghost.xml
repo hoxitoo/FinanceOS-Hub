@@ -1,34 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cat paw print — dimmer indigo fill for the "trail tail" paws. Opaque fill; the fade is
-     applied at draw time in PawParticleLayer (see cat_paw_glow for the rationale). -->
+<!-- Cat paw print (dimmer indigo "trail" variant). Same anatomy as cat_paw_glow: pad + 4 toes.
+     Opaque fill; the fade is applied at draw time in PawParticleLayer. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="64dp"
     android:height="64dp"
     android:viewportWidth="64"
     android:viewportHeight="64">
 
-    <!-- Main pad -->
+    <!-- Metacarpal pad -->
     <path
         android:fillColor="#6E7BFF"
-        android:pathData="M32,36 C23,36 18,29 18,24 C18,17 24,13 32,13 C40,13 46,17 46,24 C46,29 41,36 32,36 Z" />
+        android:pathData="M18,44 a14,11 0 1,0 28,0 a14,11 0 1,0 -28,0 z" />
 
-    <!-- Top-left toe -->
+    <!-- Toe — outer left -->
     <path
         android:fillColor="#6E7BFF"
-        android:pathData="M19,21 C14.6,21 11,17.6 11,13 C11,8.4 14.6,5 19,5 C23.4,5 27,8.4 27,13 C27,17.6 23.4,21 19,21 Z" />
+        android:pathData="M8,28 a6,7.5 0 1,0 12,0 a6,7.5 0 1,0 -12,0 z" />
 
-    <!-- Top-right toe -->
+    <!-- Toe — inner left -->
     <path
         android:fillColor="#6E7BFF"
-        android:pathData="M45,21 C40.6,21 37,17.6 37,13 C37,8.4 40.6,5 45,5 C49.4,5 53,8.4 53,13 C53,17.6 49.4,21 45,21 Z" />
+        android:pathData="M17.5,17 a6.5,8.5 0 1,0 13,0 a6.5,8.5 0 1,0 -13,0 z" />
 
-    <!-- Bottom-left toe -->
+    <!-- Toe — inner right -->
     <path
         android:fillColor="#6E7BFF"
-        android:pathData="M12,32 C8,32 5,28.6 5,24.5 C5,20.4 8,17 12,17 C16,17 19,20.4 19,24.5 C19,28.6 16,32 12,32 Z" />
+        android:pathData="M33.5,17 a6.5,8.5 0 1,0 13,0 a6.5,8.5 0 1,0 -13,0 z" />
 
-    <!-- Bottom-right toe -->
+    <!-- Toe — outer right -->
     <path
         android:fillColor="#6E7BFF"
-        android:pathData="M52,32 C48,32 45,28.6 45,24.5 C45,20.4 48,17 52,17 C56,17 59,20.4 59,24.5 C59,28.6 56,32 52,32 Z" />
+        android:pathData="M44,28 a6,7.5 0 1,0 12,0 a6,7.5 0 1,0 -12,0 z" />
 </vector>

@@ -134,16 +134,19 @@ fun PawParticleLayer(
         val rnd = Random(count.toLong() * 2089L + 13L)
         List(count) { i ->
             Paw(
-                x0        = rnd.nextFloat(),
-                y0        = rnd.nextFloat(),
+                // Inset the base position to [0.10..0.90] × [0.14..0.82] so a paw never spawns
+                // hard against the hero card edge where the rounded-corner clip would crop it.
+                x0        = 0.10f + rnd.nextFloat() * 0.80f,
+                y0        = 0.14f + rnd.nextFloat() * 0.68f,
                 ax        = 0.02f + rnd.nextFloat() * 0.05f,
                 ay        = 0.02f + rnd.nextFloat() * 0.05f,
                 speed     = 0.10f + rnd.nextFloat() * 0.25f,
                 phase     = rnd.nextFloat() * 6.2832f,
-                sizePx    = with(density) { (18f + rnd.nextFloat() * 12f).dp.toPx() },
+                sizePx    = with(density) { (22f + rnd.nextFloat() * 12f).dp.toPx() },
                 baseAlpha = 0.30f + rnd.nextFloat() * 0.35f,
                 glow      = (i % 2 == 0),
-                spin      = (rnd.nextFloat() - 0.5f) * 0.9f,
+                // Modest tilt (±20°) so paws look like they're "walking" without becoming unreadable.
+                spin      = (rnd.nextFloat() - 0.5f) * 0.7f,
             )
         }
     }
