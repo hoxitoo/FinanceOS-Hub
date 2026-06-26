@@ -85,7 +85,11 @@ class AlfabankParser @Inject constructor() : BankParser {
 
         val isIncome = m.groupValues[1] == "+"
         val balance  = ostatokRe.find(body)?.groupValues?.getOrNull(1)?.let { parseAmount(it) }
-        val card     = pushMask.find(body)?.groupValues?.getOrNull(1)
+        // Use findAll().lastOrNull() so that when the joined title+body contains a glyph+4-digits
+        // sequence earlier in the string (e.g. "··1139" in the notification title), the regex
+        // still returns the LAST match — which is Alfa's own card mask ("··2548" in the body
+        // balance line), not the counterparty or amount mask from the title.
+        val card     = pushMask.findAll(body).lastOrNull()?.groupValues?.getOrNull(1)
         val merchant = body.substring(m.range.last + 1)
             .substringBefore("Остаток")
             .replace(maskTail, "")

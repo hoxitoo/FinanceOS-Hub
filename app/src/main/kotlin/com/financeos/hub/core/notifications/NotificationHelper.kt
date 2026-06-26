@@ -34,8 +34,14 @@ class NotificationHelper @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val catMode = AtomicBoolean(false)
 
-    /** The monochrome cat-face push asset, decoded once on first cat-mode notification. */
-    @Volatile private var catLargeIconCache: Bitmap? = null
+    // Cat-face bitmap, decoded once on first use. `lazy` is thread-safe by default
+    // (LazyThreadSafetyMode.SYNCHRONIZED), preventing the double-decode race that
+    // @Volatile alone cannot prevent.
+    private val catLargeIconCache: Bitmap? by lazy {
+        runCatching {
+            BitmapFactory.decodeResource(context.resources, R.drawable.cat_face_mono)
+        }.getOrNull()
+    }
 
     init {
         scope.launch { prefs.catModeEnabled.collect { catMode.set(it) } }
@@ -45,16 +51,9 @@ class NotificationHelper @Inject constructor(
     private fun title(text: String): String =
         if (catMode.get()) "🐱 $text" else text
 
-    /**
-     * The cat-face bitmap to show as the notification's large icon when Cat Mode is on, else null
-     * (NotificationCompat treats a null large icon as "none"). Decoded lazily and cached.
-     */
-    private fun catLargeIcon(): Bitmap? {
-        if (!catMode.get()) return null
-        return catLargeIconCache ?: runCatching {
-            BitmapFactory.decodeResource(context.resources, R.drawable.cat_face_mono)
-        }.getOrNull()?.also { catLargeIconCache = it }
-    }
+    /** Returns the cat-face bitmap when Cat Mode is on, else null (no large icon). */
+    private fun catLargeIcon(): Bitmap? =
+        if (catMode.get()) catLargeIconCache else null
     companion object {
         const val CHANNEL_BUDGET  = "fos_budget"
         const val CHANNEL_WEEKLY  = "fos_weekly"
