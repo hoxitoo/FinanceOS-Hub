@@ -34,6 +34,20 @@ class SberbankParser @Inject constructor() : BankParser {
         RegexOption.IGNORE_CASE
     )
 
+    // Sberbank push format: "[Merchant] [amount] ₽ В запасе: [balance] ₽ [Карта/СЧЁТ] •[last4]"
+    // The amount has no mandatory sign — type is inferred from keywords (Зачисление/Покупка/etc.).
+    private val pushBalRe  = Regex(
+        "В\\s+запасе:\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽",
+        RegexOption.IGNORE_CASE,
+    )
+    private val pushAmtRe  = Regex("([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽")
+    // "Карта •1234", "СЧЁТ • 4102", or bare "•1234"
+    private val pushCardRe = Regex(
+        "(?:Карта|СЧЁТ|СЧЕТ)\\s*[*•·]{1,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})(?!\\d)",
+        RegexOption.IGNORE_CASE,
+    )
+    private val pushIncomeKw = Regex("(?:Зачисление|Пополнение)", RegexOption.IGNORE_CASE)
+
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
 
@@ -88,6 +102,39 @@ class SberbankParser @Inject constructor() : BankParser {
             )
         }
 
-        return null
+        return parsePush(body, smsId, timestampMillis)
+    }
+
+    /**
+     * Field-based parser for Sberbank push notifications.
+     * Requires "В запасе:" to be present (strong signal this is a transaction push, not marketing).
+     * Transaction amount = the last ₽-value before "В запасе:", type inferred from keywords.
+     */
+    private fun parsePush(body: String, smsId: String, ts: Long): ParsedTransaction? {
+        val balMatch = pushBalRe.find(body) ?: return null
+        val balance  = AmountParser.toKopecks(balMatch.groupValues[1]).takeIf { it >= 0L } ?: return null
+
+        val bodyBeforeBal = body.substring(0, balMatch.range.first)
+        val amtMatch = pushAmtRe.findAll(bodyBeforeBal).lastOrNull() ?: return null
+        val amount   = AmountParser.toKopecks(amtMatch.groupValues[1])
+        if (amount <= 0L) return null
+
+        val card     = pushCardRe.find(body)?.let { m -> m.groupValues.drop(1).firstOrNull { it.isNotEmpty() } }
+        val isIncome = pushIncomeKw.containsMatchIn(body)
+        val merchant = bodyBeforeBal.substring(0, amtMatch.range.first)
+            .trim().trim('.', ',', ';', '-', ' ')
+            .takeIf { it.isNotBlank() }
+
+        return ParsedTransaction(
+            type           = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE,
+            amountKopecks  = amount,
+            merchant       = merchant,
+            cardMask       = card,
+            balanceKopecks = balance,
+            timestamp      = ts,
+            bankId         = bankId,
+            rawSms         = body,
+            smsId          = smsId,
+        )
     }
 }

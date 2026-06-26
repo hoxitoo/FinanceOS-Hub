@@ -110,10 +110,15 @@ fun TransactionDetailSheet(
                         color = FosColors.TextMuted,
                     )
                 }
-                if (transaction.source == com.financeos.hub.core.database.entities.TransactionSource.MANUAL) {
-                    Text("вручную", style = FosType.Micro, color = FosColors.TextMuted)
-                } else {
-                    Text("SMS", style = FosType.Micro, color = FosColors.Info)
+                when (transaction.source) {
+                    com.financeos.hub.core.database.entities.TransactionSource.MANUAL ->
+                        Text("вручную", style = FosType.Micro, color = FosColors.TextMuted)
+                    com.financeos.hub.core.database.entities.TransactionSource.PUSH ->
+                        Text("push", style = FosType.Micro, color = FosColors.Info)
+                    com.financeos.hub.core.database.entities.TransactionSource.PDF ->
+                        Text("PDF", style = FosType.Micro, color = FosColors.TextMuted)
+                    else ->
+                        Text("SMS", style = FosType.Micro, color = FosColors.Info)
                 }
             }
 

@@ -29,13 +29,13 @@ class AlfabankParser @Inject constructor() : BankParser {
     // "-468,7 ₽. Другое Остаток: 3 621,04 ₽; ··2548" (one decimal digit → no match at all).
     private val pushAmount = Regex("""([-−+])\s*([\d\s]+(?:[.,]\d{1,2})?)\s*₽""")
     private val ostatokRe  = Regex("""Остаток:\s*([\d\s]+(?:[.,]\d{1,2})?)\s*₽""", RegexOption.IGNORE_CASE)
-    // Card mask = the 4-digit tail of the message (Alfa renders it as "··2548" / "••2548" / "*2548").
-    // Require the masking glyph immediately before the digits — a bare \d{4} anchor would wrongly
-    // capture a merchant that merely ends in 4 digits (e.g. "АЗС 2024") as the card mask.
-    private val pushMask   = Regex("""[*•·]{1,2}\s*(\d{4})\s*$""")
-    // Strip a trailing "··2548" card tail off the merchant when the push has no "Остаток".
-    // Require the masking glyph so a merchant that legitimately ends in 4 digits keeps them.
-    private val maskTail   = Regex("""[*•·]{1,2}\s*\d{4}\s*$""")
+    // Card mask: "··2548" / "••2548" / "*2548" anywhere in the body.
+    // Require the masking glyph immediately before the digits and a negative lookahead (?!\d) so we
+    // don't capture the middle of a longer digit run — but no $ anchor, because the push body is
+    // built by joining the notification title and text, so the mask may not be at the very end.
+    private val pushMask   = Regex("""[*•·]{1,2}\s*(\d{4})(?!\d)""")
+    // Strip "··NNNN" card glyph from the extracted merchant string.
+    private val maskTail   = Regex("""[*•·]{1,2}\s*\d{4}(?!\d)""")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
@@ -85,7 +85,11 @@ class AlfabankParser @Inject constructor() : BankParser {
 
         val isIncome = m.groupValues[1] == "+"
         val balance  = ostatokRe.find(body)?.groupValues?.getOrNull(1)?.let { parseAmount(it) }
-        val card     = pushMask.find(body)?.groupValues?.getOrNull(1)
+        // Use findAll().lastOrNull() so that when the joined title+body contains a glyph+4-digits
+        // sequence earlier in the string (e.g. "··1139" in the notification title), the regex
+        // still returns the LAST match — which is Alfa's own card mask ("··2548" in the body
+        // balance line), not the counterparty or amount mask from the title.
+        val card     = pushMask.findAll(body).lastOrNull()?.groupValues?.getOrNull(1)
         val merchant = body.substring(m.range.last + 1)
             .substringBefore("Остаток")
             .replace(maskTail, "")

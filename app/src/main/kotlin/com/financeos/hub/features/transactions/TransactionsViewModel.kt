@@ -211,6 +211,7 @@ class TransactionsViewModel @Inject constructor(
         categoryId   : String?,
         note         : String?,
         accountId    : String? = null,
+        sourceMask   : String? = null,
         timestamp    : Long    = System.currentTimeMillis(),
     ) {
         viewModelScope.launch {
@@ -232,6 +233,7 @@ class TransactionsViewModel @Inject constructor(
                     merchant      = merchant.ifBlank { null },
                     description   = note?.ifBlank { null },
                     timestamp     = timestamp,
+                    sourceMask    = sourceMask,
                     isDeleted     = false,
                     deletedAt     = null,
                 )
