@@ -70,11 +70,22 @@ class PushNotificationListener : NotificationListenerService() {
     private suspend fun processPush(sender: String, body: String, ts: Long) {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
         val pushId = "push_${sender}_${ts}_${body.hashCode()}"
-        if (transactionDao.existsBySmsId(pushId)) return
-        // Cross-channel dedup: skip if an SMS transaction with the same amount already arrived
-        // within ±5 minutes (same bank event delivered via both SMS and push notification).
+        if (transactionDao.existsBySmsId(pushId)) {
+            // Exact re-post of a notification we already stored — still apply its balance, because
+            // the first delivery may have lacked the "Остаток" line this copy carries.
+            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+            return
+        }
+        // Cross-channel dedup: skip if an SMS/PUSH transaction with the same amount already arrived
+        // within ±5 minutes (same bank event delivered via both channels, or a collapsed→expanded
+        // notification re-post). The dropped copy is often the RICHER one (it carries the authoritative
+        // "Остаток" + card mask the first copy lacked), so apply its balance before bailing — otherwise
+        // the figure is lost forever and the account freezes at the last fully-delivered value.
         val window = 5 * 60 * 1000L
-        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) return
+        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) {
+            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+            return
+        }
 
         val categoryId = classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
@@ -98,9 +109,11 @@ class PushNotificationListener : NotificationListenerService() {
         if (rowIds.firstOrNull() != -1L) {
             accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
-            // Self-heal: adopt earlier orphan rows for this account's cards and snap to the bank's
-            // latest "Остаток". No-op when there's nothing to adopt.
-            if (accountId != null) accountLinker.reconcileAccount(accountId)
+            // Self-heal even when THIS row didn't resolve an account at insert (e.g. the bank-name
+            // fallback was ambiguous): resolve the owning account from the card mask so an orphaned
+            // debit on a registered card still adopts earlier orphans and snaps to the latest "Остаток".
+            val healId = accountId ?: accountLinker.resolveAccountByCardMask(parsed.cardMask)
+            if (healId != null) accountLinker.reconcileAccount(healId)
         }
     }
 
