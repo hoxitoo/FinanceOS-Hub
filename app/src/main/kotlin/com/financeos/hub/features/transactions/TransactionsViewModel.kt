@@ -181,12 +181,16 @@ class TransactionsViewModel @Inject constructor(
 
     fun deleteTransaction(id: String) {
         viewModelScope.launch {
-            // Reverse the balance effect of a MANUAL op before soft-deleting it: insertManual()
-            // applied its signed amount to the chosen account, so deletion must undo it.
-            // SMS/PUSH balances come from the bank's authoritative "Остаток" snapshot (not a
-            // delta we own), and PDF rows have no account — so we only reverse MANUAL entries.
+            // Reverse the balance effect of any op that moved the balance as a DELTA we own, so
+            // deletion is symmetric with insertion. That covers MANUAL entries AND any SMS/PUSH row
+            // that carried NO authoritative "Остаток" (balanceKopecks == null → syncBalance applied
+            // `acc.balance + signedDelta` at insert). Rows that DID carry a bank balance set an
+            // absolute snapshot, not a delta, so they're left as-is; PDF rows have no account.
+            // This lets the user undo a mis-parsed push (e.g. a marketing "transfer" that wrongly
+            // debited 163 000 ₽) simply by deleting it — previously that delta stuck forever.
             val tx = txRepo.getById(id)
-            if (tx != null && tx.accountId != null && tx.source == TransactionSource.MANUAL) {
+            if (tx != null && tx.accountId != null && tx.balanceKopecks == null &&
+                tx.source != TransactionSource.PDF) {
                 val acc = accountRepo.getById(tx.accountId)
                 if (acc != null) {
                     accountRepo.upsert(acc.copy(

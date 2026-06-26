@@ -705,6 +705,20 @@ was purely in how/when the balance was applied.
 **Note for the user:** the already-inserted phantom 163 000 ₽ transfer is still in the DB — delete it
 once via swipe-to-delete. All future marketing pushes are now dropped before parsing.
 
+### Follow-up: deleting a delta-applied push now reverses the balance
+The phantom transfer carried no «Остаток», so at insert `syncBalance` used the DELTA path and debited
+−163 000 ₽ from the single T-Bank account. Deleting it did NOT restore the balance — `deleteTransaction`
+only reversed `source == MANUAL`. Net worth («Состояние» = `accounts.sumOf { balanceKopecks }` per
+currency) went to −132 224,19 ₽ (Alfa +12 071,35 + a hidden T-Bank account ≈ −144 295).
+- **Fix:** `TransactionsViewModel.deleteTransaction` now reverses the balance for ANY op applied as a
+  delta — `tx.accountId != null && tx.balanceKopecks == null && source != PDF` — i.e. MANUAL plus
+  SMS/PUSH rows with no authoritative balance. Rows that carried a real «Остаток» (balanceKopecks
+  non-null) set an absolute snapshot, not a delta, so they're still left as-is. Insert/delete are now
+  symmetric, so a mis-parsed push self-heals on delete.
+- **Already-stuck balance (this user):** the bad transfer was deleted BEFORE this fix, so the −163 000
+  is still applied. Remedy now: open the T-Bank account → «Пересчёт» (snaps to the latest real
+  «Остаток» if one exists) or edit the balance manually once.
+
 ## Audit #10 Fixes (this session)
 
 Two bugs fixed (commit d6cbbe8):
