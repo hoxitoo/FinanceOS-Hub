@@ -676,6 +676,35 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Marketing-Push False Parse Fix (this session)
+
+**User report (screenshot):** a T-Bank credit-card OFFER push — «Одобрили кредитку 💳 Получите карту
+с лимитом 163 000 ₽, кэшбэком до 30%, рассрочками и бесплатными переводами» — was booked as a real
+163 000 ₽ outgoing TRANSFER and fired the «Перевод не распределён» alert.
+
+**Root cause (two compounding defects):**
+1. `TransferPatterns.OUTGOING` matched the marketing word «перевод**АМИ**» by SUBSTRING against the
+   `Перевод` keyword (`containsMatchIn`, no boundary) → `outgoing = true`; then `AMOUNT` grabbed
+   «163 000 ₽» from "лимитом 163 000 ₽".
+2. Nothing filtered promotional pushes anywhere — any money amount + a transaction-keyword substring
+   became a transaction, across all 11 banks.
+
+**Fix (two layers):**
+- `core/parser/PromoFilter.kt` — central marketing guard called in `ParserEngine.parse()` BEFORE any
+  bank parser, so it covers SMS + push for every bank. Curated markers that appear only in offers
+  (`одобрили кредитку`/`получите карту`/`кэшбэк … до`/`до N%`/`N% годовых`/`бесплатными переводами`/
+  `приведи друга`/`вклад под N`…). Deliberately narrow: a real «Кэшбэк 150 ₽» credit or a purchase
+  mentioning «доступный лимит» still passes (verified by tests).
+- `TransferPatterns` — stem-anchored the keywords with a Cyrillic lookahead
+  (`Перевод(?![А-Яа-яёЁ])`, `Перевели(?![…])`, bounded `СБП`) so «переводами»/«переводов» can no longer
+  match «Перевод» (defense in depth). `Перечислен` stem kept boundary-free (its own word continues
+  with a Cyrillic letter).
+- Tests: `PromoFilterTest` (9 cases) + 3 new `TransferPatternsTest` regression cases. Regex logic
+  validated standalone (project can't compile in this env: network blocks the AGP download).
+
+**Note for the user:** the already-inserted phantom 163 000 ₽ transfer is still in the DB — delete it
+once via swipe-to-delete. All future marketing pushes are now dropped before parsing.
+
 ## Audit #10 Fixes (this session)
 
 Two bugs fixed (commit d6cbbe8):
