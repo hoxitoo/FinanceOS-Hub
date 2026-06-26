@@ -623,6 +623,18 @@ in-app download/install flow takes over (the worker never downloads/installs by 
 - **Accepted (not fixed):** `density` not in `PawParticleLayer`'s `remember(count)` key — identical to
   the pre-existing `ParticleLayer` pattern (config change recreates the Activity anyway).
 
+## Audit #9 Fixes — Push/Balance/Source (this session)
+
+Four bugs fixed (commit 090970f):
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH | `AlfabankParser.kt` | `pushMask`/`maskTail` had `$` end-anchor — card «··2548» in notification title was lost after `PushNotificationListener` joined title+body with space → `cardMask=null` → orphaned transaction → balance never updated. Replaced `$` with `(?!\d)` negative lookahead |
+| HIGH | `SberbankParser.kt` | No push parser at all — all Sberbank push notifications silently returned `null` and were dropped. Added `parsePush()` using «В запасе:» as anchor; amount = last ₽-value before anchor; card from «СЧЁТ • 4102»/«Карта •NNNN»; type from Зачисление/Пополнение keywords |
+| MEDIUM | `TransferPatterns.kt` | «Забросил[аи]? деньги» (Sberbank inter-bank transfer verb) missing from `OUTGOING`; «В запасе» (Sberbank balance field) missing from `BALANCE` — both now added |
+| MEDIUM | `SmsReceiver.kt` | Missing cross-channel dedup: push+SMS for same event had different smsIds → double insert. Added `existsSimilarSmsOrPush(±5 min)` guard after `existsBySmsId` check |
+| LOW | `TransactionDetailSheet.kt` | Source label hardcoded «SMS» for all non-MANUAL sources. Replaced with `when(source)` showing «push» (Info colour) / «PDF» / «вручную» / «SMS» correctly |
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)
