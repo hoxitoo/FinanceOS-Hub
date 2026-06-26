@@ -16,8 +16,12 @@ object TransferPatterns {
 
     // Keywords that signal an OUTGOING transfer (money leaving this account).
     // "Забросили/Забросил деньги" is Sberbank's push wording for an inter-bank transfer.
+    // The `(?![А-Яа-яёЁ])` tail anchors the stem so a marketing word does NOT match by substring:
+    // "бесплатными переводАМИ" must not register as "Перевод" (that false-positive booked a phantom
+    // 163 000 ₽ transfer from a T-Bank credit-card offer). `\s` after a stem already provides the
+    // boundary; the lookahead covers the bare-noun and trailing-inflection cases.
     private val OUTGOING = Regex(
-        """(?:Перевод|Перевели|Перечисление|Отправлен\s+перевод|Перевод\s+СБП|СБП|Списание[^.]*перевод|Забросил[аи]?\s+деньги)""",
+        """(?:Перевод(?![А-Яа-яёЁ])|Перевели(?![А-Яа-яёЁ])|Перечислен|Отправлен\s+перевод|Списание[^.]*перевод|Забросил[аи]?\s+деньги|(?<![А-Яа-яёЁ])СБП(?![А-Яа-яёЁ]))""",
         RegexOption.IGNORE_CASE,
     )
 
