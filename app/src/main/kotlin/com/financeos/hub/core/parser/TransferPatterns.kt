@@ -15,8 +15,9 @@ import com.financeos.hub.core.database.entities.TransactionType
 object TransferPatterns {
 
     // Keywords that signal an OUTGOING transfer (money leaving this account).
+    // "Забросили/Забросил деньги" is Sberbank's push wording for an inter-bank transfer.
     private val OUTGOING = Regex(
-        """(?:Перевод|Перевели|Перечисление|Отправлен\s+перевод|Перевод\s+СБП|СБП|Списание[^.]*перевод)""",
+        """(?:Перевод|Перевели|Перечисление|Отправлен\s+перевод|Перевод\s+СБП|СБП|Списание[^.]*перевод|Забросил[аи]?\s+деньги)""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -57,10 +58,11 @@ object TransferPatterns {
         setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
 
-    // Post-operation balance: "Остаток: 16 000 ₽", "Доступно: 5000,00 RUB", "Баланс: 1 234р"
+    // Post-operation balance: "Остаток: 16 000 ₽", "Доступно: 5000,00 RUB", "Баланс: 1 234р",
+    // "В запасе: 8 001,89 ₽" (Sberbank push format).
     // Same horizontal-whitespace-only restriction as AMOUNT to prevent cross-line capture.
     private val BALANCE = Regex(
-        "(?:Остаток|Доступно|Баланс):?[ \\t]*([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
+        "(?:Остаток|Доступно|Баланс|В\\s+запасе):?[ \\t]*([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
         RegexOption.IGNORE_CASE,
     )
 

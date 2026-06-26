@@ -64,6 +64,11 @@ class SmsReceiver : BroadcastReceiver() {
     private suspend fun processSms(sender: String, body: String, ts: Long) {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
         if (transactionDao.existsBySmsId(parsed.smsId)) return
+        // Cross-channel dedup: if the same bank event was already ingested via push (arrived
+        // slightly before the SMS), skip rather than double-insert. Uses a ±5 min window on the
+        // absolute amount — the same guard used in SmsReader and PushNotificationListener.
+        val window = 5 * 60 * 1000L
+        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) return
 
         val categoryId = classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
