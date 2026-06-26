@@ -14,6 +14,11 @@ class ParserEngine @Inject constructor(
         // to a regular space once here so every parser's amount patterns work unchanged.
         val normalizedBody = body.replace(nbsp, ' ').replace(narrowNbsp, ' ')
 
+        // Drop marketing/promo pushes ("Одобрили кредитку … получите карту с лимитом 163 000 ₽ …")
+        // before any parser runs. They carry a money amount and a transaction-keyword substring,
+        // so without this guard they get booked as phantom transfers/expenses across every bank.
+        if (PromoFilter.isPromo(normalizedBody)) return null
+
         // A sender (e.g. the shared "900" short code) may be claimed by more than one
         // bank parser, and a parser that recognises the sender may still fail to match the
         // body. Try every parser that recognises the sender and return the first that
