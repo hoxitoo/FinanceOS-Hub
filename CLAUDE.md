@@ -635,12 +635,25 @@ Four bugs fixed (commit 090970f):
 | MEDIUM | `SmsReceiver.kt` | Missing cross-channel dedup: push+SMS for same event had different smsIds → double insert. Added `existsSimilarSmsOrPush(±5 min)` guard after `existsBySmsId` check |
 | LOW | `TransactionDetailSheet.kt` | Source label hardcoded «SMS» for all non-MANUAL sources. Replaced with `when(source)` showing «push» (Info colour) / «PDF» / «вручную» / «SMS» correctly |
 
+## Audit #10 Fixes (this session)
+
+Two bugs fixed (commit d6cbbe8):
+
+| Severity | File | Fix |
+|----------|------|-----|
+| HIGH | `AlfabankParser.kt` | Audit #9 removed the `$` end-anchor from `pushMask` and switched to `(?!\d)` lookahead, but left `find()` (first match). For a push body «−43 ₽ ··1139 … Остаток: 6 201,48 ₽; ··2548», `find()` returned ··1139 (counterparty in title) instead of ··2548 (user's card). Changed to `findAll().lastOrNull()` — restores "last wins" semantics. |
+| MEDIUM | `NotificationHelper.kt` | `@Volatile` manual null-check cache was not atomic: two concurrent callers (AnalyticsWorker + BudgetViewModel) could both pass the null-check and decode `cat_face_mono` twice. Replaced with `by lazy {}` which uses `LazyThreadSafetyMode.SYNCHRONIZED` by default. |
+
+Also fixed (commits d5f8c0a / separate):
+- **Secondary card ··2548 missing from manual entry picker**: `AddTransactionSheet` only showed `account.cardMask` (primary card). Added `SourceOption` model; `sourceOptions = remember(accounts, cards)` builds one chip per physical card (primary + all secondary from `cards` table). `onSave` signature widened to pass `sourceMask` separately from `accountId`.
+
 ## Next Steps
 - Polish: localization review, dark-mode visual QA
 - feature/app-icon already in main (no action needed)
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
 - Consider: encrypt backup with user PIN (currently key is device-scoped, no extra auth)
 - Consider: signed **release** APK channel (keystore in GitHub Secrets) for Play-Store-grade builds
+- Await additional Sberbank push format variants — current `parsePush()` anchors on «В запасе:»; other balance labels need coverage
 
 ## Planned — Account Types & Card UI (NOT yet implemented)
 Full design spec: `docs/CONTEXT.md` → "Roadmap — Planned Features (Account Types & Card UI)".
