@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.ui.theme.FosColors
@@ -60,14 +61,29 @@ private val INCOME_SOURCES = listOf(
     "💰" to "Другое",
 )
 
+/**
+ * One selectable money-source in the picker: a specific card (or the account itself when it has
+ * no card). Several options can share the same [accountId] — a second card on an account is the
+ * same balance, so picking either attributes the operation to that one account; [mask] only records
+ * which physical card it left from.
+ */
+private data class SourceOption(
+    val accountId: String,
+    val accountName: String,
+    val mask: String?,
+) {
+    val key: String get() = "${accountId}_${mask ?: "_"}"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTransactionSheet(
     sheetState : SheetState,
     categories : List<CategoryEntity>,
     accounts   : List<AccountEntity>,
+    cards      : List<CardEntity>,
     onDismiss  : () -> Unit,
-    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?, timestamp: Long) -> Unit,
+    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?, sourceMask: String?, timestamp: Long) -> Unit,
 ) {
     var txType       by remember { mutableStateOf(TransactionType.EXPENSE) }
     var amountText   by remember { mutableStateOf("") }
@@ -75,14 +91,28 @@ fun AddTransactionSheet(
     var note         by remember { mutableStateOf("") }
     var categoryId   by remember { mutableStateOf<String?>(null) }
     var incomeSource by remember { mutableStateOf<String?>(null) }
-    var accountId    by remember { mutableStateOf<String?>(null) }
+    // Selected money-source key (account + card mask). Null = no source chosen.
+    var sourceKey    by remember { mutableStateOf<String?>(null) }
     // Selected date for the operation (defaults to today). Stored as the local day; the
     // actual save-time clock is folded in so back-dated rows sort correctly within their day.
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showDatePicker by remember { mutableStateOf(false) }
 
     val amountError = amountText.isNotBlank() && amountText.replace(",", ".").toDoubleOrNull() == null
-    val selectedAccount = accounts.firstOrNull { it.id == accountId }
+    // One chip per card: the account's primary card plus every secondary card from the `cards`
+    // table (deduped), so a second card like ••2548 on the «текущий» account is selectable too.
+    // An account with no card at all still gets a single chip.
+    val sourceOptions = remember(accounts, cards) {
+        accounts.flatMap { acc ->
+            val masks = (listOfNotNull(acc.cardMask) +
+                cards.filter { it.accountId == acc.id }.map { it.cardMask })
+                .distinct()
+            if (masks.isEmpty()) listOf(SourceOption(acc.id, acc.name, null))
+            else masks.map { m -> SourceOption(acc.id, acc.name, m) }
+        }
+    }
+    val selectedOption  = sourceOptions.firstOrNull { it.key == sourceKey }
+    val selectedAccount = accounts.firstOrNull { it.id == selectedOption?.accountId }
     val currencySymbol  = FosFormatter.currencySymbol(selectedAccount?.currency ?: "RUB")
 
     ModalBottomSheet(
@@ -151,21 +181,22 @@ fun AddTransactionSheet(
                 ),
             )
 
-            // Account / card picker — where the money landed / left from
-            if (accounts.isNotEmpty()) {
+            // Account / card picker — where the money landed / left from. One chip per card
+            // (primary + secondary), so any card on a multi-card account can be chosen.
+            if (sourceOptions.isNotEmpty()) {
                 Text(
-                    if (txType == TransactionType.INCOME) "Куда зачислено" else "С какого счёта",
+                    if (txType == TransactionType.INCOME) "Куда зачислено" else "С какого счёта / карты",
                     style = FosType.SectionCap,
                     color = FosColors.TextMuted,
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(accounts, key = { it.id }) { acc ->
-                        val selected = accountId == acc.id
-                        val mask     = acc.cardMask?.let { " ••$it" } ?: ""
+                    items(sourceOptions, key = { it.key }) { opt ->
+                        val selected = sourceKey == opt.key
+                        val mask     = opt.mask?.let { " ••$it" } ?: ""
                         FilterChip(
                             selected = selected,
-                            onClick  = { accountId = if (selected) null else acc.id },
-                            label    = { Text("${acc.name}$mask", style = FosType.Micro) },
+                            onClick  = { sourceKey = if (selected) null else opt.key },
+                            label    = { Text("${opt.accountName}$mask", style = FosType.Micro) },
                             shape    = RoundedCornerShape(FosDimens.RadiusChip),
                             colors   = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
@@ -268,7 +299,8 @@ fun AddTransactionSheet(
                             selectedDate.atTime(LocalTime.now())
                                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                         }
-                        onSave(txType, kopecks, merchant, categoryId, finalNote, accountId, timestamp)
+                        onSave(txType, kopecks, merchant, categoryId, finalNote,
+                            selectedOption?.accountId, selectedOption?.mask, timestamp)
                         onDismiss()
                     }
                 },
