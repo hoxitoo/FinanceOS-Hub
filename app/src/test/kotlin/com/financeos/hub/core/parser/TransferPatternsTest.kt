@@ -47,6 +47,28 @@ class TransferPatternsTest {
         assertNull(TransferPatterns.detect("Покупка 1 500,00 RUB. ПЯТЁРОЧКА. Остаток: 5 000 ₽"))
     }
 
+    /**
+     * Reported bug: a T-Bank marketing push ("…бесплатными переводами") booked a phantom 163 000 ₽
+     * transfer because "переводАМИ" matched the "Перевод" keyword by substring. The stem lookahead
+     * must reject the inflected marketing word while still matching a real "Перевод 5 000 ₽".
+     */
+    @Test fun `marketing word 'переводами' is not detected as a transfer`() {
+        val body = "Одобрили кредитку. Получите карту с лимитом 163 000 ₽, " +
+            "кэшбэком до 30%, рассрочками и бесплатными переводами"
+        assertNull(TransferPatterns.detect(body))
+    }
+
+    @Test fun `inflected 'переводов' marketing word is not detected`() {
+        assertNull(TransferPatterns.detect("Без комиссии для переводов до 100 000 ₽ в месяц"))
+    }
+
+    @Test fun `real outgoing transfer still detected after boundary tightening`() {
+        val r = TransferPatterns.detect("Перевод 5 000 ₽ выполнен")
+        assertNotNull(r)
+        assertTrue(r!!.outgoing)
+        assertEquals(500_000L, r.amountKopecks)
+    }
+
     @Test fun `caller-supplied own card mask overrides auto extraction`() {
         val body = "Перевод 1 000 ₽ на карту *3583"
         val r = TransferPatterns.detect(body, ownCardMask = "1139")
