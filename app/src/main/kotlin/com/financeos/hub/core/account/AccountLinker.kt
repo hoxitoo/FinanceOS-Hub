@@ -51,6 +51,18 @@ class AccountLinker @Inject constructor(
     }
 
     /**
+     * Resolves the account that owns [cardMask] using the CARD MASK ONLY — never the ambiguous
+     * bank-name fallback. Returns null when the mask is blank or maps to no registered card/account.
+     * Used for balance reconciliation, where routing a balance to the wrong account of a multi-account
+     * bank (e.g. one of five Alfa accounts) is worse than not updating at all.
+     */
+    suspend fun resolveAccountByCardMask(cardMask: String?): String? {
+        val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        accountDao.findByCardMask(mask)?.let { return it.id }
+        return cardDao.findAccountIdByMask(mask)
+    }
+
+    /**
      * Updates [accountId]'s balance. Uses [ostatokKopecks] (the bank's reported balance) when
      * present and non-negative, otherwise nudges by [signedDelta] (income +, expense/transfer −).
      * No-op when [accountId] is null.
@@ -63,6 +75,22 @@ class AccountLinker @Inject constructor(
             val acc = accountDao.getById(id) ?: return
             accountDao.updateBalance(id, acc.balanceKopecks + signedDelta)
         }
+    }
+
+    /**
+     * Applies a bank-authoritative "Остаток" to the account that owns [cardMask], independent of any
+     * transaction row. This is the safety net for the dedup-drop path: a bank commonly delivers the
+     * SAME event more than once (a collapsed notification re-posted as expanded, or an SMS twin of a
+     * push). The first (skeletal) copy may lack the "Остаток"/card line and so leaves the balance
+     * unset; the richer second copy is then dropped by [TransactionDao.existsSimilarSmsOrPush] BEFORE
+     * [syncBalance] can run, discarding the authoritative figure. Calling this on every drop keeps the
+     * balance current without inserting a duplicate transaction. Resolves by card mask only and never
+     * overwrites with a negative/absent value. No-op when the mask can't be resolved to an account.
+     */
+    suspend fun applyAuthoritativeBalance(cardMask: String?, ostatokKopecks: Long?) {
+        if (ostatokKopecks == null || ostatokKopecks < 0L) return
+        val accountId = resolveAccountByCardMask(cardMask) ?: return
+        accountDao.updateBalance(accountId, ostatokKopecks)
     }
 
     /**

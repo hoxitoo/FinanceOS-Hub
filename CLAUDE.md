@@ -635,6 +635,47 @@ Four bugs fixed (commit 090970f):
 | MEDIUM | `SmsReceiver.kt` | Missing cross-channel dedup: push+SMS for same event had different smsIds → double insert. Added `existsSimilarSmsOrPush(±5 min)` guard after `existsBySmsId` check |
 | LOW | `TransactionDetailSheet.kt` | Source label hardcoded «SMS» for all non-MANUAL sources. Replaced with `when(source)` showing «push» (Info colour) / «PDF» / «вручную» / «SMS» correctly |
 
+## Balance Sync — Root-Cause Fix (Audit #11, this session)
+
+**User report (recurring):** Alfa pushes for a secondary card (··2548 on «текущий», one of 5 Alfa
+accounts) create transactions that appear in the list WITH the card shown, but the account balance
+freezes at an old value and never updates — not via the card, not via manual «Пересчёт», not via
+re-adding the card. This bug had been "fixed" 5× before (`090970f`, `9799f2c`, `82f984e`, `2604eb4`,
+`226a084`) and kept returning — because the previous fixes treated symptoms, not the design flaw.
+
+**Root cause (two parallel deep audits converged):** balance application was **coupled to transaction
+insertion**, and the cross-channel dedup is **balance-/account-blind**:
+1. A bank delivers the SAME event more than once — Android `onNotificationPosted` re-fires
+   collapsed→expanded, and some banks send an SMS twin. The FIRST (skeletal) copy often lacks the
+   «Остаток»/card line → with 5 Alfa accounts the bank-name fallback is ambiguous → `resolveAccountId`
+   returns null → orphan row, balance never set.
+2. The SECOND (rich) copy that DOES carry «Остаток: 5 593 ₽; ··2548» hits
+   `existsSimilarSmsOrPush` (matches on `ABS(amount)` ±5 min, source IN SMS/PUSH) and `return`s
+   **before** `syncBalance` — discarding the authoritative figure permanently.
+3. `reconcileAccount` was gated on `if (accountId != null)`, so the self-heal skipped exactly the
+   orphaned rows that needed it. Since no row ever stored the fresh balance, manual reconcile / card
+   re-add had nothing to snap to → frozen forever.
+
+**Fix — decouple balance from the transaction row (`AccountLinker` + both real-time ingest sites):**
+- `AccountLinker.resolveAccountByCardMask(mask)` — card-mask-ONLY resolution (no ambiguous bank-name
+  fallback; never routes a balance to the wrong account of a multi-account bank).
+- `AccountLinker.applyAuthoritativeBalance(cardMask, ostatok)` — sets the owning account's balance
+  from the card mask alone, independent of any transaction row.
+- `PushNotificationListener` + `SmsReceiver`: both dedup `return` paths (`existsBySmsId` and
+  `existsSimilarSmsOrPush`) now call `applyAuthoritativeBalance(...)` before bailing — the dropped twin
+  is the same event but may carry the balance the kept row lacked, so its «Остаток» is applied without
+  inserting a duplicate transaction.
+- Post-insert self-heal now resolves the account by card mask when the row itself orphaned:
+  `val healId = accountId ?: resolveAccountByCardMask(parsed.cardMask)` → `reconcileAccount(healId)`.
+- `SmsReader` (90-day batch) left as-is: chronological import, no per-row reconcile by design; the
+  bug is real-time only.
+
+**Note for the currently-frozen balance:** rows whose rich copy was already dropped never stored a
+balance, so «Пересчёт» can't retroactively recover it. The balance now self-corrects on the **next**
+push/SMS for that card (which applies the «Остаток» even if deduped), or via a one-time manual edit.
+All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
+was purely in how/when the balance was applied.
+
 ## Audit #10 Fixes (this session)
 
 Two bugs fixed (commit d6cbbe8):

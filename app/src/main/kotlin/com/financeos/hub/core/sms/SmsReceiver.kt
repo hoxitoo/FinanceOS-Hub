@@ -63,12 +63,20 @@ class SmsReceiver : BroadcastReceiver() {
 
     private suspend fun processSms(sender: String, body: String, ts: Long) {
         val parsed = parserEngine.parse(sender, body, ts) ?: return
-        if (transactionDao.existsBySmsId(parsed.smsId)) return
+        if (transactionDao.existsBySmsId(parsed.smsId)) {
+            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+            return
+        }
         // Cross-channel dedup: if the same bank event was already ingested via push (arrived
         // slightly before the SMS), skip rather than double-insert. Uses a ±5 min window on the
-        // absolute amount — the same guard used in SmsReader and PushNotificationListener.
+        // absolute amount — the same guard used in SmsReader and PushNotificationListener. The
+        // dropped twin may carry the authoritative "Остаток" the kept copy lacked, so apply its
+        // balance before bailing rather than discarding it.
         val window = 5 * 60 * 1000L
-        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) return
+        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) {
+            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+            return
+        }
 
         val categoryId = classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
@@ -92,10 +100,11 @@ class SmsReceiver : BroadcastReceiver() {
         if (rowIds.firstOrNull() != -1L) {
             accountLinker.syncBalance(accountId, parsed.balanceKopecks, entity.amountKopecks)
             transferRouter.onTransactionInserted(entity, parsed.rawSms, parsed.counterpartyMask)
-            // Self-heal: a resolved transaction adopts any earlier orphan rows for this account's
-            // cards (e.g. a debit on a second card that didn't resolve before the card was added)
-            // and snaps the balance to the bank's latest "Остаток". No-op when there's nothing to adopt.
-            if (accountId != null) accountLinker.reconcileAccount(accountId)
+            // Self-heal even when THIS row didn't resolve an account at insert: resolve the owning
+            // account from the card mask so an orphaned debit on a registered card still adopts
+            // earlier orphans and snaps the balance to the bank's latest "Остаток".
+            val healId = accountId ?: accountLinker.resolveAccountByCardMask(parsed.cardMask)
+            if (healId != null) accountLinker.reconcileAccount(healId)
         }
     }
 }
