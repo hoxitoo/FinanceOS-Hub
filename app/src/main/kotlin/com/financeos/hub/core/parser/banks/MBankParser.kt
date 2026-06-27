@@ -35,7 +35,9 @@ class MBankParser @Inject constructor() : BankParser {
     // Digit-grouping (regular/NBSP/narrow-NBSP spaces) plus at most ONE decimal group, so a
     // stray second separator (e.g. a "." thousands separator) can't poison toDoubleOrNull → 0.
     private val number      = "[\\d][\\d\\s\\u00A0\\u202F]*(?:[.,]\\d{1,2})?"
-    private val amountToken = Regex("($number)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
+    // Group 2 captures the currency token so it can be carried onto the transaction (else a USD/сом
+    // charge is stored fine on the account but the operation row renders ₽ — the reported bug).
+    private val amountToken = Regex("($number)\\s*($cur)", RegexOption.IGNORE_CASE)
     private val balanceRe   = Regex("Доступно:?\\s*($number)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
     private val cardRe      = Regex("Карта:?\\s*\\*?\\s*(\\d{4})", RegexOption.IGNORE_CASE)
 
@@ -54,9 +56,10 @@ class MBankParser @Inject constructor() : BankParser {
         // up the "Доступно:" balance, which always comes later in the message).
         val kwMatch = (if (isExpense) expenseKw else incomeKw).find(body) ?: return null
         val afterKw = body.substring(kwMatch.range.last + 1)
-        val amount  = amountToken.find(afterKw)?.groupValues?.getOrNull(1)
-            ?.let { AmountParser.toKopecks(it) } ?: return null
+        val amtMatch = amountToken.find(afterKw) ?: return null
+        val amount   = amtMatch.groupValues.getOrNull(1)?.let { AmountParser.toKopecks(it) } ?: return null
         if (amount <= 0L) return null
+        val currency = normCurrency(amtMatch.groupValues.getOrNull(2))
 
         val cardMask = cardRe.find(body)?.groupValues?.getOrNull(1)
         val balance  = balanceRe.find(body)?.groupValues?.getOrNull(1)?.let { AmountParser.toKopecks(it) }
@@ -72,7 +75,16 @@ class MBankParser @Inject constructor() : BankParser {
             bankId         = bankId,
             rawSms         = body,
             smsId          = smsId,
+            currency       = currency,
         )
+    }
+
+    /** Normalises MBank's currency tokens (ISO codes, "сом", "руб", symbols) to an ISO code. */
+    private fun normCurrency(raw: String?): String = when (raw?.trim()?.uppercase()) {
+        "USD", "$"          -> "USD"
+        "EUR", "€"          -> "EUR"
+        "KGS", "СОМ"        -> "KGS"
+        else                -> "RUB"   // RUB, руб, ₽, or anything unrecognised
     }
 
     /** The merchant is the first line after the type keyword that is not itself a labelled field. */

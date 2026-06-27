@@ -676,6 +676,27 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Multi-Currency Transaction Display (this session)
+
+**User report:** an МБанк USD charge (GOOGLE *ChatGPT, $19.99) parsed from push and **updated the
+account balance correctly in $**, but the operation row in history showed «−19,99 ₽». Balance was
+right (the account carries the currency), the **transaction** lost it.
+
+**Root cause:** `TransactionEntity`/`ParsedTransaction` had **no currency field**; `TransactionRow`/
+`TransactionDetailSheet` always formatted with the default ₽. МБанк parses USD/KGS/EUR amounts fine
+but the currency was dropped at the boundary.
+
+**Fix (end-to-end):**
+- `ParsedTransaction.currency` (default `"RUB"`); `MBankParser` captures the currency token from the
+  amount (`($number)\s*($cur)`, group 2) and normalises сом→KGS, €→EUR, $→USD via `normCurrency`.
+- `TransactionEntity.currency` column; **DB v7→v8** `MIGRATION_7_8` (`ALTER TABLE transactions ADD
+  COLUMN currency TEXT NOT NULL DEFAULT 'RUB'`), registered in `DatabaseModule`.
+- All 3 ingest sites + `insertManual` (from the chosen account's currency) set it; `TransactionRow`
+  and `TransactionDetailSheet` render `FosFormatter.currencySymbol(transaction.currency)`.
+- `BackupManager` now round-trips `currency` (+ `balanceKopecks`, which was also missing).
+- **Note:** rows ingested BEFORE the migration default to RUB, so the already-stored $19.99 row stays
+  «₽»; only ops ingested after the update show the right symbol.
+
 ## Marketing-Push False Parse Fix (this session)
 
 **User report (screenshot):** a T-Bank credit-card OFFER push — «Одобрили кредитку 💳 Получите карту
