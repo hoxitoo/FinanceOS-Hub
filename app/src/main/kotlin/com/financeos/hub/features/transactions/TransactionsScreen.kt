@@ -310,6 +310,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 transaction  = tx,
                 categories   = state.categories,
                 categoryName = state.categoryName(tx.categoryId),
+                linkedAccountName = state.accounts.firstOrNull { it.id == tx.accountId }?.name,
                 sheetState   = detailSheetState,
                 onDismiss    = { selectedTx = null },
                 onSave       = { type, merchant, catId, note ->
