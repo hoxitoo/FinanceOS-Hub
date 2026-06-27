@@ -14,6 +14,7 @@ data class ParsedTransaction(
     val smsId: String,
     val counterpartyMask: String? = null,  // destination card if present in body
     val outgoing: Boolean = true,          // for TRANSFER: true=money leaving (to savings)
+    val currency: String = "RUB",          // ISO code of the amount (MBank: USD/KGS/EUR; RU banks: RUB)
 ) {
     /** Signed kopecks for storage: EXPENSE negative, INCOME positive,
      *  TRANSFER negative when outgoing (balance leaves) else positive. */

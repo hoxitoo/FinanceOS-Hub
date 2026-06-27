@@ -73,10 +73,11 @@ fun TransactionDetailSheet(
         TransactionType.TRANSFER -> FosColors.TextPrimary
     }
     val mag = kotlin.math.abs(transaction.amountKopecks)
+    val sym = FosFormatter.currencySymbol(transaction.currency)
     val amtText = when (selectedType) {
-        TransactionType.TRANSFER -> "↔ ${FosFormatter.amount(mag)}"
-        TransactionType.INCOME   -> FosFormatter.signedAmount(mag)
-        TransactionType.EXPENSE  -> FosFormatter.signedAmount(-mag)
+        TransactionType.TRANSFER -> "↔ ${FosFormatter.amount(mag, sym)}"
+        TransactionType.INCOME   -> FosFormatter.signedAmount(mag, sym)
+        TransactionType.EXPENSE  -> FosFormatter.signedAmount(-mag, sym)
     }
 
     ModalBottomSheet(

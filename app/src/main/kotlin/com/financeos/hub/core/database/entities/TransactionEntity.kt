@@ -53,6 +53,9 @@ data class TransactionEntity(
     // SMS/push exposes it. Null when omitted. Used to reconcile an account to the authoritative
     // balance when the card is linked after the transaction was already ingested.
     @ColumnInfo(name = "balance_kopecks") val balanceKopecks: Long? = null,
+    // ISO currency of the amount (e.g. USD/KGS for МБанк cards). Defaults to RUB. The operation row
+    // renders the matching symbol so a $/сом charge no longer shows ₽.
+    @ColumnInfo(name = "currency") val currency: String = "RUB",
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),

@@ -61,11 +61,12 @@ fun TransactionRow(
         // Right — amount.
         // CRITICAL: expenses = Negative red, income = Positive green.
         // A TRANSFER is neither income nor expense → render neutral (never red, never green).
+        val symbol = FosFormatter.currencySymbol(transaction.currency)
         when (transaction.type) {
             TransactionType.TRANSFER -> {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text  = "↔ ${FosFormatter.amount(kotlin.math.abs(transaction.amountKopecks))}",
+                        text  = "↔ ${FosFormatter.amount(kotlin.math.abs(transaction.amountKopecks), symbol)}",
                         style = FosType.TxAmount,
                         color = FosColors.TextPrimary,
                     )
@@ -82,7 +83,7 @@ fun TransactionRow(
                 val isExpense = transaction.type == TransactionType.EXPENSE
                 val amtColor  = if (isExpense) FosColors.Negative else FosColors.Positive
                 Text(
-                    text  = FosFormatter.signedAmount(transaction.amountKopecks),
+                    text  = FosFormatter.signedAmount(transaction.amountKopecks, symbol),
                     style = FosType.TxAmount,
                     color = amtColor,
                 )
