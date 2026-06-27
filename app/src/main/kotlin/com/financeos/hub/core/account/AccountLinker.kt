@@ -31,16 +31,9 @@ class AccountLinker @Inject constructor(
      * present — the id of the single account whose bank name matches [bankId].
      */
     suspend fun resolveAccountId(cardMask: String?, bankId: String? = null): String? {
-        val mask = cardMask?.trim()?.takeIf { it.isNotBlank() }
-        if (mask != null) {
-            // Prefer card mask: exact match on the account itself, then on linked card rows.
-            accountDao.findByCardMask(mask)?.let { return it.id }
-            cardDao.findAccountIdByMask(mask)?.let { return it }
-            // Mask present but no registered card matches — could be an account-number tail
-            // (e.g. "408*01139" → captured as "1139") rather than a real card last-4.
-            // Fall through to bank-name fallback so single-bank installs still link correctly.
-        }
-        // No card mask in the push/SMS — fall back to bank-sender identity.
+        // Card mask first (exact, then digit-tolerant) — this is the reliable path.
+        resolveAccountByCardMask(cardMask)?.let { return it }
+        // No card mask, or mask matched nothing — fall back to bank-sender identity.
         if (bankId == null) return null
         val keywords = BANK_KEYWORDS[bankId.lowercase()] ?: return null
         val matches = accountDao.getAllActive().filter { acc ->
@@ -55,11 +48,27 @@ class AccountLinker @Inject constructor(
      * bank-name fallback. Returns null when the mask is blank or maps to no registered card/account.
      * Used for balance reconciliation, where routing a balance to the wrong account of a multi-account
      * bank (e.g. one of five Alfa accounts) is worse than not updating at all.
+     *
+     * Matching is digit-tolerant: exact `card_mask` match first, then a fallback that compares the
+     * LAST 4 DIGITS only. The fallback rescues the reported case where a parsed mask "2548" is shown
+     * on the operation yet doesn't link — because the stored card_mask drifted in format (a stray
+     * space/glyph from an old add path or a backup restore) so the exact SQL match silently missed.
      */
     suspend fun resolveAccountByCardMask(cardMask: String?): String? {
         val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return null
         accountDao.findByCardMask(mask)?.let { return it.id }
-        return cardDao.findAccountIdByMask(mask)
+        cardDao.findAccountIdByMask(mask)?.let { return it }
+        // Digit-tolerant fallback: match on the last 4 digits across active accounts/cards.
+        val last4 = mask.filter(Char::isDigit).takeLast(4)
+        if (last4.length == 4) {
+            accountDao.getAllActive()
+                .firstOrNull { it.cardMask?.filter(Char::isDigit)?.takeLast(4) == last4 }
+                ?.let { return it.id }
+            cardDao.getAllActive()
+                .firstOrNull { it.cardMask.filter(Char::isDigit).takeLast(4) == last4 }
+                ?.let { return it.accountId }
+        }
+        return null
     }
 
     /**

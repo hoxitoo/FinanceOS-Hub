@@ -142,6 +142,18 @@ fun TransactionDetailSheet(
             ) {
                 AccountMaskRow("Счёт списания", transaction.sourceMask)
                 AccountMaskRow("Счёт зачисления", transaction.counterpartyMask)
+                // Diagnostics: did the parsed card mask resolve to one of your accounts, and did the
+                // bank message carry a balance? These pinpoint whether a stuck balance is a linking
+                // problem (mask present but "не привязан") or a capture problem ("остаток не пойман").
+                DiagRow("Привязан к счёту", if (transaction.accountId != null) "да" else "НЕТ",
+                    ok = transaction.accountId != null)
+                DiagRow(
+                    "Остаток в сообщении",
+                    transaction.balanceKopecks
+                        ?.let { FosFormatter.amount(it, FosFormatter.currencySymbol(transaction.currency)) }
+                        ?: "не пойман",
+                    ok = transaction.balanceKopecks != null,
+                )
             }
 
             // Type selector — lets the user reclassify, e.g. an outgoing «перевод другу» that the
@@ -263,6 +275,23 @@ private fun AccountMaskRow(label: String, mask: String?) {
             text  = mask?.takeIf { it.isNotBlank() }?.let { "••$it" } ?: "неизвестно",
             style = if (mask.isNullOrBlank()) FosType.Body else FosType.SmallBold,
             color = if (mask.isNullOrBlank()) FosColors.TextMuted else FosColors.TextPrimary,
+        )
+    }
+}
+
+/** Read-only diagnostic row: label → value, value coloured green (ok) / red (problem). */
+@Composable
+private fun DiagRow(label: String, value: String, ok: Boolean) {
+    Row(
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically,
+    ) {
+        Text(label, style = FosType.Label, color = FosColors.TextMuted)
+        Text(
+            text  = value,
+            style = FosType.SmallBold,
+            color = if (ok) FosColors.Positive else FosColors.Negative,
         )
     }
 }
