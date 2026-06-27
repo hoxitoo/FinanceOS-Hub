@@ -51,6 +51,7 @@ fun TransactionDetailSheet(
     transaction : TransactionEntity,
     categories  : List<CategoryEntity>,
     categoryName: String,
+    linkedAccountName: String? = null,
     sheetState  : SheetState,
     onDismiss   : () -> Unit,
     onSave      : (type: TransactionType, merchant: String, categoryId: String?, note: String?) -> Unit,
@@ -145,8 +146,15 @@ fun TransactionDetailSheet(
                 // Diagnostics: did the parsed card mask resolve to one of your accounts, and did the
                 // bank message carry a balance? These pinpoint whether a stuck balance is a linking
                 // problem (mask present but "не привязан") or a capture problem ("остаток не пойман").
-                DiagRow("Привязан к счёту", if (transaction.accountId != null) "да" else "НЕТ",
-                    ok = transaction.accountId != null)
+                DiagRow(
+                    "Привязан к счёту",
+                    when {
+                        transaction.accountId == null -> "НЕТ"
+                        linkedAccountName != null     -> linkedAccountName
+                        else                          -> "да"
+                    },
+                    ok = transaction.accountId != null,
+                )
                 DiagRow(
                     "Остаток в сообщении",
                     transaction.balanceKopecks
