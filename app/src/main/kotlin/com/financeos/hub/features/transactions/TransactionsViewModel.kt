@@ -221,6 +221,9 @@ class TransactionsViewModel @Inject constructor(
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val mag = kotlin.math.abs(amountKopecks)
+            // Tag the manual op with the chosen account's currency so a non-RUB account (e.g. a
+            // МБанк USD/сом card) renders the correct symbol in history instead of ₽.
+            val acc = accountId?.let { accountRepo.getById(it) }
             txRepo.insert(
                 TransactionEntity(
                     id            = UUID.randomUUID().toString(),
@@ -238,13 +241,13 @@ class TransactionsViewModel @Inject constructor(
                     description   = note?.ifBlank { null },
                     timestamp     = timestamp,
                     sourceMask    = sourceMask,
+                    currency      = acc?.currency ?: "RUB",
                     isDeleted     = false,
                     deletedAt     = null,
                 )
             )
             // Reflect the operation on the chosen account's balance so the dashboard stays in sync.
             if (accountId != null) {
-                val acc = accountRepo.getById(accountId)
                 if (acc != null) {
                     val delta = when (type) {
                         TransactionType.INCOME   ->  mag

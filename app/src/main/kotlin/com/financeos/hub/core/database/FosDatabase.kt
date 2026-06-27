@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -119,6 +119,12 @@ abstract class FosDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN balance_kopecks INTEGER")
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'RUB'")
             }
         }
 
