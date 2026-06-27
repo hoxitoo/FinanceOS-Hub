@@ -676,6 +676,35 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Alfa Balance — GHOST ACCOUNT root cause FOUND + fixed (this session)
+
+**Decisive diagnostic:** with the account-NAME diagnostic shipped, the user saw МБанк op → «Привязан к
+счёту: виртуальный» (name), but Альфа ··2548 op → «Привязан к счёту: **да**» (no name). The name comes
+from `state.accounts.firstOrNull { it.id == tx.accountId }?.name`, and `accountRepo.observeAll()` =
+`WHERE is_active = 1`. So «да» without a name ⇒ the op's `account_id` points to an account NOT in the
+active set — a **deleted (deactivated) account**.
+
+**Root cause (finally, no contradictions):** the user deleted the Alfa account card ··2548 was originally
+on (`deactivate` = `is_active = 0`, a soft delete) and re-added the card to the new «текущий». The OLD
+··2548 transactions kept `account_id = <ghost>`, and `updateBalance` (no is_active guard) applied each
+«Остаток» to the **ghost**. «текущий» never received it → frozen. МБанк worked because its «виртуальный»
+account was never deleted. «Пересчёт» couldn't help because `linkOrphansToAccount` only adopted
+`account_id IS NULL` rows — the ghost-linked rows (account_id NOT null) were skipped. Also: deactivating
+an account does NOT deactivate its cards, so a stale ··2548 card row could still point at the ghost and
+win the bare `LIMIT 1` lookup → even new pushes could re-link to the ghost.
+
+**Fix:**
+- `TransactionDao.linkOrphansToAccount` now reclaims rows that are `account_id IS NULL` **OR** linked to
+  a non-active account (`account_id NOT IN (SELECT id FROM accounts WHERE is_active = 1)`) — never steals
+  a row already on a live account. So «Пересчёт»/reconcile pulls the ghost-stranded ··2548 rows onto
+  «текущий» and `latestBalanceForAccount` snaps the balance.
+- `AccountLinker.resolveAccountByCardMask` rewritten to resolve against **active accounts only**
+  (in-memory filter of `getAllActive` for both the account's own mask and registered cards), so a stale
+  card row pointing at a ghost can never capture the balance again; digit-tolerant last-4 match retained.
+
+**User remedy:** update, then «Пересчёт» on «текущий» once → reclaims the ··2548 history from the ghost
+and snaps to the latest «Остаток» (4 325,06).
+
 ## Alfa Balance — Digit-Tolerant Card Link + Detail-Sheet Diagnostics (this session)
 
 **User refutation (correct):** МБанк did NOT send SMS — it was a push too; and the operation card

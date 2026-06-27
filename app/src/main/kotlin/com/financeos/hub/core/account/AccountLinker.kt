@@ -56,16 +56,24 @@ class AccountLinker @Inject constructor(
      */
     suspend fun resolveAccountByCardMask(cardMask: String?): String? {
         val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return null
-        accountDao.findByCardMask(mask)?.let { return it.id }
-        cardDao.findAccountIdByMask(mask)?.let { return it }
-        // Digit-tolerant fallback: match on the last 4 digits across active accounts/cards.
+        // Resolve against ACTIVE accounts only. Deactivating an account does NOT deactivate its
+        // cards, so a stale card row can still point at a now-deleted ("ghost") account and win a
+        // bare LIMIT 1 lookup — sending the balance to an account the user can't see. We therefore
+        // filter both the account's own mask and registered card rows to live accounts.
+        val activeAccounts = accountDao.getAllActive()
+        val activeIds = activeAccounts.mapTo(HashSet()) { it.id }
+        val activeCards = cardDao.getAllActive().filter { it.accountId in activeIds }
+
+        // Exact match: account's own (primary) mask, then a registered card.
+        activeAccounts.firstOrNull { it.cardMask == mask }?.let { return it.id }
+        activeCards.firstOrNull { it.cardMask == mask }?.let { return it.accountId }
+
+        // Digit-tolerant fallback: compare the LAST 4 DIGITS (rescues a format-drifted stored mask).
         val last4 = mask.filter(Char::isDigit).takeLast(4)
         if (last4.length == 4) {
-            accountDao.getAllActive()
-                .firstOrNull { it.cardMask?.filter(Char::isDigit)?.takeLast(4) == last4 }
+            activeAccounts.firstOrNull { it.cardMask?.filter(Char::isDigit)?.takeLast(4) == last4 }
                 ?.let { return it.id }
-            cardDao.getAllActive()
-                .firstOrNull { it.cardMask.filter(Char::isDigit).takeLast(4) == last4 }
+            activeCards.firstOrNull { it.cardMask.filter(Char::isDigit).takeLast(4) == last4 }
                 ?.let { return it.accountId }
         }
         return null
