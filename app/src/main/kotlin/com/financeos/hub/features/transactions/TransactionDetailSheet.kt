@@ -209,6 +209,24 @@ fun TransactionDetailSheet(
             ) {
                 Text("Удалить операцию", style = FosType.Label, color = FosColors.Negative)
             }
+
+            // Diagnostic: the exact SMS/push text the app captured. Lets a mis-parse (e.g. an Alfa
+            // push whose "Остаток"/card line wasn't delivered to the listener) be inspected/reported.
+            transaction.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
+                Spacer(Modifier.height(8.dp))
+                Text("Исходный текст", style = FosType.SectionCap, color = FosColors.TextMuted)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text  = raw,
+                    style = FosType.Micro,
+                    color = FosColors.TextSecondary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                        .background(FosColors.Surface2)
+                        .padding(10.dp),
+                )
+            }
         }
     }
 

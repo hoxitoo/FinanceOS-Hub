@@ -96,6 +96,7 @@ class SmsReceiver : BroadcastReceiver() {
             counterpartyMask = parsed.counterpartyMask,
             balanceKopecks   = parsed.balanceKopecks,
             currency         = parsed.currency,
+            rawText          = parsed.rawSms,
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {
