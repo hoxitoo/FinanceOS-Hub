@@ -56,6 +56,9 @@ data class TransactionEntity(
     // ISO currency of the amount (e.g. USD/KGS for МБанк cards). Defaults to RUB. The operation row
     // renders the matching symbol so a $/сом charge no longer shows ₽.
     @ColumnInfo(name = "currency") val currency: String = "RUB",
+    // Raw captured SMS/push body — diagnostic only, shown in the detail sheet so a mis-parse
+    // (e.g. an Alfa push whose "Остаток"/card line the listener didn't capture) can be inspected.
+    @ColumnInfo(name = "raw_text") val rawText: String? = null,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
