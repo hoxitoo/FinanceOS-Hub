@@ -114,20 +114,21 @@ interface TransactionDao {
     suspend fun setGoal(id: String, goalId: String?, now: Long = System.currentTimeMillis())
 
     /**
-     * Retroactively attaches orphan (unlinked) SMS/PUSH transactions for a card [mask] to
-     * [accountId]. Used when the user registers a card AFTER its transactions were already
-     * ingested (the bank may report a balance for a card the app could not yet resolve to an
-     * account — especially when one bank has several accounts). Only touches rows still
-     * unlinked, so an already-correctly-attributed transaction is never stolen. Returns the
-     * number of rows linked.
+     * Retroactively attaches SMS/PUSH transactions for a card [mask] to [accountId]. Adopts rows
+     * that are either UNLINKED (account_id IS NULL) OR linked to a now-DELETED account (one not in
+     * the active set). The latter is the ghost-account case: the user deleted the Alfa account a
+     * card was originally on and re-added the card to a new account — the old transactions kept
+     * pointing at the dead account, so their balance never reached the live one. A row already on
+     * an ACTIVE account is never stolen. Returns the number of rows re-pointed.
      */
     @Query("""
         UPDATE transactions
         SET account_id = :accountId, updated_at = :now
-        WHERE account_id IS NULL
-          AND is_deleted = 0
+        WHERE is_deleted = 0
           AND source_mask = :mask
           AND source IN ('SMS', 'PUSH')
+          AND ( account_id IS NULL
+                OR account_id NOT IN (SELECT id FROM accounts WHERE is_active = 1) )
     """)
     suspend fun linkOrphansToAccount(accountId: String, mask: String, now: Long = System.currentTimeMillis()): Int
 
