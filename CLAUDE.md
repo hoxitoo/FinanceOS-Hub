@@ -676,6 +676,28 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Alfa Balance — Digit-Tolerant Card Link + Detail-Sheet Diagnostics (this session)
+
+**User refutation (correct):** МБанк did NOT send SMS — it was a push too; and the operation card
+DOES display the parsed mask ··2548. So "the listener doesn't see the number" was wrong — if the mask
+is shown, it was parsed (and the «Остаток» on the same line with it). The defect is therefore in
+**card→account linking**, not parsing/capture.
+
+**Refined root cause:** both banks push; МБанк's card resolves, Альфа's ··2548 does not. The user
+earlier reported ··2548 was missing from the manual-entry picker (which reads the `cards` table) →
+strong evidence the stored `card_mask` for 2548 is malformed (stray space/glyph from a delete→re-add
+or a backup restore), so the exact `card_mask = '2548'` SQL match silently misses while the chip still
+renders. Null resolution → orphan → balance never set → «Пересчёт» (needs a stored balance on a linked
+row) has nothing to snap to.
+
+**Fix:**
+- `AccountLinker.resolveAccountByCardMask` now does exact match, then a **digit-tolerant fallback**
+  comparing the LAST 4 DIGITS across active accounts/cards — rescues a format-drifted stored mask.
+  `resolveAccountId` routes through it (so ingest + reconcile + applyAuthoritativeBalance all benefit).
+- **Detail-sheet diagnostics** (`TransactionDetailSheet`): for SMS/PUSH ops, added «Привязан к счёту:
+  да/НЕТ», «Остаток в сообщении: <amount>/не пойман», and (prior) «Исходный текст». One screenshot of
+  a fresh Alfa op now pinpoints linking-vs-capture definitively.
+
 ## Alfa Push Balance — Read ALL Notification Text Fields (this session)
 
 **Confirmed via release mapping:** user on `0.1.0.18` already had the balance root-cause fix
