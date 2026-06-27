@@ -89,6 +89,7 @@ class SmsReader @Inject constructor(
                             counterpartyMask = parsed.counterpartyMask,
                             balanceKopecks   = parsed.balanceKopecks,
                             currency         = parsed.currency,
+                            rawText          = parsed.rawSms,
                         )
                         val rowIds = transactionDao.insertAll(listOf(entity))
                         knownIds.add(parsed.smsId)  // always add so next loop iteration skips it

@@ -676,6 +676,32 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Alfa Push Balance — Read ALL Notification Text Fields (this session)
+
+**Confirmed via release mapping:** user on `0.1.0.18` already had the balance root-cause fix
+(`0.1.0.16`), yet Alfa balance still froze and «Пересчёт» did nothing → NOT an update issue, a live bug.
+
+**Root cause (finally pinned):** MBank works because it sends an **SMS** (full text in one piece:
+amount + `Карта: *NNNN` + `Доступно`). Alfa sends a **push**, and `PushNotificationListener` read only
+`EXTRA_TITLE`/`EXTRA_TEXT`/`EXTRA_BIG_TEXT`. The Alfa `Остаток: … ; ··2548` line is delivered in a
+DIFFERENT extra (SUB_TEXT / SUMMARY_TEXT / INFO_TEXT / an InboxStyle `TEXT_LINES` entry / ticker), so the
+app captured only `«−617,94 ₽. Магнит»` → no card, no balance → orphan row, balance never set, and
+«Пересчёт» (`latestBalanceForAccount`) had no stored balance to snap to.
+
+**Fix:**
+- `PushNotificationListener.extractBody()` now gathers EVERY text extra (TITLE, TEXT, BIG_TEXT,
+  SUB_TEXT, SUMMARY_TEXT, INFO_TEXT, all `EXTRA_TEXT_LINES`, ticker) and appends any not already in the
+  main body — so a balance/card line in any field is now seen by the parser.
+- **Diagnostic:** `TransactionEntity.raw_text` (DB **v8→v9** `MIGRATION_8_9`) stores the exact captured
+  body; `TransactionDetailSheet` shows it under «Исходный текст». Lets us confirm whether the balance
+  line is present at all (if Alfa renders it only via custom RemoteViews, NO extras reading can recover
+  it → SMS or manual entry is the only path).
+- Stored at all 3 ingest sites from `parsed.rawSms`.
+
+**Next-step ask to user:** update, make a test Alfa purchase, tap the op → screenshot «Исходный текст» →
+confirms whether the `Остаток ··2548` line is now captured. Meanwhile the current frozen balance is fixed
+by editing the account balance manually once.
+
 ## Multi-Currency Transaction Display (this session)
 
 **User report:** an МБанк USD charge (GOOGLE *ChatGPT, $19.99) parsed from push and **updated the

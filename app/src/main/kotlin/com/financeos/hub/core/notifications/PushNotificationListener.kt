@@ -52,19 +52,39 @@ class PushNotificationListener : NotificationListenerService() {
         val sender = PACKAGE_TO_SENDER[sbn.packageName] ?: return
         scope.launch {
             if (!userPreferences.pushListenerEnabled.first()) return@launch
-            val extras = sbn.notification?.extras ?: return@launch
-            val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
-            val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
-            // The expanded ("big text") view carries the full body — e.g. the
-            // "Остаток: … ; ··2548" line that the collapsed EXTRA_TEXT omits. Prefer it so
-            // the balance and destination card mask are available for account linking.
-            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
-            val detail  = if (bigText.length > text.length) bigText else text
-            // Some banks put the amount in the title, details in text — join both
-            val body    = listOf(title, detail).filter { it.isNotBlank() }.joinToString(" ")
+            val body = extractBody(sbn)
             if (body.isBlank()) return@launch
             processPush(sender, body, sbn.postTime)
         }
+    }
+
+    /**
+     * Collects the full notification text. Reading only TITLE/TEXT/BIG_TEXT misses the
+     * "Остаток: … ; ··2548" line for some banks (notably Alfa pushes), which place the balance/
+     * card in SUB_TEXT, SUMMARY_TEXT, INFO_TEXT, an InboxStyle line (TEXT_LINES) or the ticker —
+     * so the app saw only the amount and could neither link the card nor update the balance. We
+     * now gather every text extra and append the ones not already contained in the main body.
+     */
+    private fun extractBody(sbn: StatusBarNotification): String {
+        val n = sbn.notification ?: return ""
+        val extras = n.extras ?: return ""
+        val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
+        val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
+        val detail  = if (bigText.length > text.length) bigText else text
+
+        val extra = buildList {
+            add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString())
+            add(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString())
+            add(extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString())
+            add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().takeIf { detail != bigText })
+            extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { add(it?.toString()) }
+            add(n.tickerText?.toString())
+        }.mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() && !detail.contains(it) && it != title }
+            .distinct()
+
+        return (listOf(title, detail) + extra).filter { it.isNotBlank() }.joinToString(" ")
     }
 
     private suspend fun processPush(sender: String, body: String, ts: Long) {
@@ -105,6 +125,7 @@ class PushNotificationListener : NotificationListenerService() {
             counterpartyMask = parsed.counterpartyMask,
             balanceKopecks   = parsed.balanceKopecks,
             currency         = parsed.currency,
+            rawText          = parsed.rawSms,
         )
         val rowIds = transactionDao.insertAll(listOf(entity))
         if (rowIds.firstOrNull() != -1L) {
