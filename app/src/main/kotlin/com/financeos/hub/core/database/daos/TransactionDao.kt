@@ -149,6 +149,23 @@ interface TransactionDao {
     """)
     suspend fun latestBalanceForAccount(accountId: String): Long?
 
+    /**
+     * The latest bank-authoritative balance for [accountId] WITH the timestamp of the message that
+     * carried it. Lets the reconcile path compare recency against the account's own last update, so
+     * a stale "Остаток" never clobbers a newer manual edit or a transfer the bank reported without a
+     * balance (which leaves the last stored "Остаток" pointing at a pre-transfer figure).
+     */
+    @Query("""
+        SELECT balance_kopecks AS balanceKopecks, timestamp AS timestamp FROM transactions
+        WHERE account_id = :accountId
+          AND is_deleted = 0
+          AND balance_kopecks IS NOT NULL
+          AND source IN ('SMS', 'PUSH')
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """)
+    suspend fun latestBalanceSnapshotForAccount(accountId: String): BalanceSnapshot?
+
     @Query("""
         SELECT SUM(ABS(amount_kopecks)) FROM transactions
         WHERE is_deleted = 0
@@ -174,4 +191,7 @@ interface TransactionDao {
     suspend fun getTodayExpenses(todayStart: Long): Long
 
     data class CategorySum(val category_id: String?, val total: Long)
+
+    /** Latest bank-reported balance for an account plus the timestamp of the message it came from. */
+    data class BalanceSnapshot(val balanceKopecks: Long, val timestamp: Long)
 }
