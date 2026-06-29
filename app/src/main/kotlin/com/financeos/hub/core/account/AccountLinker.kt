@@ -121,12 +121,19 @@ class AccountLinker @Inject constructor(
     suspend fun relinkOrphans(accountId: String, cardMask: String?) {
         val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return
         val linked = transactionDao.linkOrphansToAccount(accountId, mask)
-        if (linked > 0) {
-            // Reconcile to the most recent authoritative "Остаток" across the account's cards.
-            transactionDao.latestBalanceForAccount(accountId)?.let { authoritative ->
-                accountDao.updateBalance(accountId, authoritative)
-            }
-        }
+        if (linked > 0) snapToAuthoritativeIfNewer(accountId)
+    }
+
+    /**
+     * Snaps [accountId]'s balance to the latest bank-reported "Остаток" — but ONLY when that figure is
+     * NEWER than the account's own last update. This stops a re-link / reconcile from reverting a more
+     * recent manual edit (or a transfer the bank reported without a balance) back to a stale pre-edit
+     * "Остаток". Recency is the arbiter: the freshest signal — manual or bank — wins.
+     */
+    private suspend fun snapToAuthoritativeIfNewer(accountId: String) {
+        val snap = transactionDao.latestBalanceSnapshotForAccount(accountId) ?: return
+        val acc  = accountDao.getById(accountId) ?: return
+        if (snap.timestamp > acc.updatedAt) accountDao.updateBalance(accountId, snap.balanceKopecks)
     }
 
     /**
@@ -146,11 +153,7 @@ class AccountLinker @Inject constructor(
         // Snap to the bank's latest "Остаток" only when we actually adopted orphans (auto path) or
         // the user explicitly asked (force). This keeps the routine post-ingest call a no-op in the
         // common case, so it never overrides the per-transaction delta that syncBalance just applied.
-        if (linked > 0 || force) {
-            transactionDao.latestBalanceForAccount(accountId)?.let { authoritative ->
-                accountDao.updateBalance(accountId, authoritative)
-            }
-        }
+        if (linked > 0 || force) snapToAuthoritativeIfNewer(accountId)
     }
 
     /** All card last-4s that belong to [accountId]: the account's own mask + its registered cards. */

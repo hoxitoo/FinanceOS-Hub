@@ -676,6 +676,25 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Balance — Recency Guard: re-link no longer reverts a manual edit (this session)
+
+**User report (after the ghost fix worked for 2 days):** made 2 Alfa transfers; one push carried the
+card/«Остаток», the other did not. Balance updated for the one with a number. User then manually
+corrected the balance (−300). Re-attaching card ··2548 **reverted the balance to the pre-transfer
+value** (screens: «текущий» 2 247,69 → 3 047,69, +800) — the stale stored «Остаток» overwrote the
+fresher manual edit.
+
+**Root cause:** `relinkOrphans`/`reconcileAccount` snapped unconditionally to
+`latestBalanceForAccount` (the most recent stored `balance_kopecks`). But transfers without an
+«Остаток» don't update that figure, and a manual edit doesn't write a transaction balance — so the
+"latest stored balance" was a pre-transfer push, OLDER than the manual edit, and snapping reverted it.
+
+**Fix — recency arbiter:** new `TransactionDao.latestBalanceSnapshotForAccount` returns the latest
+bank balance WITH its message timestamp. `AccountLinker.snapToAuthoritativeIfNewer` only overwrites the
+account balance when `snapshot.timestamp > account.updatedAt` — so the freshest signal wins, whether
+it's a manual edit or a bank «Остаток». Used by both `relinkOrphans` and `reconcileAccount` (incl. the
+«Пересчёт» button). A normal post-insert reconcile is unaffected (syncBalance already set the value).
+
 ## Alfa Balance — GHOST ACCOUNT root cause FOUND + fixed (this session)
 
 **Decisive diagnostic:** with the account-NAME diagnostic shipped, the user saw МБанк op → «Привязан к
