@@ -27,12 +27,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
+import com.financeos.hub.ui.components.SwipeToRevealDelete
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -107,18 +105,7 @@ fun AccountDetailSheet(
 
             items(accounts, key = { it.id }) { account ->
                 val accountCards = cards.filter { it.accountId == account.id }
-                val dismissState = rememberSwipeToDismissBoxState(
-                    confirmValueChange = { value ->
-                        if (value != SwipeToDismissBoxValue.Settled) {
-                            onDelete(account.id)
-                            true
-                        } else false
-                    },
-                )
-                SwipeToDismissBox(
-                    state             = dismissState,
-                    backgroundContent = { AccountSwipeDeleteBg(dismissState.dismissDirection) },
-                ) {
+                SwipeToRevealDelete(onDelete = { onDelete(account.id) }) {
                     AccountRow(
                         account       = account,
                         cards         = accountCards,
@@ -211,21 +198,6 @@ fun AccountDetailSheet(
                 showAddAccount = false
             },
         )
-    }
-}
-
-@Composable
-private fun AccountSwipeDeleteBg(direction: SwipeToDismissBoxValue) {
-    val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-            .background(FosColors.Negative.copy(alpha = 0.18f))
-            .padding(horizontal = 20.dp),
-        contentAlignment = alignment,
-    ) {
-        Text("🗑  Удалить счёт", style = FosType.Label, color = FosColors.Negative)
     }
 }
 

@@ -25,12 +25,9 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +45,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.ui.components.SwipeToRevealDelete
 import com.financeos.hub.ui.components.TransactionRow
 import java.io.File
 import com.financeos.hub.ui.theme.FosColors
@@ -55,26 +53,6 @@ import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.LocalShimmer
-
-/** Red delete background revealed while swiping a row in either direction. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeDeleteBackground(direction: SwipeToDismissBoxValue) {
-    val alignment = when (direction) {
-        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-        else                              -> Alignment.CenterEnd
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-            .background(FosColors.Negative.copy(alpha = 0.18f))
-            .padding(horizontal = 20.dp),
-        contentAlignment = alignment,
-    ) {
-        Text("🗑  Удалить", style = FosType.Label, color = FosColors.Negative)
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -258,18 +236,9 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                                 )
                             }
                             items(txList.sortedByDescending { it.timestamp }, key = { it.id }) { tx ->
-                                val dismissState = rememberSwipeToDismissBoxState(
-                                    confirmValueChange = { value ->
-                                        if (value != SwipeToDismissBoxValue.Settled) {
-                                            vm.deleteTransaction(tx.id)
-                                            true
-                                        } else false
-                                    },
-                                )
-                                SwipeToDismissBox(
-                                    state             = dismissState,
-                                    modifier          = Modifier.graphicsLayer { alpha = depthAlpha },
-                                    backgroundContent = { SwipeDeleteBackground(dismissState.dismissDirection) },
+                                SwipeToRevealDelete(
+                                    onDelete = { vm.deleteTransaction(tx.id) },
+                                    modifier = Modifier.graphicsLayer { alpha = depthAlpha },
                                 ) {
                                     TransactionRow(
                                         transaction  = tx,
