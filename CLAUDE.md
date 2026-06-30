@@ -676,6 +676,15 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Swipe-to-delete UX — left-swipe reveals trash, tap to confirm (this session)
+
+Replaced the `SwipeToDismissBox` (which auto-deleted on a flick in EITHER direction — too easy to
+trigger by accident) with a new reusable `ui/components/SwipeToRevealDelete.kt`: drag the row LEFT to
+expose a red 🗑 button pinned to the right edge; the swipe never deletes by itself — TAP the trash to
+confirm. Built with `Animatable` + `draggable` (no Material auto-dismiss); offset clamped to `[-76dp, 0]`
+so only left-swipe reveals; releasing below half closes. Wired into both `TransactionsScreen` (operations)
+and `AccountDetailSheet` (accounts); old `SwipeDeleteBackground`/`AccountSwipeDeleteBg` helpers removed.
+
 ## Balance — Recency Guard: re-link no longer reverts a manual edit (this session)
 
 **User report (after the ghost fix worked for 2 days):** made 2 Alfa transfers; one push carried the
