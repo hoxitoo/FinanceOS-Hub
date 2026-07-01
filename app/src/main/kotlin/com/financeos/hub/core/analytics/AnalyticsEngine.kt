@@ -272,10 +272,24 @@ class AnalyticsEngine @Inject constructor(
 
     private suspend fun buildScoreInput(): ScoreInput {
         val month = YearMonth.now()
+
+        // The savings + mandatory pillars describe "the current month". Very early in a month that
+        // window is empty, which craters savings (income 0 → 0/30) and falsely maxes out mandatory
+        // (expense 0 → 25/25) — this is the "app reset itself on the 1st" the user saw. When the
+        // current month has no income yet, fall back to the last completed month that has activity,
+        // so the health score reflects real recent behaviour instead of an empty partial month.
         val (fromCur, toCur) = monthBounds(month)
-        val curTxs    = getTxSync(fromCur, toCur)
-        val curIncome = curTxs.filter { it.type == TransactionType.INCOME }.sumOf { it.amountKopecks }
-        val curExpense= curTxs.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
+        var curTxs    = getTxSync(fromCur, toCur)
+        var curIncome = curTxs.filter { it.type == TransactionType.INCOME }.sumOf { it.amountKopecks }
+        if (curIncome <= 0L) {
+            val (fp, tp) = monthBounds(month.minusMonths(1))
+            val prevTxs  = getTxSync(fp, tp)
+            if (prevTxs.isNotEmpty()) {
+                curTxs    = prevTxs
+                curIncome = prevTxs.filter { it.type == TransactionType.INCOME }.sumOf { it.amountKopecks }
+            }
+        }
+        val curExpense = curTxs.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
 
         val mandatoryCats = setOf("cat_housing", "cat_telecom", "cat_health")
         val mandatory = curTxs.filter {
