@@ -676,6 +676,19 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Financial-health score no longer craters on the 1st of the month (this session)
+
+**User report (01.07):** on a new month the app "looked reset" — analytics from zero, financial health
+recomputed. **Verdict:** monthly counters (Доходы/Расходы за месяц, «Обзор» current-month categories)
+resetting IS expected (July MTD is near-empty on July 1; Trends use history and don't reset). But the
+**score cratering is a real flaw:** `ScoreCalculator` savings pillar = `(income−expense)/income` for the
+CURRENT month → income 0 on the 1st → 0/30; mandatory pillar with expense 0 → falsely 25/25.
+
+**Fix:** `AnalyticsEngine.buildScoreInput` — when the current month has no income yet, fall back to the
+last completed month (income/expense/mandatory taken from the same month) so the health score reflects
+real recent behaviour instead of an empty partial month. `last3Income`/`avg3Expense`/cushion already use
+completed months, so they were unaffected.
+
 ## Swipe-to-delete UX — left-swipe reveals trash, tap to confirm (this session)
 
 Replaced the `SwipeToDismissBox` (which auto-deleted on a flick in EITHER direction — too easy to
