@@ -31,7 +31,14 @@ import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
 
+/** Period for the cumulative category/daily statistics (does NOT affect the health score or the
+ *  behavioural trends, which keep their own monthly/rolling windows). */
+enum class AnalyticsPeriod(val label: String) {
+    MONTH("Месяц"), HALF_YEAR("6 мес"), YEAR("Год"), ALL("Всё время")
+}
+
 data class AnalyticsState(
+    val selectedPeriod   : AnalyticsPeriod                  = AnalyticsPeriod.MONTH,
     // Base data
     val transactions     : List<TransactionEntity>         = emptyList(),
     val categoryExpenses : Map<String, Long>               = emptyMap(),
@@ -63,12 +70,21 @@ class AnalyticsViewModel @Inject constructor(
 
     private val zone = ZoneId.systemDefault()
 
-    // Current-month window, recomputed on each emission so a long-lived process that
-    // crosses a month boundary does not keep showing the previous month.
-    private fun monthWindow(): Pair<Long, Long> {
+    private val _period = kotlinx.coroutines.flow.MutableStateFlow(AnalyticsPeriod.MONTH)
+    fun setPeriod(period: AnalyticsPeriod) { _period.value = period }
+
+    // Window for the selected period, recomputed on each emission (so crossing a month boundary
+    // never keeps showing a stale window). MONTH = current calendar month; the longer periods end
+    // at the current month's end and reach back the corresponding number of whole months.
+    private fun periodWindow(period: AnalyticsPeriod): Pair<Long, Long> {
         val month = YearMonth.now()
-        val from  = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+        val from  = when (period) {
+            AnalyticsPeriod.MONTH     -> month.atDay(1)
+            AnalyticsPeriod.HALF_YEAR -> month.minusMonths(5).atDay(1)
+            AnalyticsPeriod.YEAR      -> month.minusMonths(11).atDay(1)
+            AnalyticsPeriod.ALL       -> null
+        }?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0L
         return from to to
     }
 
@@ -81,9 +97,10 @@ class AnalyticsViewModel @Inject constructor(
     val state = combine(
         txRepo.observeAll(),
         categoryRepo.observeAll(),
-    ) { txList, categories -> txList to categories }
-        .mapLatest { (allTx, categories) ->
-            val (from, to) = monthWindow()
+        _period,
+    ) { txList, categories, period -> Triple(txList, categories, period) }
+        .mapLatest { (allTx, categories, period) ->
+            val (from, to) = periodWindow(period)
             val monthTx = allTx.filter { it.timestamp in from..to }
             val catMap  = categories.associate { it.id to it.name }
 
@@ -122,6 +139,7 @@ class AnalyticsViewModel @Inject constructor(
                 val archetypeD = safeAsync { analyticsEngine.classifyBehavior() }
 
                 AnalyticsState(
+                    selectedPeriod    = period,
                     transactions      = monthTx,
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,

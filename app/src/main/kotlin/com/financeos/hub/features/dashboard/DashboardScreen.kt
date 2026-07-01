@@ -473,6 +473,12 @@ private fun CalmHero(state: DashboardState) {
                 }
             }
             Spacer(Modifier.height(FosDimens.ItemGap))
+            Text(
+                text     = FosFormatter.currentMonthName(),
+                style    = FosType.SectionCap,
+                color    = FosColors.TextMuted,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
                 MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))
                 MetricChip("Расходы", FosFormatter.compact(state.expenseKopecks), FosColors.Negative, Modifier.weight(1f))
@@ -631,6 +637,12 @@ private fun MinimalHero(state: DashboardState) {
                 }
             }
             Spacer(Modifier.height(FosDimens.ItemGap))
+            Text(
+                text     = FosFormatter.currentMonthName(),
+                style    = FosType.SectionCap,
+                color    = FosColors.TextMuted,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
                 MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))
                 MetricChip("Расходы", FosFormatter.compact(state.expenseKopecks), FosColors.Negative, Modifier.weight(1f))

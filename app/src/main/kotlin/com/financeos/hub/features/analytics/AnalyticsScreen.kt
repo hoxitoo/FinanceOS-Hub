@@ -1,10 +1,20 @@
 package com.financeos.hub.features.analytics
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
@@ -52,6 +62,35 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
                 bottom = 4.dp,
             ),
         )
+
+        // Period selector for the cumulative statistics (category breakdown + spending curve).
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = FosDimens.ScreenPadding, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AnalyticsPeriod.values().forEach { p ->
+                val selected = state.selectedPeriod == p
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                        .background(
+                            if (selected) FosColors.Positive.copy(alpha = 0.16f) else FosColors.Surface
+                        )
+                        .clickable { vm.setPeriod(p) }
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                ) {
+                    Text(
+                        text  = p.label,
+                        style = FosType.Label,
+                        color = if (selected) FosColors.Positive else FosColors.TextMuted,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
 
         ScrollableTabRow(
             selectedTabIndex  = pagerState.currentPage,
