@@ -45,6 +45,11 @@ object FosFormatter {
         return date.format(monthYearFmt).replaceFirstChar { it.titlecase(RU) }
     }
 
+    /** Current month name, capitalised — e.g. "Июль". Used to label "this month" metric blocks. */
+    fun currentMonthName(): String =
+        LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL", RU))
+            .replaceFirstChar { it.titlecase(RU) }
+
     /** Epoch millis → "18 июня" or "Сегодня" / "Вчера" */
     fun dayLabel(epochMillis: Long): String {
         val date  = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
