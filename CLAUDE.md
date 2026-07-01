@@ -676,6 +676,20 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Analytics period selector + dashboard month label (this session)
+
+Two UX additions, both isolated from the fragile analytics/score math:
+- **Dashboard month caption:** `FosFormatter.currentMonthName()` («Июль»); a `SectionCap` label sits above
+  the Доходы/Расходы/Прогноз metric row in both hero variants, so near-zero figures on the 1st read as
+  "month just started" rather than "data lost".
+- **Analytics period selector:** `AnalyticsPeriod` enum (MONTH / HALF_YEAR / YEAR / ALL) + chip row under
+  the «Аналитика» title. `AnalyticsViewModel` gained `_period` (MutableStateFlow) folded into the combine;
+  `periodWindow(period)` filters the tx list for `categoryExpenses` / `dailyExpenses` / `transactions`
+  only. **Every `analyticsEngine.*` call is untouched** — score, forecast, heatmap, fatigue, waterfall,
+  narratives, archetype keep their own monthly/rolling windows by design (a health score is point-in-time,
+  not a period aggregate). So the toggle drives the cumulative category breakdown + spending curve without
+  any risk to the score/behavioural logic.
+
 ## Financial-health score no longer craters on the 1st of the month (this session)
 
 **User report (01.07):** on a new month the app "looked reset" — analytics from zero, financial health
