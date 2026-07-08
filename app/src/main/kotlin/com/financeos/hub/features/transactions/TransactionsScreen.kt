@@ -285,7 +285,6 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 onSave       = { type, merchant, catId, note ->
                     vm.updateTransaction(tx, type, merchant, catId, note)
                 },
-                onDelete     = { vm.deleteTransaction(tx.id) },
             )
         }
     }

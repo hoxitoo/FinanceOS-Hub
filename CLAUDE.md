@@ -676,6 +676,20 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Manual-entry «Перевод» + clickable dashboard ops + no delete button (this session)
+
+Three UX asks:
+- **Manual transfer:** `AddTransactionSheet` type toggle gained a third option «Перевод» (Info-blue chip)
+  so a transfer that never arrived as a push can be logged by hand. Category picker is hidden for
+  TRANSFER (transfers have no category); `insertManual` already signs it as an outgoing transfer and
+  debits the chosen account.
+- **Clickable dashboard ops:** «Недавние» rows now take `onClick` → open `TransactionDetailSheet`.
+  `DashboardState` exposes `categoryEntities`; `DashboardViewModel` gained `updateTransaction` (mirrors
+  TransactionsViewModel, injects `TransferRouter` to un-route a goal on transfer reclassification).
+- **Removed the hidden delete button:** `TransactionDetailSheet` no longer has the «Удалить операцию»
+  button / confirm dialog / `onDelete` param (it sat below «Сохранить», off-screen). Deletion is
+  swipe-left-to-trash only. Both call sites (Transactions + Dashboard) updated.
+
 ## ROOT CAUSE of the card-disappearing saga: REPLACE-upsert + FK CASCADE (this session)
 
 **Decisive user report:** "I manually typed the balance into «текущий» and the instant I did, cards
