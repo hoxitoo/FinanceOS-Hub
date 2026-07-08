@@ -12,4 +12,5 @@ class CardRepository @Inject constructor(private val dao: CardDao) {
     fun observeByAccount(accountId: String): Flow<List<CardEntity>> = dao.observeByAccount(accountId)
     suspend fun addCard(card: CardEntity) = dao.insert(card)
     suspend fun deactivate(id: String) = dao.deactivate(id)
+    suspend fun deactivateByAccount(accountId: String) = dao.deactivateByAccount(accountId)
 }

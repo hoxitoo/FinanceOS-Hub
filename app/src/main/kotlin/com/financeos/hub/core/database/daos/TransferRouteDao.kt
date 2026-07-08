@@ -23,4 +23,9 @@ interface TransferRouteDao {
 
     @Query("UPDATE transfer_routes SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
+
+    /** Drop ACCOUNT-type goal links pointing at a deleted account, so a goal isn't left with a
+     *  stale route to a now-dead account id (which silently stops funding it). */
+    @Query("UPDATE transfer_routes SET is_active = 0 WHERE match_type = 'ACCOUNT' AND match_value = :accountId")
+    suspend fun deactivateByAccountValue(accountId: String)
 }

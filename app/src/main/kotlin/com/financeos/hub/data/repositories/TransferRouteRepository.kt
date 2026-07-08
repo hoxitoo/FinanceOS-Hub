@@ -19,4 +19,7 @@ class TransferRouteRepository @Inject constructor(
     suspend fun addRoute(route: TransferRouteEntity) = dao.insert(route)
 
     suspend fun removeRoute(id: String) = dao.deactivate(id)
+
+    /** Remove ACCOUNT-type goal links pointing at [accountId] — called when that account is deleted. */
+    suspend fun removeAccountRoutes(accountId: String) = dao.deactivateByAccountValue(accountId)
 }

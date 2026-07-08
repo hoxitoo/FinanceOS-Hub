@@ -26,4 +26,10 @@ interface CardDao {
 
     @Query("UPDATE cards SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
+
+    /** Deactivate every card belonging to an account — used when the account itself is deleted, so
+     *  a card never lingers pointing at a dead account (which then looks "auto-detached" from a
+     *  same-named re-created account). */
+    @Query("UPDATE cards SET is_active = 0 WHERE account_id = :accountId")
+    suspend fun deactivateByAccount(accountId: String)
 }
