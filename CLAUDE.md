@@ -676,6 +676,28 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Account delete now cleans up its cards + goal-routes (this session)
+
+**User report:** card ··2548 "auto-detached" from «текущий» (never touched manually); a 15 000 ₽ Alfa
+transfer 1139→3583 didn't fund the goal linked to the destination account.
+
+**Root cause (both):** no code auto-detaches a card (only explicit add/delete + backup write cards; there
+is NO hard account delete, so the FK CASCADE never fires). The real cause is **account delete+recreate
+during troubleshooting**: `deleteAccount` only did `accountRepo.deactivate(id)` — it left the account's
+**cards** (still `is_active=1`, pointing at the now-dead account id) and its **goal-routes** (ACCOUNT
+route `match_value` = dead account id) dangling. A re-created same-named account gets a NEW id, so the
+old card no longer shows under it ("auto-detach"), and the goal's route points at a ghost so a transfer
+into the live account never matches → goal not funded.
+
+**Fix:** `deleteAccount` now also `cardRepo.deactivateByAccount(id)` + `transferRouteRepo.removeAccountRoutes(id)`
+(new `CardDao.deactivateByAccount`, `TransferRouteDao.deactivateByAccountValue`). The goal itself is kept —
+only its dangling link is cut, so it visibly shows "unlinked" prompting a clean re-link.
+
+**Does NOT retroactively fix the user's current state** (the zombie card/route already exist): remedy is
+to re-add card ··2548 to «текущий» and re-link the goal to «тревел» via 🔗. Also honest gap: an internal
+transfer credits only the SOURCE account (money can appear to "vanish" from net worth until the
+destination is reconciled/edited) — left as-is to avoid double-credit with the pairing path.
+
 ## Analytics period selector + dashboard month label (this session)
 
 Two UX additions, both isolated from the fragile analytics/score math:
