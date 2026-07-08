@@ -55,7 +55,6 @@ fun TransactionDetailSheet(
     sheetState  : SheetState,
     onDismiss   : () -> Unit,
     onSave      : (type: TransactionType, merchant: String, categoryId: String?, note: String?) -> Unit,
-    onDelete    : () -> Unit,
 ) {
     // Key on transaction.id: if a different tx is shown while this composable is still in
     // the composition (e.g. rapid tap during sheet dismiss animation), remember returns
@@ -64,7 +63,6 @@ fun TransactionDetailSheet(
     var note         by remember(transaction.id) { mutableStateOf(transaction.description ?: "") }
     var categoryId   by remember(transaction.id) { mutableStateOf(transaction.categoryId) }
     var selectedType by remember(transaction.id) { mutableStateOf(transaction.type) }
-    var showConfirm  by remember(transaction.id) { mutableStateOf(false) }
 
     // The header colour/sign follow the CURRENTLY-SELECTED type so reclassifying a transfer to a
     // расход immediately reflects red/− before the user even saves. (mirrors TransactionRow rules)
@@ -222,13 +220,7 @@ fun TransactionDetailSheet(
                 Text("Сохранить", style = FosType.BodySemi)
             }
 
-            // Delete
-            TextButton(
-                onClick  = { showConfirm = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Удалить операцию", style = FosType.Label, color = FosColors.Negative)
-            }
+            // (Deletion is handled by swipe-left-to-reveal-trash on the row, so no delete button here.)
 
             // Diagnostic: the exact SMS/push text the app captured. Lets a mis-parse (e.g. an Alfa
             // push whose "Остаток"/card line wasn't delivered to the listener) be inspected/reported.
@@ -250,24 +242,6 @@ fun TransactionDetailSheet(
         }
     }
 
-    if (showConfirm) {
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            containerColor   = FosColors.Surface,
-            title            = { Text("Удалить операцию?", style = FosType.BodySemi, color = FosColors.TextPrimary) },
-            text             = { Text("Это действие нельзя отменить.", style = FosType.Body, color = FosColors.TextSecondary) },
-            confirmButton    = {
-                TextButton(onClick = { onDelete(); onDismiss() }) {
-                    Text("Удалить", color = FosColors.Negative)
-                }
-            },
-            dismissButton    = {
-                TextButton(onClick = { showConfirm = false }) {
-                    Text("Отмена", color = FosColors.TextSecondary)
-                }
-            },
-        )
-    }
 }
 
 /** Read-only label → account/card mask row. Shows "неизвестно" when the bank message omitted it. */
