@@ -48,6 +48,7 @@ import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.PawParticleLayer
 import com.financeos.hub.ui.components.ScoreRing
 import com.financeos.hub.ui.components.ShimmerCardSheen
+import com.financeos.hub.features.transactions.TransactionDetailSheet
 import com.financeos.hub.ui.components.TransactionRow
 import com.financeos.hub.ui.components.rememberBreathingScale
 import com.financeos.hub.ui.components.shimmerTilt
@@ -71,6 +72,8 @@ fun DashboardScreen(
     val addAccountSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedBank         by remember { mutableStateOf<String?>(null) }
     val bankSheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var selectedTx           by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
+    val txSheetState         = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
         modifier = Modifier
@@ -170,7 +173,11 @@ fun DashboardScreen(
                 Text("Недавние", style = FosType.SectionCap, color = FosColors.TextMuted)
             }
             items(state.recentTransactions, key = { it.id }) { tx ->
-                TransactionRow(transaction = tx, categoryName = state.categoryName(tx.categoryId))
+                TransactionRow(
+                    transaction  = tx,
+                    categoryName = state.categoryName(tx.categoryId),
+                    onClick      = { selectedTx = tx },
+                )
             }
         }
 
@@ -206,6 +213,20 @@ fun DashboardScreen(
             },
             onReconcile  = { id -> vm.reconcileAccount(id) },
             onDelete     = { id -> vm.deleteAccount(id) },
+        )
+    }
+
+    selectedTx?.let { tx ->
+        TransactionDetailSheet(
+            transaction       = tx,
+            categories        = state.categoryEntities,
+            categoryName      = state.categoryName(tx.categoryId),
+            linkedAccountName = state.accounts.firstOrNull { it.id == tx.accountId }?.name,
+            sheetState        = txSheetState,
+            onDismiss         = { selectedTx = null },
+            onSave            = { type, merchant, catId, note ->
+                vm.updateTransaction(tx, type, merchant, catId, note)
+            },
         )
     }
 }

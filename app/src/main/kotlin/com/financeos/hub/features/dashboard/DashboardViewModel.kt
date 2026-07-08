@@ -6,6 +6,7 @@ import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.analytics.AnalyticsEngine
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
+import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.preferences.UserPreferences
@@ -37,6 +38,7 @@ data class DashboardState(
     val accounts            : List<AccountEntity>       = emptyList(),
     val cards               : List<CardEntity>          = emptyList(),
     val recentTransactions  : List<TransactionEntity>   = emptyList(),
+    val categoryEntities    : List<CategoryEntity>      = emptyList(),
     private val categories  : Map<String, String>       = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categories[it] } ?: "Другое"
@@ -52,6 +54,7 @@ class DashboardViewModel @Inject constructor(
     private val engine      : AnalyticsEngine,
     private val accountLinker: AccountLinker,
     private val transferRouteRepo: com.financeos.hub.data.repositories.TransferRouteRepository,
+    private val transferRouter: com.financeos.hub.core.transfer.TransferRouter,
 ) : ViewModel() {
 
     private val _score     = MutableStateFlow(0)
@@ -136,9 +139,43 @@ class DashboardViewModel @Inject constructor(
             accounts             = accounts,
             cards                = cards,
             recentTransactions   = txList.take(5),
+            categoryEntities     = categories,
             categories           = catMap,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
+
+    /** Edit a recent operation from the dashboard detail sheet. Mirrors TransactionsViewModel: re-signs
+     *  the amount for the new type and un-routes a goal when a transfer is reclassified. */
+    fun updateTransaction(
+        tx: TransactionEntity,
+        newType: TransactionType,
+        merchant: String,
+        categoryId: String?,
+        note: String?,
+    ) {
+        viewModelScope.launch {
+            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
+            if (leftTransfer && tx.goalId != null) transferRouter.onTransactionReversed(tx)
+            val mag = kotlin.math.abs(tx.amountKopecks)
+            val newAmount = when (newType) {
+                TransactionType.EXPENSE  -> -mag
+                TransactionType.INCOME   ->  mag
+                TransactionType.TRANSFER -> tx.amountKopecks
+            }
+            txRepo.update(
+                tx.copy(
+                    type           = newType,
+                    amountKopecks  = newAmount,
+                    merchant       = merchant.ifBlank { null },
+                    categoryId     = categoryId,
+                    description    = note,
+                    goalId         = if (leftTransfer) null else tx.goalId,
+                    transferPairId = if (leftTransfer) null else tx.transferPairId,
+                    updatedAt      = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
 
     fun createAccount(name: String, bank: String, cardMask: String?, balanceKopecks: Long, currency: String = "RUB") {
         viewModelScope.launch {

@@ -130,12 +130,20 @@ fun AddTransactionSheet(
         ) {
             Text("Добавить операцию", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
 
-            // Expense / Income toggle
+            // Expense / Income / Transfer toggle. Transfer lets the user log a перевод that never
+            // arrived as a push (so it couldn't be parsed) — stored as an outgoing TRANSFER.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(TransactionType.EXPENSE to "Расход", TransactionType.INCOME to "Доход")
-                    .forEach { (type, label) ->
+                listOf(
+                    TransactionType.EXPENSE  to "Расход",
+                    TransactionType.INCOME   to "Доход",
+                    TransactionType.TRANSFER to "Перевод",
+                ).forEach { (type, label) ->
                         val selected = txType == type
-                        val selColor = if (type == TransactionType.EXPENSE) FosColors.Negative else FosColors.Positive
+                        val selColor = when (type) {
+                            TransactionType.EXPENSE  -> FosColors.Negative
+                            TransactionType.INCOME   -> FosColors.Positive
+                            TransactionType.TRANSFER -> FosColors.Info
+                        }
                         FilterChip(
                             selected = selected,
                             onClick  = { txType = type },
@@ -256,7 +264,7 @@ fun AddTransactionSheet(
                         )
                     }
                 }
-            } else if (categories.isNotEmpty()) {
+            } else if (txType == TransactionType.EXPENSE && categories.isNotEmpty()) {
                 Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(categories, key = { it.id }) { cat ->
