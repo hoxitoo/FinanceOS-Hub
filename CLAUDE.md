@@ -676,6 +676,27 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## ROOT CAUSE of the card-disappearing saga: REPLACE-upsert + FK CASCADE (this session)
+
+**Decisive user report:** "I manually typed the balance into «текущий» and the instant I did, cards
+2548 and 6687 were deleted from the account." → reproducible, code-level.
+
+**Root cause (the real one behind the whole saga):** `AccountDao.upsert` was `@Insert(onConflict =
+REPLACE)`, and `CardEntity` has `ForeignKey(onDelete = CASCADE)`. In SQLite, **REPLACE on an existing
+row = DELETE + INSERT** — so `accountRepo.upsert(account.copy(balance = …))` DELETED the account row
+(CASCADE-deleting ALL its cards) then re-inserted it. Every balance edit (`updateAccountBalance`),
+manual op (`insertManual`), and delete-reversal adjusts the balance via `upsert` → each one silently
+wiped the account's cards. This is why cards kept "auto-detaching" and why re-adding a card never stuck
+(the next balance change deleted it again).
+
+**Fix:** `AccountDao.upsert`/`upsertAll` changed from `@Insert(REPLACE)` to **`@Upsert`** (Room 2.6.1
+supports it). `@Upsert` updates the existing row IN PLACE — no delete, no cascade. One line, covers all
+callers (balance edit, manual op, delete, createAccount, backup restore).
+
+**Note:** the previous "account delete cleans up cards/routes" fix is still correct hygiene, but THIS
+was the actual cause of the recurring card loss. With cards no longer wiped on balance edits, a re-added
+card finally sticks.
+
 ## Account delete now cleans up its cards + goal-routes (this session)
 
 **User report:** card ··2548 "auto-detached" from «текущий» (never touched manually); a 15 000 ₽ Alfa
