@@ -1,10 +1,9 @@
 package com.financeos.hub.core.database.daos
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.financeos.hub.core.database.entities.AccountEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -22,10 +21,14 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE is_active = 1 ORDER BY name")
     suspend fun getAllActive(): List<AccountEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert (not @Insert REPLACE): REPLACE deletes the existing row and re-inserts it, which
+    // CASCADE-deletes the account's cards (CardEntity FK onDelete = CASCADE). That made every
+    // balance edit / manual op / delete silently wipe the account's cards. @Upsert updates the row
+    // in place — no delete, no cascade.
+    @Upsert
     suspend fun upsert(account: AccountEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertAll(accounts: List<AccountEntity>)
 
     @Update
