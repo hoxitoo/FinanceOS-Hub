@@ -51,6 +51,7 @@ class DashboardViewModel @Inject constructor(
     private val prefs       : UserPreferences,
     private val engine      : AnalyticsEngine,
     private val accountLinker: AccountLinker,
+    private val transferRouteRepo: com.financeos.hub.data.repositories.TransferRouteRepository,
 ) : ViewModel() {
 
     private val _score     = MutableStateFlow(0)
@@ -175,7 +176,15 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun deleteAccount(id: String) {
-        viewModelScope.launch { accountRepo.deactivate(id) }
+        viewModelScope.launch {
+            // Cards belong to the account, and goal-routes may point at it. Deactivate both so a
+            // deleted account leaves no zombie card (which then looks "auto-detached" when the user
+            // re-creates a same-named account) and no stale goal link (which silently stops funding
+            // the goal). The goal itself is kept — only its dangling link to the dead account is cut.
+            cardRepo.deactivateByAccount(id)
+            transferRouteRepo.removeAccountRoutes(id)
+            accountRepo.deactivate(id)
+        }
     }
 
     fun addCard(card: CardEntity) {
