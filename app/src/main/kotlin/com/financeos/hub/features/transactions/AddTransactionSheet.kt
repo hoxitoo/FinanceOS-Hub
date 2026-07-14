@@ -83,7 +83,7 @@ fun AddTransactionSheet(
     accounts   : List<AccountEntity>,
     cards      : List<CardEntity>,
     onDismiss  : () -> Unit,
-    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?, sourceMask: String?, timestamp: Long) -> Unit,
+    onSave     : (type: TransactionType, amountKopecks: Long, merchant: String, categoryId: String?, note: String?, accountId: String?, sourceMask: String?, destAccountId: String?, timestamp: Long) -> Unit,
 ) {
     var txType       by remember { mutableStateOf(TransactionType.EXPENSE) }
     var amountText   by remember { mutableStateOf("") }
@@ -93,6 +93,8 @@ fun AddTransactionSheet(
     var incomeSource by remember { mutableStateOf<String?>(null) }
     // Selected money-source key (account + card mask). Null = no source chosen.
     var sourceKey    by remember { mutableStateOf<String?>(null) }
+    // For a TRANSFER: the destination account key (money arrives here). Null = not chosen.
+    var destKey      by remember { mutableStateOf<String?>(null) }
     // Selected date for the operation (defaults to today). Stored as the local day; the
     // actual save-time clock is folded in so back-dated rows sort correctly within their day.
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
@@ -113,6 +115,7 @@ fun AddTransactionSheet(
     }
     val selectedOption  = sourceOptions.firstOrNull { it.key == sourceKey }
     val selectedAccount = accounts.firstOrNull { it.id == selectedOption?.accountId }
+    val destOption      = sourceOptions.firstOrNull { it.key == destKey }
     val currencySymbol  = FosFormatter.currencySymbol(selectedAccount?.currency ?: "RUB")
 
     ModalBottomSheet(
@@ -217,6 +220,30 @@ fun AddTransactionSheet(
                 }
             }
 
+            // Destination account — only for a TRANSFER. Choosing it credits that account so an
+            // internal перевод keeps net worth unchanged (source −сумма, destination +сумма).
+            if (txType == TransactionType.TRANSFER && sourceOptions.isNotEmpty()) {
+                Text("На какой счёт (зачисление)", style = FosType.SectionCap, color = FosColors.TextMuted)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(sourceOptions, key = { "dest_${it.key}" }) { opt ->
+                        val selected = destKey == opt.key
+                        val mask     = opt.mask?.let { " ••$it" } ?: ""
+                        FilterChip(
+                            selected = selected,
+                            onClick  = { destKey = if (selected) null else opt.key },
+                            label    = { Text("${opt.accountName}$mask", style = FosType.Micro) },
+                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FosColors.Positive.copy(alpha = 0.15f),
+                                selectedLabelColor     = FosColors.Positive,
+                                containerColor         = FosColors.Surface2,
+                                labelColor             = FosColors.TextSecondary,
+                            ),
+                        )
+                    }
+                }
+            }
+
             // Merchant / payee
             OutlinedTextField(
                 value         = merchant,
@@ -308,7 +335,9 @@ fun AddTransactionSheet(
                                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                         }
                         onSave(txType, kopecks, merchant, categoryId, finalNote,
-                            selectedOption?.accountId, selectedOption?.mask, timestamp)
+                            selectedOption?.accountId, selectedOption?.mask,
+                            if (txType == TransactionType.TRANSFER) destOption?.accountId else null,
+                            timestamp)
                         onDismiss()
                     }
                 },

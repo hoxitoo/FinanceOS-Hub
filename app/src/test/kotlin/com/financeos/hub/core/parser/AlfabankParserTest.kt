@@ -78,6 +78,19 @@ class AlfabankParserTest {
         assertNull(tx.cardMask)
     }
 
+    @Test fun `parses account-number form and payee label`() {
+        // Regression: "Списание со счета 408*01139 … Получатель платежа FONBET" — the glyph is
+        // followed by 5 digits so pushMask couldn't extract it → account was "не определился".
+        val body = "Альфа-Банк -5 000 ₽ Списание со счета 408*01139; Сумма: 5 000,00 RUB; " +
+            "Получатель платежа FONBET; 14 июля 10:12"
+        val tx = parser.parse("ALFABANK", body, ts)
+        assertNotNull(tx)
+        assertEquals(TransactionType.EXPENSE, tx!!.type)
+        assertEquals(500_000L, tx.amountKopecks)
+        assertEquals("1139", tx.cardMask)       // last 4 of 408*01139
+        assertEquals("FONBET", tx.merchant)
+    }
+
     @Test fun `canHandle matches sender`() {
         assert(parser.canHandle("ALFABANK"))
         assert(parser.canHandle("ALFA"))
