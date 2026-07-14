@@ -36,6 +36,12 @@ class AlfabankParser @Inject constructor() : BankParser {
     private val pushMask   = Regex("""[*•·]{1,2}\s*(\d{4})(?!\d)""")
     // Strip "··NNNN" card glyph from the extracted merchant string.
     private val maskTail   = Regex("""[*•·]{1,2}\s*\d{4}(?!\d)""")
+    // Account-number form "Списание со счета 408*01139" — the glyph is followed by MORE than 4
+    // digits, so pushMask can't capture it. The meaningful identifier is the LAST 4 ("1139").
+    private val acctNumber = Regex("""сч[её]т[а-яё]*\s+\d*[*•·]\s*(\d{4,})""", RegexOption.IGNORE_CASE)
+    // "Получатель платежа FONBET" → merchant "FONBET" (this format puts the payee after a label,
+    // not as a bare merchant line, so the generic extractor would otherwise grab the whole body).
+    private val payeeRe    = Regex("""Получател[ья]\s+платежа\s+([^;.\n]+)""", RegexOption.IGNORE_CASE)
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
@@ -90,12 +96,15 @@ class AlfabankParser @Inject constructor() : BankParser {
         // still returns the LAST match — which is Alfa's own card mask ("··2548" in the body
         // balance line), not the counterparty or amount mask from the title.
         val card     = pushMask.findAll(body).lastOrNull()?.groupValues?.getOrNull(1)
-        val merchant = body.substring(m.range.last + 1)
-            .substringBefore("Остаток")
-            .replace(maskTail, "")
-            .trim()
-            .trim('.', ',', ';', ' ')
-            .takeIf { it.isNotBlank() }
+            ?: acctNumber.find(body)?.groupValues?.getOrNull(1)?.takeLast(4)   // "408*01139" → "1139"
+        val merchant = payeeRe.find(body)?.groupValues?.getOrNull(1)?.trim()   // "Получатель платежа FONBET"
+            ?: body.substring(m.range.last + 1)
+                .substringBefore("Остаток")
+                .substringBefore("Списание со сч")   // don't fold the "Списание со счета …" prefix into merchant
+                .replace(maskTail, "")
+                .trim()
+                .trim('.', ',', ';', ' ')
+                .takeIf { it.isNotBlank() }
 
         return ParsedTransaction(
             type           = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE,
