@@ -216,6 +216,7 @@ class TransactionsViewModel @Inject constructor(
         note         : String?,
         accountId    : String? = null,
         sourceMask   : String? = null,
+        destAccountId: String? = null,   // TRANSFER only: the account the money arrives on
         timestamp    : Long    = System.currentTimeMillis(),
     ) {
         viewModelScope.launch {
@@ -256,6 +257,16 @@ class TransactionsViewModel @Inject constructor(
                     }
                     accountRepo.upsert(acc.copy(
                         balanceKopecks = acc.balanceKopecks + delta,
+                        updatedAt      = now,
+                    ))
+                }
+            }
+            // For an internal TRANSFER, credit the destination account too, so net worth is unchanged
+            // (source −сумма above, destination +сумма here). Only when a distinct destination is set.
+            if (type == TransactionType.TRANSFER && destAccountId != null && destAccountId != accountId) {
+                accountRepo.getById(destAccountId)?.let { dest ->
+                    accountRepo.upsert(dest.copy(
+                        balanceKopecks = dest.balanceKopecks + mag,
                         updatedAt      = now,
                     ))
                 }

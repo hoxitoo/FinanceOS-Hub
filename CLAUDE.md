@@ -676,6 +676,19 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Manual transfer destination + Alfa «408*01139» / «Получатель платежа» parse (this session)
+
+- **Manual transfer «на какой счёт»:** `AddTransactionSheet` now shows a destination account picker
+  «На какой счёт (зачисление)» when type = TRANSFER. `insertManual(destAccountId=…)` credits the
+  destination (+сумма) as well as debiting the source (−сумма), so an internal transfer keeps net
+  worth unchanged. (Safe now that `AccountDao` uses `@Upsert` — crediting via upsert no longer wipes
+  cards.)
+- **Alfa account-number parse fix:** «Списание со счета 408\*01139 … Получатель платежа FONBET» left the
+  account "не определился" because `pushMask` (`[*•·]{1,2}(\d{4})(?!\d)`) can't capture a glyph
+  followed by 5 digits. Added `acctNumber` regex (`сч[её]т… \d*[*•·](\d{4,})` → LAST 4 = «1139») and
+  `payeeRe` («Получатель платежа X» → merchant «FONBET»). The balance mismatch the user suspected was
+  NOT the cause — it was purely the mask format. Regression test added.
+
 ## Manual-entry «Перевод» + clickable dashboard ops + no delete button (this session)
 
 Three UX asks:
