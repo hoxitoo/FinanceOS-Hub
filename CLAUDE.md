@@ -676,6 +676,50 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Batch 1 of the long improvement cycle (this session, working branch only — NOT merged to main)
+
+**Release note:** this cycle is pushed to `claude/project-setup-design-sndr3y` only, so the APK
+pipeline does not rebuild on every change. Merge to `dev`→`main` when a batch is ready to ship.
+
+### 1. Multi-colour financial-health donut
+`ui/components/ScoreDonut.kt` replaces the single-colour ring: one arc per score pillar, each pillar
+owning a slice proportional to its max points (Сбережения 30 → Positive, Стабильность 20 → Info,
+Обязательные 25 → Warning, Подушка 25 → Shimmer.GlowViolet). Inside its slice the earned part is full
+colour and the shortfall stays dimmed (alpha .16), so a weak pillar is visible at a glance. A 3° gap
+keeps adjacent colours from blending. `FosColors.Negative` is deliberately never used for a slice —
+red means "expense/overrun" in this design system and would read as an error, not a category.
+- Used in **Analytics → Обзор** (legend rows gained matching colour dots) and in the **«Спокойный»
+  hero only** (plus a compact colour-dot legend). Other hero variants never had a ring — untouched.
+- `DashboardState.scoreBreakdown` added (`_score` now carries the whole `ScoreBreakdown`, not `.total`).
+
+### 2. Biometric lock no longer prompts when disabled (and can't lock you out)
+**Root cause:** `isLocked` started as `true`, so `LockScreen` composed immediately and its
+`LaunchedEffect(Unit) { onUnlockRequested() }` fired the fingerprint prompt **before** the async
+preference read finished — the app asked for a fingerprint even with biometrics switched off. A tester
+whose sensor broke was then permanently locked out and had to reinstall, losing all history.
+- `MainActivity` gained a `lockChecked` gate: the preference is read once in `onCreate`; until it is
+  known the UI renders nothing (never the lock screen, never the content). Only a confirmed-enabled
+  preference sets `isLocked = true` and fires the prompt.
+- `LockScreen` no longer auto-triggers auth (that was the race) and gained an explicit
+  **«Войти по PIN-коду устройства»** escape hatch → `triggerDeviceCredential()`, so a damaged or
+  unrecognised fingerprint can never cost a user their data.
+- Turning the setting off in Settings now releases the lock immediately on resume.
+
+### 3. Goals: money no longer vanishes on transfer + goal history
+- **Vanishing money (root cause):** the bank books an internal transfer on ONE account only, and
+  `syncBalance` applied the row to `tx.accountId` (the source). Nothing ever credited the destination,
+  so the amount left one account and arrived nowhere — exactly the reported "деньги просто пропадают
+  со счета". `AccountLinker.adjustBalance(accountId, delta)` added; `TransferRouter` now moves the
+  counterparty leg. Guarded by a `findTransferCounterpart` check so a two-push transfer (each account
+  gets its own push) is never double-counted.
+- **Goal history:** `TransactionDao.observeByGoal` + `TransactionRepository.observeByGoal` +
+  `GoalsViewModel.historyFor(goalId)`; new `GoalHistorySheet` opened from a «История ›» link on the
+  goal card, listing every routed operation with its date. Amounts are shown from the GOAL's
+  perspective (outgoing transfer = +progress), which also makes a withdrawal from a goal-linked
+  account visible instead of the progress silently dropping.
+- Note: `historyFor()` is wrapped in `remember(goal.id)` at the call site — it builds a `stateIn`
+  flow, so calling it straight from a composable body would spawn a collector per recomposition.
+
 ## Manual transfer destination + Alfa «408*01139» / «Получатель платежа» parse (this session)
 
 - **Manual transfer «на какой счёт»:** `AddTransactionSheet` now shows a destination account picker

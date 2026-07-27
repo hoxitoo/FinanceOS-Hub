@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -17,9 +16,13 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
-fun LockScreen(onUnlockRequested: () -> Unit) {
-    // Auto-trigger the prompt when the screen appears
-    LaunchedEffect(Unit) { onUnlockRequested() }
+fun LockScreen(
+    onUnlockRequested: () -> Unit,
+    onUseDeviceCredential: () -> Unit = {},
+) {
+    // NOTE: no auto-trigger here. MainActivity fires the prompt itself, but only AFTER it has
+    // confirmed the lock preference is on. Auto-triggering from composition used to race that
+    // read and prompt for a fingerprint even when the setting was off.
 
     Column(
         modifier            = Modifier
@@ -40,6 +43,10 @@ fun LockScreen(onUnlockRequested: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         TextButton(onClick = onUnlockRequested) {
             Text("Разблокировать", style = FosType.Label, color = FosColors.Info)
+        }
+        // Escape hatch: a damaged or unrecognised fingerprint must never mean losing access.
+        TextButton(onClick = onUseDeviceCredential) {
+            Text("Войти по PIN-коду устройства", style = FosType.Label, color = FosColors.TextSecondary)
         }
     }
 }

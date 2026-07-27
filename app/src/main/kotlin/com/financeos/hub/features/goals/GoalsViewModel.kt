@@ -32,7 +32,12 @@ class GoalsViewModel @Inject constructor(
     private val transferRouteRepo: TransferRouteRepository,
     private val accountRepo: AccountRepository,
     private val cardRepo: CardRepository,
+    private val txRepo: com.financeos.hub.data.repositories.TransactionRepository,
 ) : ViewModel() {
+
+    /** Operations routed to [goalId], newest first — shown in the goal's history sheet. */
+    fun historyFor(goalId: String) = txRepo.observeByGoal(goalId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state = combine(
         goalRepo.observeActive(),

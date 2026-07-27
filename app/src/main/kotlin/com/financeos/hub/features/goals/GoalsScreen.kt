@@ -57,6 +57,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     var linkTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val linkSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var historyTarget    by remember { mutableStateOf<GoalEntity?>(null) }
+    val historySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     Scaffold(
         containerColor = FosColors.Background,
         floatingActionButton = {
@@ -102,8 +105,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                             contributeTarget = goal
                             contributeText   = ""
                         },
-                        onLink   = { linkTarget = goal },
-                        onDelete = { vm.deleteGoal(goal.id) },
+                        onLink    = { linkTarget = goal },
+                        onHistory = { historyTarget = goal },
+                        onDelete  = { vm.deleteGoal(goal.id) },
                     )
                 }
             }
@@ -211,6 +215,16 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             onDismiss      = { linkTarget = null },
         )
     }
+
+    // Goal history — every operation routed to this goal, with dates
+    historyTarget?.let { goal ->
+        GoalHistorySheet(
+            goal       = goal,
+            vm         = vm,
+            sheetState = historySheetState,
+            onDismiss  = { historyTarget = null },
+        )
+    }
 }
 
 @Composable
@@ -219,6 +233,7 @@ private fun GoalCard(
     onEdit           : () -> Unit,
     onAddContribution: () -> Unit,
     onLink           : () -> Unit,
+    onHistory        : () -> Unit,
     onDelete         : () -> Unit,
 ) {
     val ratio = if (goal.targetKopecks > 0)
@@ -259,6 +274,14 @@ private fun GoalCard(
                     color = FosColors.TextMuted,
                 )
             }
+            Spacer(Modifier.height(4.dp))
+            // Tap to see every operation that funded (or drew from) this goal, with dates.
+            Text(
+                "История ›",
+                style    = FosType.Micro,
+                color    = FosColors.Info,
+                modifier = Modifier.clickable { onHistory() },
+            )
         }
 
         Column(

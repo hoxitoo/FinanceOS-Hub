@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
@@ -46,7 +47,8 @@ import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.CatMascot
 import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.PawParticleLayer
-import com.financeos.hub.ui.components.ScoreRing
+import com.financeos.hub.ui.components.ScoreDonut
+import com.financeos.hub.ui.components.scoreSegments
 import com.financeos.hub.ui.components.ShimmerCardSheen
 import com.financeos.hub.features.transactions.TransactionDetailSheet
 import com.financeos.hub.ui.components.TransactionRow
@@ -446,8 +448,11 @@ private fun CalmHero(state: DashboardState) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                ScoreRing(
-                    score    = state.financialScore,
+                // CALM variant only: multi-colour donut (one arc per score pillar), matching the
+                // Analytics tab. The other hero variants keep the plain ScoreRing.
+                ScoreDonut(
+                    segments = state.scoreBreakdown?.let { scoreSegments(it) } ?: emptyList(),
+                    total    = state.financialScore,
                     modifier = Modifier.size(72.dp),
                     catFace  = shimmer.catMascot,
                 )
@@ -455,6 +460,20 @@ private fun CalmHero(state: DashboardState) {
                     Text("Финансовое здоровье", style = FosType.Micro, color = FosColors.TextMuted)
                     Spacer(Modifier.height(2.dp))
                     Text("${state.financialScore} / 100", style = FosType.BodySemi, color = scoreColor)
+                    // Compact legend so the colours are readable without opening Analytics.
+                    state.scoreBreakdown?.let { b ->
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            scoreSegments(b).forEach { seg ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(seg.color)
+                                )
+                            }
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(14.dp))

@@ -27,6 +27,11 @@ class TransferRouter @Inject constructor(
     private val notificationHelper: NotificationHelper,
     private val accountLinker: AccountLinker,
 ) {
+    private companion object {
+        /** Window for matching the opposite leg of the same internal transfer. */
+        const val PAIR_WINDOW_MS = 10 * 60 * 1000L
+    }
+
     /**
      * Called AFTER a transaction row is inserted. Handles goal routing + internal pairing
      * for TRANSFER-typed transactions. [tx] is the already-inserted entity (has signed amount).
@@ -55,6 +60,26 @@ class TransferRouter @Inject constructor(
             val destAccountId = counterpartyMask
                 ?.let { accountLinker.resolveAccountId(it) }
                 ?.takeIf { it != tx.accountId }
+
+            // Move the OTHER leg's money. The bank books an internal transfer on ONE account only
+            // (e.g. Alfa's "со счета 1139 на счет 3583" push), and syncBalance already applied this
+            // row to tx.accountId — so without crediting the counterparty the amount just disappears
+            // from net worth. Skipped when a counterpart row already exists, because then each
+            // account received its own push and moving money here would double-count.
+            if (destAccountId != null) {
+                val counterpartExists = transactionDao.findTransferCounterpart(
+                    selfId    = tx.id,
+                    magnitude = magnitude,
+                    outgoing  = if (outgoing) 1 else 0,
+                    fromTs    = tx.timestamp - PAIR_WINDOW_MS,
+                    toTs      = tx.timestamp + PAIR_WINDOW_MS,
+                    centerTs  = tx.timestamp,
+                ) != null
+                if (!counterpartExists) {
+                    accountLinker.adjustBalance(destAccountId, if (outgoing) magnitude else -magnitude)
+                }
+            }
+
             val accountLegs = buildList {
                 tx.accountId?.let { add(it to if (outgoing) -magnitude else magnitude) }
                 destAccountId?.let { add(it to if (outgoing) magnitude else -magnitude) }
@@ -91,13 +116,12 @@ class TransferRouter @Inject constructor(
             }
 
             // (B) Internal pairing — find opposite-sign equal-magnitude counterpart within +/-10 min
-            val window = 10 * 60 * 1000L
             val counterpart = transactionDao.findTransferCounterpart(
                 selfId   = tx.id,
                 magnitude = magnitude,
                 outgoing  = if (outgoing) 1 else 0,
-                fromTs    = tx.timestamp - window,
-                toTs      = tx.timestamp + window,
+                fromTs    = tx.timestamp - PAIR_WINDOW_MS,
+                toTs      = tx.timestamp + PAIR_WINDOW_MS,
                 centerTs  = tx.timestamp,
             )
             if (counterpart != null) {

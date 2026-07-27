@@ -113,6 +113,14 @@ interface TransactionDao {
     @Query("UPDATE transactions SET goal_id = :goalId, updated_at = :now WHERE id = :id")
     suspend fun setGoal(id: String, goalId: String?, now: Long = System.currentTimeMillis())
 
+    /** Every operation routed to a goal, newest first — powers the goal's history sheet. */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE goal_id = :goalId AND is_deleted = 0
+        ORDER BY timestamp DESC
+    """)
+    fun observeByGoal(goalId: String): Flow<List<TransactionEntity>>
+
     /**
      * Retroactively attaches SMS/PUSH transactions for a card [mask] to [accountId]. Adopts rows
      * that are either UNLINKED (account_id IS NULL) OR linked to a now-DELETED account (one not in
