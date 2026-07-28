@@ -6,29 +6,35 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 | Feature | Details |
 |---------|---------|
-| **Auto-import** | Reads SMS from 11 Russian banks (P1/P2/P3); imports last 90 days on first launch; native permission dialog in onboarding |
-| **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS |
-| **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`) |
-| **Smart categorization** | Deterministic dictionary classifier (~90 merchant rules incl. transit + income); optional pre-trained TFLite ML layer (inference-only, no on-device learning) |
-| **Account linking** | Card mask from SMS/push (e.g. ••2548) auto-links transactions to the correct account; "Остаток" balance synced from bank messages |
-| **Multi-currency** | RUB / USD / EUR / KGS (Сом) support per account; hero shows each currency on its own line |
-| **Manual entry** | Add (with account picker + income-source presets), edit, delete transactions |
-| **Swipe-to-delete** | Swipe left on transactions and accounts to delete |
+| **Auto-import** | Reads SMS from 12 banks (11 RU + МБанк KG); imports last 90 days on request; SMS is **opt-in** — a fresh install never reads messages until you say so |
+| **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS; reads **every** text extra (title/text/bigText/subText/summary/info/inbox lines/ticker) so a balance line in any field is seen |
+| **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`); cross-channel SMS↔push dedup within ±5 min |
+| **Marketing filter** | `PromoFilter` drops credit-card offers and cashback ads before any parser runs — a "лимит 163 000 ₽" promo is never booked as a transfer |
+| **Smart categorization** | Deterministic dictionary classifier (143 merchant rules incl. transit, marketplaces, bookmakers, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning) |
+| **Account linking** | Card mask from SMS/push (e.g. ··2548) auto-links transactions to the correct account; the bank's «Остаток» is applied as an authoritative snapshot, with a recency guard so a fresher manual edit is never reverted |
+| **Multi-currency** | RUB / USD / EUR / KGS (сом) per account **and per transaction**; hero shows each currency on its own line |
+| **Manual entry** | Add (bank→account picker, income presets, Расход/Доход/**Перевод**), edit, delete; transfers credit the destination account too |
+| **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
 | **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
-| **Financial score** | 0–100 score based on savings rate, stability, mandatory/cushion ratios (cushion uses real account balances) |
-| **Behavioral analytics** | Heatmap, fatigue curve, payday effect, anomaly detection, subscription gaps |
-| **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER type; auto-routed to savings goals or paired between accounts |
-| **Budget envelopes** | Monthly/weekly limits per category with dynamic color bar (green→amber→red) |
-| **Savings goals** | Goal rings, contribution dialogs, transfer-to-goal auto-routing, link by card or keyword |
+| **Financial score** | 0–100 across 4 pillars; rendered as a **multi-colour donut** (one arc per pillar, dimmed shortfall) so a weak pillar is visible at a glance |
+| **Behavioral analytics** | Heatmap, fatigue curve, payday effect, impulse classification, anomaly detection, subscription gaps |
+| **Analytics period** | Месяц / 6 мес / Год / Всё время chips drive the category + daily breakdown (the health score keeps its own point-in-time window by design) |
+| **Category drill-down** | Interactive pseudo-3D pie — tap a slice to explode it, then open every operation of that category for this **and** last month |
+| **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER; auto-routed to savings goals by account / card / keyword, or paired between accounts so net worth is unchanged |
+| **Budget envelopes** | Monthly/weekly limits per category, dynamic color bar (green→amber→red), alerts throttled to **once per budget per month, max 2/day** (persisted, survives restart) |
+| **Savings goals** | Goal cards with pixel-art backdrops, contribution dialog, per-goal **history** of routed operations, link by account / card / keyword |
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
-| **Notifications** | Budget alerts, weekly summaries, critical insight push (3 channels) |
-| **Deep-links** | Notification taps navigate directly to the relevant screen |
-| **Settings** | Hero variant, budget alert threshold, biometric lock, ML toggle, categories CRUD |
-| **Biometric lock** | Locks on background; falls back to device credential (PIN) when no biometric enrolled |
+| **Backup / restore** | Full 8-table export to a `.fose` file, AES-GCM-256 encrypted via Android Keystore; restore is additive, idempotent and FK-safe |
+| **Notifications** | Budget alerts, weekly summaries, critical insights, update-available (4 channels) |
+| **Deep-links** | Notification taps navigate directly to the relevant screen (allowlisted routes) |
+| **Settings** | Hero variant, animations/atmosphere/cat mode, budget alert threshold, biometric lock, ML toggle, SMS opt-in, categories CRUD, backup, updates |
+| **Biometric lock** | Off by default and never prompts until the preference is confirmed; always offers a device-PIN escape hatch so a broken sensor can't lock you out |
+| **Shimmer & Cat mode** | Optional atmosphere layer (particles, tilt/sheen cards, breathing hero, bioluminescent ripple) and a mood-matched cat mascot with paw-print particles |
+| **In-app update** | Checks GitHub Releases, downloads and installs a newer APK; a 12 h background worker pushes a notification when one appears |
 | **Home-screen widget** | 2×2 balance widget via `AppWidgetProvider` |
-| **100% offline** | No internet permission; all data stays on device |
+| **Offline by design** | The updater is the only networked component; no financial data ever leaves the device |
 
 ## Supported Banks
 
@@ -49,23 +55,29 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 ## Screens
 
-1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), income/expense metrics, accounts scroll with volumetric bank cards, recent transactions, forecast
-2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-to-delete, detail/edit sheet, "↑ CSV" export, "↓ PDF" import
-3. **Analytics** — 4 tabs: Overview (score ring + expense pyramid + what-if), Categories (fixed/variable badge), Trends (daily chart + heatmap + waterfall), Insights (alerts + anomalies + narratives)
+1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, accounts with volumetric bank cards, clickable recent transactions
+2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, "↑ CSV" export, "↓ PDF" import
+3. **Analytics** — period chips + 4 tabs:
+   - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
+   - **Категории** — interactive 3D pie (tap to explode), ТОП-3 траты, full category list; tap any category for a month-vs-month drill-down of its operations
+   - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
+   - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
-5. **Goals** — goal rings, contribution dialog, link transfers by card or keyword
+5. **Goals** — pixel-art goal cards, contribution dialog, «История ›» of routed operations, 🔗 link transfers by account / card / keyword
 6. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
-7. **Settings** — hero variant, ML toggle, budget alert threshold, biometric, categories CRUD
-8. **Onboarding** — native SMS permission request, 90-day import progress, skip option
+7. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
+8. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
 
 ## Tech Stack
 
-- **Kotlin** + **Jetpack Compose** (Material 3, custom dark theme)
+- **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room** — local SQLite, entities stored as Long kopecks (×100)
-- **DataStore** — 8 preference keys (hero variant, notifications, ML toggle, etc.)
-- **WorkManager** + **HiltWorkerFactory** — daily analytics background job
+- **Room 2.6.1** — local SQLite, schema **v10**, amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
+- **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
+- **PdfBox-Android 2.0.27.0** — statement import
+- **Android Keystore (AES-GCM-256)** — encrypted backups
 - **Clean Architecture + MVVM**
 
 ## Project Structure
@@ -73,22 +85,30 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (16 categories, ~90 merchant rules)
-│   ├── parser/         # BankParser interface, ParserEngine, 11 bank parsers + TransferPatterns (@IntoSet DI)
+│   ├── database/       # Entities, DAOs, FosDatabase (v10 — 17 categories, 143 merchant rules)
+│   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, AmountParser
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
-│   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import)
-│   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer
+│   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import), PushNotificationListener
+│   ├── account/        # AccountLinker (card→account resolution, authoritative balance, orphan re-link)
+│   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
+│   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer, NarrativeEngine
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
-│   └── notifications/  # NotificationHelper (3 channels + deep-links + permission guard)
+│   ├── pdf/            # PdfImporter, PdfTransactionParser
+│   ├── backup/         # BackupManager, BackupCrypto (AES-GCM via Keystore)
+│   ├── update/         # UpdateChecker, UpdateCheckWorker
+│   └── notifications/  # NotificationHelper (4 channels + deep-links + permission guard)
 ├── data/
-│   ├── repositories/   # 5 repositories (Tx, Account, Category, Budget, Goal)
+│   ├── repositories/   # Tx, Account, Card, Category, Budget, Goal, TransferRoute
 │   └── preferences/    # UserPreferences (DataStore)
-├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, PreferencesModule, AnalyticsModule
-├── features/           # dashboard, transactions, analytics, budget, goals, onboarding, settings
+├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule
+├── features/           # dashboard, transactions, analytics, budget, goals, subscriptions, categories, onboarding, settings
 ├── navigation/         # FosNavHost, FosRoutes, bottom nav
+├── widget/             # BalanceWidget
 └── ui/
-    ├── theme/          # FosColors, FosType, FosDimens, FosTheme, FosFormatter
-    └── components/     # TransactionRow, LineChart, ScoreRing, GoalRing, HeatmapGrid, WaterfallChart, ExpensePyramid
+    ├── theme/          # FosColors, FosType, FosDimens, FosTheme, FosFormatter, AmountVisualTransformation, Shimmer
+    └── components/     # TransactionRow, LineChart, ScoreRing, ScoreDonut, Pie3D, AnalyticsCharts,
+                        # GoalRing, GoalArt, HeatmapGrid, ExpensePyramid, WhatIfSimulator,
+                        # SwipeToRevealDelete, CatMascot, ParticleLayer, CurrencyReef, ShimmerCardFx
 ```
 
 ## Build
@@ -96,10 +116,24 @@ app/
 ```bash
 ./gradlew assembleDebug
 ./gradlew test
+./gradlew lintDebug
 ```
 
-Parser unit tests: 5 banks × 6 test cases each (`BankParserTest.kt`)  
-Behavioral analytics tests: 28 cases (`BehavioralAnalyzerTest.kt`)
+CI (`.github/workflows/android.yml`) runs all three on every PR targeting `dev` or `main`.
+
+**Unit tests** (`app/src/test/`):
+
+| Suite | Coverage |
+|-------|----------|
+| 12 × `*ParserTest` | every bank parser, ~7 cases each |
+| `TransferPatternsTest` | transfer detection, card-mask extraction, stem anchoring |
+| `PromoFilterTest` | marketing pushes are dropped, real operations pass |
+| `PdfTransactionParserTest` | Alfa statement layout, logical-row reconstruction |
+| `BehavioralAnalyzerTest` | all 7 public methods + edge cases (28 cases) |
+| `InsightGeneratorTest` | all 6 rules + sort order (28 cases) |
+
+There are **no instrumented/UI tests** — screen behaviour, gestures and Compose rendering are
+verified by review, not automatically.
 
 ## Install & Update (sideload)
 
@@ -172,3 +206,6 @@ dev   ← integration branch
 - CSV export uses RFC 4180 quoting + formula-injection neutralization (`=`, `+`, `-`, `@` prefix with `'`)
 - Deep-link routes are validated against an allowlist before navigation (prevents attacker-controlled crash via exported Activity)
 - `PushNotificationListener` → `TransactionSource.PUSH` requires user to explicitly enable the notification listener in system Settings
+- SMS reading is **opt-in** (`sms_realtime_enabled`, default `false`) — a fresh install never touches the inbox until the user enables it
+- Backups are encrypted with an AES-GCM-256 key held in the Android Keystore (hardware-backed where available); the `FOSENC1:` header keeps older plaintext exports restorable
+- `UpdateChecker` refuses any release asset URL that is not `https://` before opening a connection

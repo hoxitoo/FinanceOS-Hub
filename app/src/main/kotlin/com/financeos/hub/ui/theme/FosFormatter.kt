@@ -116,6 +116,83 @@ object FosFormatter {
         return formatInteger(clean.toLong())
     }
 
+    /**
+     * Kopecks → the raw string an amount INPUT should start from: `141759` → `"1417,59"`,
+     * `141700` → `"1417"`. Integer division alone (`kopecks / 100`) silently dropped the kopecks,
+     * so editing a balance of 1 417,59 ₽ used to reset it to 1 417 ₽ the moment the field opened.
+     */
+    fun amountInput(kopecks: Long): String {
+        val rubles = Math.abs(kopecks) / 100L
+        val cents  = Math.abs(kopecks % 100L)
+        val sign   = if (kopecks < 0) "-" else ""
+        return if (cents == 0L) "$sign$rubles"
+               else "$sign$rubles,${cents.toString().padStart(2, '0')}"
+    }
+
+    /**
+     * Normalises what an amount field stores: digits, at most ONE decimal separator, at most two
+     * decimals, an optional leading `-`, and no leading zeros.
+     *
+     * Sanitising in `onValueChange` (rather than only when formatting for display) is what keeps the
+     * stored text and the displayed text the same characters — see [AmountVisualTransformation],
+     * whose caret mapping depends on that. It also closes two silent-data bugs: a second separator
+     * used to make the value unparseable (saving 0 ₽ while the field still showed a number), and a
+     * third decimal was hidden by the display yet still counted when saving.
+     */
+    fun sanitizeAmountInput(raw: String, allowNegative: Boolean = false): String {
+        val negative = allowNegative && raw.trimStart().startsWith("-")
+        val sb = StringBuilder()
+        var sepSeen = false
+        var decimals = 0
+        for (ch in raw) {
+            when {
+                ch.isDigit() && !sepSeen -> sb.append(ch)
+                ch.isDigit()             -> if (decimals < 2) { sb.append(ch); decimals++ }
+                (ch == ',' || ch == '.') && !sepSeen && sb.isNotEmpty() -> {
+                    sepSeen = true; sb.append(',')
+                }
+                else -> Unit   // drop everything else, including a stray '-' mid-string
+            }
+        }
+        var out = sb.toString()
+        // Strip leading zeros ("007" → "7") but keep a lone "0" and "0,50".
+        val sepIdx = out.indexOf(',')
+        val intPart = if (sepIdx >= 0) out.substring(0, sepIdx) else out
+        val rest    = if (sepIdx >= 0) out.substring(sepIdx) else ""
+        val trimmed = intPart.trimStart('0').ifEmpty { if (intPart.isEmpty()) "" else "0" }
+        out = trimmed + rest
+        return if (negative && out.isNotEmpty()) "-$out" else out
+    }
+
+    /**
+     * Groups the integer part of a money INPUT for display while the user types, keeping any
+     * decimal part intact: `"1417,59"` → `"1 417,59"`. Unlike [groupDigits] this tolerates a
+     * decimal separator, so amount fields show thousands spaced instead of a run-on `1000`.
+     */
+    fun groupAmountInput(raw: String): String {
+        if (raw.isBlank()) return ""
+        val negative = raw.trimStart().startsWith("-")
+        val sepIndex = raw.indexOfFirst { it == ',' || it == '.' }
+        val intRaw   = (if (sepIndex >= 0) raw.substring(0, sepIndex) else raw).filter { it.isDigit() }
+        val decRaw   = if (sepIndex >= 0) raw.substring(sepIndex + 1).filter { it.isDigit() }.take(2) else null
+
+        val intPart = if (intRaw.isEmpty()) "" else formatInteger(intRaw.trimStart('0').ifEmpty { "0" }.toLong())
+        val sign    = if (negative) "-" else ""
+        return when {
+            decRaw == null -> "$sign$intPart"
+            else           -> "$sign$intPart,$decRaw"
+        }
+    }
+
+    /** Parses a (possibly grouped) money input back to kopecks. Rounds, never truncates. */
+    fun parseAmountInput(raw: String): Long? {
+        val cleaned = raw.replace(NBSP, "").replace(" ", "").replace(',', '.')
+        val value   = cleaned.toDoubleOrNull() ?: return null
+        // Math.round, not toLong(): 1417.59 * 100 is 141758.999… in binary floating point, which
+        // toLong() would truncate to 141758 — losing a kopeck on every edit.
+        return Math.round(value * 100.0)
+    }
+
     private fun formatInteger(n: Long): String {
         if (n < 1000L) return n.toString()
         val s = n.toString()

@@ -3,6 +3,7 @@ package com.financeos.hub.features.goals
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,7 +36,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.GoalEntity
+import com.financeos.hub.ui.components.GoalArtBackdrop
 import com.financeos.hub.ui.components.GoalRing
+import com.financeos.hub.ui.components.goalArtFor
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -56,6 +60,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 
     var linkTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val linkSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var historyTarget    by remember { mutableStateOf<GoalEntity?>(null) }
+    val historySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         containerColor = FosColors.Background,
@@ -102,8 +109,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                             contributeTarget = goal
                             contributeText   = ""
                         },
-                        onLink   = { linkTarget = goal },
-                        onDelete = { vm.deleteGoal(goal.id) },
+                        onLink    = { linkTarget = goal },
+                        onHistory = { historyTarget = goal },
+                        onDelete  = { vm.deleteGoal(goal.id) },
                     )
                 }
             }
@@ -139,7 +147,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 
     // Contribute dialog
     contributeTarget?.let { goal ->
-        val kopecks = contributeText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+        val kopecks = FosFormatter.parseAmountInput(contributeText) ?: 0L
         AlertDialog(
             onDismissRequest = { contributeTarget = null },
             containerColor   = FosColors.Surface,
@@ -159,7 +167,8 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                     )
                     androidx.compose.material3.OutlinedTextField(
                         value           = contributeText,
-                        onValueChange   = { contributeText = it },
+                        onValueChange   = { contributeText = FosFormatter.sanitizeAmountInput(it) },
+                        visualTransformation = AmountVisualTransformation,
                         label           = { Text("Сумма, ₽", style = FosType.Label) },
                         singleLine      = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -211,6 +220,16 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             onDismiss      = { linkTarget = null },
         )
     }
+
+    // Goal history — every operation routed to this goal, with dates
+    historyTarget?.let { goal ->
+        GoalHistorySheet(
+            goal       = goal,
+            vm         = vm,
+            sheetState = historySheetState,
+            onDismiss  = { historyTarget = null },
+        )
+    }
 }
 
 @Composable
@@ -219,76 +238,94 @@ private fun GoalCard(
     onEdit           : () -> Unit,
     onAddContribution: () -> Unit,
     onLink           : () -> Unit,
+    onHistory        : () -> Unit,
     onDelete         : () -> Unit,
 ) {
     val ratio = if (goal.targetKopecks > 0)
         goal.savedKopecks.toFloat() / goal.targetKopecks else 0f
     val complete = ratio >= 1f
+    val artKind  = remember(goal.emoji, goal.name) { goalArtFor(goal) }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
-            .clickable { onEdit() }
-            .padding(FosDimens.CardPadding),
-        horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
-        verticalAlignment     = Alignment.CenterVertically,
+            .clickable { onEdit() },
     ) {
-        GoalRing(
-            progress = ratio,
-            modifier = Modifier.size(64.dp),
-        )
+        // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).
+        GoalArtBackdrop(kind = artKind, modifier = Modifier.matchParentSize())
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "${goal.emoji} ${goal.name}",
-                style = FosType.BodySemi,
-                color = if (complete) FosColors.Positive else FosColors.TextPrimary,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(FosDimens.CardPadding),
+            horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            GoalRing(
+                progress = ratio,
+                modifier = Modifier.size(64.dp),
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "${FosFormatter.compact(goal.savedKopecks)} из ${FosFormatter.compact(goal.targetKopecks)}",
-                style = FosType.Micro,
-                color = FosColors.TextSecondary,
-            )
-            goal.deadlineAt?.let {
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "до ${FosFormatter.dayLabel(it)}",
+                    "${goal.emoji} ${goal.name}",
+                    style = FosType.BodySemi,
+                    color = if (complete) FosColors.Positive else FosColors.TextPrimary,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${FosFormatter.compact(goal.savedKopecks)} из ${FosFormatter.compact(goal.targetKopecks)}",
                     style = FosType.Micro,
-                    color = FosColors.TextMuted,
+                    color = FosColors.TextSecondary,
+                )
+                goal.deadlineAt?.let {
+                    Text(
+                        "до ${FosFormatter.dayLabel(it)}",
+                        style = FosType.Micro,
+                        color = FosColors.TextMuted,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                // Tap to see every operation that funded (or drew from) this goal, with dates.
+                Text(
+                    "История ›",
+                    style    = FosType.Micro,
+                    color    = FosColors.Info,
+                    modifier = Modifier.clickable { onHistory() },
                 )
             }
-        }
 
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                if (complete) "✓" else "${(ratio * 100).toInt()}%",
-                style = FosType.SmallBold,
-                color = if (complete) FosColors.Positive else FosColors.TextSecondary,
-            )
-            if (!complete) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    if (complete) "✓" else "${(ratio * 100).toInt()}%",
+                    style = FosType.SmallBold,
+                    color = if (complete) FosColors.Positive else FosColors.TextSecondary,
+                )
+                if (!complete) {
+                    TextButton(
+                        onClick      = onAddContribution,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text("+", style = FosType.BodySemi, color = FosColors.Info)
+                    }
+                }
                 TextButton(
-                    onClick      = onAddContribution,
+                    onClick        = onLink,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                 ) {
-                    Text("+", style = FosType.BodySemi, color = FosColors.Info)
+                    Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
                 }
-            }
-            TextButton(
-                onClick        = onLink,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
-            }
-            TextButton(
-                onClick        = onDelete,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text("×", style = FosType.BodySemi, color = FosColors.Negative)
+                TextButton(
+                    onClick        = onDelete,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text("×", style = FosType.BodySemi, color = FosColors.Negative)
+                }
             }
         }
     }

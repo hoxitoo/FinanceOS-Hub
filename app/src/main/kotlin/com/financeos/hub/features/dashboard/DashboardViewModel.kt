@@ -34,6 +34,7 @@ data class DashboardState(
     val expenseKopecks      : Long                      = 0L,
     val forecastKopecks     : Long                      = 0L,
     val financialScore      : Int                       = 0,
+    val scoreBreakdown      : com.financeos.hub.core.analytics.ScoreCalculator.ScoreBreakdown? = null,
     val sparkline           : List<Float>               = emptyList(),
     val accounts            : List<AccountEntity>       = emptyList(),
     val cards               : List<CardEntity>          = emptyList(),
@@ -57,7 +58,8 @@ class DashboardViewModel @Inject constructor(
     private val transferRouter: com.financeos.hub.core.transfer.TransferRouter,
 ) : ViewModel() {
 
-    private val _score     = MutableStateFlow(0)
+    // Full breakdown (not just the total) so the dashboard can draw the multi-colour score donut.
+    private val _score     = MutableStateFlow<com.financeos.hub.core.analytics.ScoreCalculator.ScoreBreakdown?>(null)
     private val _forecast  = MutableStateFlow(0L)
     private val _sparkline = MutableStateFlow<List<Float>>(emptyList())
 
@@ -69,7 +71,7 @@ class DashboardViewModel @Inject constructor(
                     // Re-throw CancellationException so collectLatest can cancel in-flight work
                     // when a new emission arrives — bare runCatching{} would swallow it and
                     // let all three expensive DB calls run to completion even after cancellation.
-                    try { _score.value     = engine.computeScore().total  } catch (e: Exception) { if (e is CancellationException) throw e }
+                    try { _score.value     = engine.computeScore()        } catch (e: Exception) { if (e is CancellationException) throw e }
                     try { _forecast.value  = engine.forecastMonthEnd()    } catch (e: Exception) { if (e is CancellationException) throw e }
                     try { _sparkline.value = engine.sparkline30Days()     } catch (e: Exception) { if (e is CancellationException) throw e }
                 }
@@ -113,7 +115,8 @@ class DashboardViewModel @Inject constructor(
 
         @Suppress("UNCHECKED_CAST")
         val heroVariant = meta[0] as String
-        val score       = meta[1] as Int
+        val breakdown   = meta[1] as? com.financeos.hub.core.analytics.ScoreCalculator.ScoreBreakdown
+        val score       = breakdown?.total ?: 0
         val forecast    = meta[2] as Long
         @Suppress("UNCHECKED_CAST")
         val sparkline   = meta[3] as List<Float>
@@ -135,6 +138,7 @@ class DashboardViewModel @Inject constructor(
             expenseKopecks       = expense,
             forecastKopecks      = forecast,
             financialScore       = score,
+            scoreBreakdown       = breakdown,
             sparkline            = sparkline,
             accounts             = accounts,
             cards                = cards,

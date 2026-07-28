@@ -30,7 +30,12 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var userPreferences: UserPreferences
 
-    private var isLocked by mutableStateOf(true)
+    // Lock state is UNKNOWN until the preference has actually been read. Starting at `true`
+    // rendered LockScreen immediately, whose LaunchedEffect fired the fingerprint prompt BEFORE the
+    // async pref read completed — so the app asked for a fingerprint even with biometrics disabled,
+    // and a broken sensor left the user permanently locked out of their data.
+    private var lockChecked by mutableStateOf(false)
+    private var isLocked by mutableStateOf(false)
     private var promptActive = false
     private var pendingDeepRoute by mutableStateOf<String?>(null)
     // Cached so onStop can lock synchronously without launching a new coroutine that
@@ -50,13 +55,31 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         pendingDeepRoute = FosRoute.sanitizeDeepLink(intent.getStringExtra(NotificationHelper.EXTRA_ROUTE))
+        // Read the lock preference ONCE, before anything is shown. Only lock when it is actually on.
+        // FAIL OPEN on error: if this read throws (corrupt/unreadable DataStore) and we left
+        // lockChecked = false, the UI branch below would render nothing forever — a black screen with
+        // no way in, which is exactly the lock-out this whole change exists to prevent. The stored
+        // default is "biometrics off", so treating an unreadable preference as off is also the
+        // truthful fallback.
+        lifecycleScope.launch {
+            biometricEnabledCache = runCatching { userPreferences.biometricEnabled.first() }
+                .getOrDefault(false)
+            isLocked    = biometricEnabledCache
+            lockChecked = true
+            if (isLocked) triggerAuth()
+        }
         setContent {
             FosTheme {
                 ProvideShimmer(userPreferences) {
-                    if (isLocked) {
-                        LockScreen(onUnlockRequested = { triggerAuth() })
-                    } else {
-                        FosNavHost(initialDeepRoute = pendingDeepRoute)
+                    when {
+                        // Until the pref is known, show nothing — never the lock screen (which
+                        // would auto-prompt) and never the content (which would leak data).
+                        !lockChecked -> Unit
+                        isLocked     -> LockScreen(
+                            onUnlockRequested = { triggerAuth() },
+                            onUseDeviceCredential = { triggerDeviceCredential() },
+                        )
+                        else         -> FosNavHost(initialDeepRoute = pendingDeepRoute)
                     }
                 }
             }
@@ -76,8 +99,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
-            biometricEnabledCache = userPreferences.biometricEnabled.first()
+            biometricEnabledCache = runCatching { userPreferences.biometricEnabled.first() }
+                .getOrDefault(false)
+            lockChecked = true
             if (!biometricEnabledCache) {
+                // Turning the setting off must release the lock immediately — never leave a user
+                // stranded behind a prompt for a feature they disabled.
                 isLocked = false
                 return@launch
             }
@@ -106,8 +133,17 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // No usable biometric. Do NOT silently unlock — fall back to the device credential
-        // if the device has a secure lock; only release the lock when the device has none.
+        // No usable biometric — fall back to the device credential.
+        triggerDeviceCredential()
+    }
+
+    /**
+     * PIN/pattern/password fallback. Reachable from the lock screen at any time, so a broken or
+     * unrecognised fingerprint can never lock a user out of their own data (a tester lost their
+     * whole history to exactly that and had to reinstall). Only releases the lock outright when the
+     * device has no secure lock at all — there is then nothing for the app lock to enforce.
+     */
+    private fun triggerDeviceCredential() {
         val keyguard = getSystemService(KeyguardManager::class.java)
         if (keyguard != null && keyguard.isDeviceSecure) {
             @Suppress("DEPRECATION")
@@ -122,7 +158,6 @@ class MainActivity : AppCompatActivity() {
                 isLocked = false
             }
         } else {
-            // Device has no secure lock set — there is nothing for the app lock to enforce.
             isLocked = false
         }
     }

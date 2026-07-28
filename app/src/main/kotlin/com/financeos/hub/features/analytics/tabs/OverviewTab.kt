@@ -11,17 +11,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.ExpensePyramid
-import com.financeos.hub.ui.components.ScoreRing
+import com.financeos.hub.ui.components.ScoreDonut
+import com.financeos.hub.ui.components.scoreSegments
 import com.financeos.hub.ui.components.WhatIfSimulator
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -54,15 +58,16 @@ fun OverviewTab(state: AnalyticsState) {
                     horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {
-                    ScoreRing(
-                        score    = score.total,
+                    val segments = scoreSegments(score)
+                    ScoreDonut(
+                        segments = segments,
+                        total    = score.total,
                         modifier = Modifier.size(80.dp),
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ScoreRow("Сбережения",  score.savings,   30)
-                        ScoreRow("Стабильность",score.stability, 20)
-                        ScoreRow("Обязательные",score.mandatory, 25)
-                        ScoreRow("Подушка",     score.cushion,   25)
+                        segments.forEach { seg ->
+                            ScoreRow(seg.label, seg.earned, seg.max, seg.color)
+                        }
                     }
                 }
             }
@@ -182,12 +187,23 @@ fun OverviewTab(state: AnalyticsState) {
 }
 
 @Composable
-private fun ScoreRow(label: String, value: Int, max: Int) {
+private fun ScoreRow(label: String, value: Int, max: Int, dotColor: Color) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically,
     ) {
-        Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
+        // Colour dot ties each row to its slice in the donut.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
+        }
         Text("$value/$max", style = FosType.Micro, color = FosColors.TextPrimary)
     }
 }
