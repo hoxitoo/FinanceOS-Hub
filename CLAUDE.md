@@ -676,6 +676,44 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Batch 4 — Trends tab made readable (working branch only — NOT merged to main)
+
+New shared components in `ui/components/AnalyticsCharts.kt`: `InfoBadge` (tappable «?» → plain-language
+dialog), `SectionHeader` (caption + badge), `MoMComparison`, `FatigueBars`, `SegmentedDonut`.
+
+### «Месяц к месяцу» — waterfall → diverging bars with «было → стало»
+The waterfall showed only a *difference*, and because `delta = prev − current` internally, a RISE in
+spending rendered green-with-a-plus — reading as income/good. Now each row shows the raw change with
+a bar diverging from a centre line: **left+green = потратили меньше, right+red = потратили больше**,
+with `было X → стало Y` underneath and a one-line headline ("Расходы выросли на N").
+- `WaterfallBar` gained `prevKopecks` / `currentKopecks` / `isIncome`. **`isIncome` matters:** for the
+  income row a rise is GOOD, for expense rows a rise is BAD — without the flag the UI would paint an
+  income increase red. The sign shown is now derived from the raw change so it always matches the
+  numbers printed below it.
+
+### «Импульсивность» — explained + made checkable
+- `InfoBadge` documents the actual heuristic (impulse = < 2 000 ₽ between 21:00–06:00; planned =
+  > 5 000 ₽ on a weekday 08:00–13:00) and states outright that it is a time/amount heuristic.
+- Headline is now the share of MONEY (not receipts), plus a proportion bar (импульсивные/плановые/
+  обычные) and — the key change for the "о, действительно импульсивная" effect — **the actual flagged
+  purchases** with merchant, date and the hour that triggered the flag.
+- `ImpulseStats.samples` added (top-5 by amount) in `BehavioralAnalyzer.computeImpulseStats`.
+
+### «Усталость бюджета» — explained + readable chart
+`InfoBadge` explains the averaging. The bare line chart became `FatigueBars`: one bar per day of month,
+a grey average reference line, above-average days in Warning, the peak day in Negative, axis labels
+1/15/31 and a sentence naming the peak day and its average amount.
+
+### «Когда ты тратишь» — heatmap → two tappable donuts
+The 7×24 grid was tall and unreadable on a phone. Replaced with two `SegmentedDonut`s side by side:
+**by weekday** and **by 4-hour bucket** (24 tappable hour slices would be far too small). Tapping a
+slice shows its share and amount in the centre; tapping again clears. Adds compact legends and a
+plain-language takeaway ("Больше всего вы тратите в субботу, чаще всего в 20–24 ч.").
+Tap→slice mapping converts the touch angle to degrees clockwise from 12 o'clock and walks the same
+sweep order used for drawing; taps in the hole or outside the ring clear the selection.
+
+`WaterfallChart.kt` is now unused but kept (harmless, may return for a different view).
+
 ## Batch 3 of the long improvement cycle (working branch only — NOT merged to main)
 
 ### 1. Budget alert spam — throttled and persisted

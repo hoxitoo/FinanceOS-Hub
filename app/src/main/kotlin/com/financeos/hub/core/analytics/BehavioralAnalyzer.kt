@@ -163,6 +163,9 @@ class BehavioralAnalyzer @Inject constructor() {
             impulsePercent = if (total > 0) impulse.size.toFloat() / total else 0f,
             impulseKopecks = impulse.sumOf { abs(it.amountKopecks) },
             totalKopecks   = expenses.sumOf { abs(it.amountKopecks) },
+            // Concrete examples make the verdict checkable: the user recognises the purchase and
+            // the late hour instead of being told an abstract percentage.
+            samples        = impulse.sortedByDescending { abs(it.amountKopecks) }.take(5),
         )
     }
 
@@ -273,6 +276,8 @@ data class ImpulseStats(
     val impulsePercent : Float,
     val impulseKopecks : Long,
     val totalKopecks   : Long,
+    /** Largest impulse purchases, so the UI can show WHICH ones were flagged. */
+    val samples        : List<TransactionEntity> = emptyList(),
 ) {
     val impulseShareOfSpend: Float
         get() = if (totalKopecks > 0) impulseKopecks.toFloat() / totalKopecks else 0f
