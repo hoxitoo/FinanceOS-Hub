@@ -43,19 +43,37 @@ TextDark      = #3A4358
 
 ## Database Schema
 
+Room schema **version 10**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
+
+| Migration | Change |
+|-----------|--------|
+| 2→3 | `transactions.goal_id`, `transactions.transfer_pair_id`, `transfer_routes` table |
+| 3→4 | indexes on `goal_id` / `transfer_pair_id` |
+| 4→5 | re-seed categories + merchant rules (income categories, transit rules) |
+| 6→7 | `transactions.balance_kopecks` |
+| 7→8 | `transactions.currency` (`NOT NULL DEFAULT 'RUB'`) |
+| 8→9 | `transactions.raw_text` (captured message body, for diagnostics) |
+| 9→10 | re-seed (`cat_betting` + marketplace/bookmaker rules) |
+
 ### TransactionEntity
 ```
 id: String (UUID)
-accountId: String
+accountId: String?
 categoryId: String?
-amountKopecks: Long   ← negative=expense, positive=income
+amountKopecks: Long    ← negative=expense, positive=income, TRANSFER signed by direction
+currency: String       ← "RUB" | "USD" | "EUR" | "KGS"  (per-transaction, not just per-account)
 type: TransactionType (INCOME/EXPENSE/TRANSFER)
-source: TransactionSource (SMS/MANUAL)
+source: TransactionSource (SMS/PUSH/MANUAL/PDF)
 merchant: String?
 description: String?
+sourceMask: String?    ← card last-4 as printed in the message
+balanceKopecks: Long?  ← bank-authoritative «Остаток», null when the message had none
+rawText: String?       ← exact captured body (shown in the detail sheet as «Исходный текст»)
+goalId: String?        ← set when TransferRouter routed it to a savings goal
+transferPairId: String? ← set when both legs of one internal transfer were matched
 timestamp: Long (epoch ms)
-smsId: String?        ← "${sender}_${timestamp}_${body.hashCode()}"
-isDeleted: Boolean    ← soft delete
+smsId: String?         ← "${sender}_${timestamp}_${body.hashCode()}"
+isDeleted: Boolean     ← soft delete
 deletedAt: Long?
 ```
 
@@ -64,10 +82,17 @@ deletedAt: Long?
 id, name, bank, cardMask (last 4)
 balanceKopecks: Long
 currency: String
-isActive: Boolean
+isActive: Boolean      ← soft delete; deactivating also deactivates its cards and cuts its goal-routes
+updatedAt: Long        ← recency arbiter: a stored bank balance only wins if it is NEWER than this
 ```
 
-### CategoryEntity (16 system categories: 13 expense + 3 income)
+### CardEntity / TransferRouteEntity
+```
+CardEntity:          id, accountId (FK, onDelete = CASCADE), cardMask, isActive
+TransferRouteEntity: id, goalId, matchType (ACCOUNT|CARD|KEYWORD), matchValue (lowercased), isActive
+```
+
+### CategoryEntity (17 system categories: 14 expense + 3 income)
 ```
 id, name, emoji, color (hex)
 isSystem: Boolean
@@ -90,19 +115,23 @@ deadlineAt: Long?
 isCompleted: Boolean
 ```
 
-## Default Categories (16)
+## Default Categories (17)
 ```
-Expense (13):
+Expense (14):
 cat_food, cat_grocery, cat_transport, cat_housing, cat_health,
 cat_shopping, cat_telecom, cat_entertain, cat_education, cat_travel,
-cat_beauty, cat_pets, cat_other
+cat_beauty, cat_pets, cat_other, cat_betting (Букмекер 🎰)
 Income (3):
 cat_salary (Зарплата 💼), cat_income (Прочие доходы 💰), cat_cashback (Кэшбэк 💸)
 ```
+`sort_order` is the seed-list index, and existing installs keep their stored order via
+`INSERT OR IGNORE` — so a **new category must be appended LAST**, never inserted mid-list,
+or new and existing installs would disagree on the order. The colour list must be extended
+in step (17 categories / 17 colours) to keep `colors[i]` in range.
 
 ## Categorisation — how it actually works
 Two-stage, **deterministic** — there is no on-device learning loop:
-1. `DictionaryClassifier` — ~90 seeded merchant rules (literal/regex substring match on
+1. `DictionaryClassifier` — 143 seeded merchant rules (literal/regex substring match on
    `merchant + description`, lowercased, first match wins, compiled once and cached).
 2. `MLCategoryClassifier` (optional, behind the ML toggle) — a **pre-trained, frozen**
    TFLite model (`merchant_classifier.tflite`, 256→13 softmax). Inference only; the
@@ -115,9 +144,45 @@ The classifier does **not** learn from manual category edits. Correcting a trans
 changes only that row; to teach the app a new merchant, add a merchant rule (the ML model
 would need offline retraining + a new `.tflite`).
 
-## SMS Parsers (P1 Banks)
+## Ingestion pipeline (SMS · push · PDF · manual)
+
 Each `BankParser` declares `senderPatterns: List<Regex>`.
 `ParserEngine` uses Hilt `@IntoSet` multibinding — add new bank = new class + 1 `@Binds` line.
+
+```
+SmsReceiver / PushNotificationListener / SmsReader
+        │
+        ├─ PromoFilter.isPromo(body)? ─────────────► drop (marketing offer)
+        │
+        ├─ ParserEngine.parse(sender, body)
+        │     ├─ normalise NBSP/narrow-NBSP → space (once, centrally)
+        │     ├─ every parser whose sender matches is tried (firstNotNullOfOrNull),
+        │     │  not just the first — a sender can be claimed by several banks
+        │     └─ each parser runs TransferPatterns FIRST, so a transfer is never
+        │        mis-booked as a purchase or as sign-inverted income
+        │
+        ├─ dedup: existsBySmsId  →  existsSimilarSmsOrPush(±5 min, same |amount|)
+        │     └─ on a dedup hit the row is NOT inserted, but the message's «Остаток»
+        │        IS still applied (applyAuthoritativeBalance) — the dropped twin often
+        │        carries the balance the kept row lacked
+        │
+        ├─ AccountLinker.resolveAccountId(cardMask, bankId)
+        │     card_mask exact → CardEntity → last-4 digit-tolerant → bank-name (only if unique)
+        │     ...all restricted to ACTIVE accounts, so a deactivated "ghost" can never win
+        │
+        ├─ insert (signedKopecks) + persist currency, balanceKopecks, rawText
+        │
+        ├─ AccountLinker.syncBalance — authoritative «Остаток» if present (>= 0), else delta
+        └─ TransferRouter.onTransactionInserted — goal routing / counterparty leg / pairing
+```
+
+**Balance rules (learned the hard way):**
+- A bank-reported «Остаток» is an **absolute snapshot**; a message without one applies a **delta**.
+- `snapToAuthoritativeIfNewer` only overwrites an account balance when the stored snapshot's
+  timestamp is newer than `account.updatedAt` — so re-linking a card never reverts a fresher
+  manual correction.
+- Deleting a row that was applied as a **delta** (`accountId != null && balanceKopecks == null`,
+  any source but PDF) reverses it. A row that carried a real «Остаток» is left alone.
 
 ### Sberbank examples
 ```
@@ -139,29 +204,107 @@ cushion   = min(25, (balanceMonths / 3.0) * 25)  // target ≥ 3 months buffer
 // 0–39   → Negative   "Требует внимания"
 ```
 
+**Windowing (why the score does not crater on the 1st of the month):**
+`last3Income` / `avg3Expense` / cushion use offsets `1..3` — three **completed** months, never
+the current partial one. The savings + mandatory pillars are current-month by definition, so
+when the current month still has zero income `buildScoreInput` falls back to the last completed
+month for income/expense/mandatory. Without this an empty July 1st scored 0/30 savings and a
+falsely perfect 25/25 mandatory.
+
+**Rendering:** `ScoreDonut` draws one arc per pillar, each owning a slice proportional to its
+max points (Сбережения 30 → Positive, Стабильность 20 → Info, Обязательные 25 → Warning,
+Подушка 25 → GlowViolet). Inside its slice the earned part is full colour, the shortfall stays
+dimmed (α .16). `FosColors.Negative` is deliberately never used for a slice — red means
+"expense/overrun" in this design system and would read as an error, not a category.
+
 ## Navigation Routes
 ```
 onboarding → dashboard (after onboarding_complete = true)
-dashboard | transactions | analytics | budget | goals  ← bottom nav
+dashboard | transactions | analytics | budget | goals   ← bottom nav
+settings | categories | subscriptions                   ← pushed routes
+transactions?categoryId=<id>                            ← optional pre-filter (subscription deep-link)
 ```
+Deep-links from notifications are validated against `FosRoute.sanitizeDeepLink` (allowlist) in
+both `MainActivity` and `FosNavHost` — the Activity is exported, so an unvalidated route string
+is attacker-controllable.
 
 ## DataStore Keys (UserPreferences)
 ```
 onboarding_complete: Boolean
-hero_variant: String      ("CALM" | "CONTRAST" | "MINIMAL")
-biometric_enabled: Boolean
-default_currency: String  ("RUB")
+hero_variant: String            ("CALM" | "CONTRAST" | "MINIMAL")
+biometric_enabled: Boolean       (default false)
+default_currency: String         ("RUB")
 last_import_at: String
+notifications_enabled: Boolean
+budget_alert_threshold: String   ("80")
+budget_alert_day / _count / _keys        ← alert throttle state (epoch day, counter, ≤50 keys)
+ml_classification_enabled: Boolean
+push_listener_enabled: Boolean
+sms_realtime_enabled: Boolean    (default FALSE — SMS reading is opt-in)
+animations_enabled / atmosphere_enabled / cards_variant_b / cat_mode_enabled
+update_notifications_enabled: Boolean (default true)
+last_notified_version: String
 ```
 
 ## Screen: Transactions (Critical rule)
 ```kotlin
-val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positive
+val amtColor = when (tx.type) {
+    EXPENSE  -> FosColors.Negative     // red — ALWAYS
+    INCOME   -> FosColors.Positive
+    TRANSFER -> FosColors.TextPrimary  // neutral "↔ amount", never red/green
+}
 ```
+Deletion is **swipe-left-to-reveal + tap the trash** (`SwipeToRevealDelete`), never an
+auto-dismiss on a flick.
 
-## Screen: Analytics — Trends Tab
-- SVG line chart (Compose Canvas, cubic bezier) as PRIMARY
-- `LineChart.kt` — fill area + stroke + dot at last point
+## Screen: Analytics
+
+A period chip row (`AnalyticsPeriod`: MONTH / HALF_YEAR / YEAR / ALL) sits under the title. It
+filters `categoryExpenses`, `dailyExpenses` and `transactions` only — **every `analyticsEngine.*`
+call keeps its own monthly/rolling window by design** (a health score is point-in-time, not a
+period aggregate), so the chips cannot perturb the score or the behavioural math.
+
+### Обзор
+`ScoreDonut` + per-pillar legend, expense pyramid, what-if simulator, archetype card.
+
+### Категории
+`Pie3D` — the disc is squashed vertically (`PERSPECTIVE = .52`) and redrawn a few pixels lower
+in a darker shade to fake the extrusion (bounded to ~12 layers so it stays cheap on a 3x screen).
+Hit-testing **un-squashes the touch point back into circle space** before measuring the angle;
+angles start at 0° = 3 o'clock and run clockwise, matching the draw order exactly. Tapping a
+slice explodes it; tapping a category opens `CategoryOpsSheet` — all its operations for the
+current AND previous month with a month-over-month headline. That drill-down deliberately
+ignores the period chips (it answers a fixed month-vs-month question) and matches
+`category_id IS NULL` for the synthetic `cat_other` bucket.
+
+### Тренды
+- daily spending curve (`LineChart` — Compose Canvas, cubic bezier, fill + stroke + last dot)
+- «Когда ты тратишь» — two tappable `SegmentedDonut`s (weekday / 4-hour bucket). The 7×24
+  `HeatmapGrid` was too tall and too fine-grained to read on a phone.
+- «Усталость бюджета» — `FatigueBars`, one bar per day of month, average reference line,
+  above-average days in Warning, peak day in Negative
+- «Месяц к месяцу» — `MoMComparison` diverging bars: left+green = потратили меньше,
+  right+red = потратили больше, with `было X → стало Y`. `WaterfallBar.isIncome` flips the
+  semantics for the income row (a rise there is GOOD) — without it an income increase paints red.
+- «Импульсивность» — proportion bar + the **actual flagged purchases** (merchant, date, hour)
+- every section carries an `InfoBadge` («?») explaining the heuristic in plain language,
+  including that impulse detection is a time/amount heuristic (< 2 000 ₽ between 21:00–06:00)
+
+### Инсайты
+Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, no icon.
+
+## Money input fields
+
+All five money fields (account balance edit, add-account balance, add-transaction amount, goal
+contribution, budget limit) share one contract:
+- state holds the **raw** string; grouping is applied by `AmountVisualTransformation`
+  (a `VisualTransformation` + exact `OffsetMapping`). Formatting `value` directly desynchronises
+  the caret — `BasicTextField` re-applies its retained selection to the supplied text, so typing
+  `12345` produced `12354` once a separator appeared.
+- `FosFormatter.sanitizeAmountInput` allows one separator and ≤2 decimals, so a second separator
+  can't silently make the value unparseable (field showing `1,23`, **0 ₽** saved).
+- `FosFormatter.parseAmountInput` **rounds** instead of truncating — `(1417.59 * 100).toLong()`
+  is `141758` in binary floating point and lost a kopeck on every edit.
 
 ---
 
@@ -280,7 +423,10 @@ val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positiv
 ### Coroutine safety in BroadcastReceiver
 - `SmsReceiver` uses a `CoroutineScope` with `SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler`
 - The `CoroutineExceptionHandler` logs to `android.util.Log.e` — exceptions do not propagate and crash the app
-- `goAsync()` is NOT used because each SMS is processed independently and the receiver returns quickly
+- `onReceive()` wraps the work in `goAsync()` and calls `pendingResult.finish()` in a `finally`.
+  Without it Android can kill the process before the DB write completes when the app is
+  backgrounded. `BalanceWidget` does the same — and must call `finish()` in exactly ONE place
+  (a double-finish crashes).
 
 ### SQL injection surface
 - All `db.execSQL()` calls in `FosDatabase.PREPOPULATE_CALLBACK` use the parameterized two-arg form: `execSQL(sql, arrayOf(...))`
@@ -294,6 +440,45 @@ val amtColor = if (tx.type == EXPENSE) FosColors.Negative else FosColors.Positiv
 ### LazyColumn key stability
 - All `items()` calls use `key = { it.id }` or equivalent unique key
 - This prevents Compose from reusing wrong item composables when the list is filtered/sorted
+
+### Room: `@Upsert`, never `@Insert(onConflict = REPLACE)` on accounts
+In SQLite, REPLACE on an existing row is **DELETE + INSERT**. `CardEntity` has
+`ForeignKey(onDelete = CASCADE)`, so every `accountRepo.upsert(account.copy(balance = …))` —
+balance edit, manual op, delete-reversal, backup restore — silently deleted all of the account's
+cards. This was the root cause of the long-running "cards keep detaching themselves" saga.
+`@Upsert` updates in place; no delete, no cascade.
+
+### Soft delete leaves references behind
+`deactivate` (`is_active = 0`) does not remove rows that point at the account. `deleteAccount`
+must therefore ALSO deactivate the account's cards and drop its ACCOUNT-type goal-routes,
+otherwise a re-created account gets a new id and the stale card/route point at a ghost. All
+account resolution (`AccountLinker`) filters to active accounts only, and
+`linkOrphansToAccount` reclaims rows whose `account_id` points at a non-active account — never
+one already on a live account.
+
+### Compose Rules of Hooks
+`remember`, `LaunchedEffect`, `rememberInfiniteTransition`, `animate*AsState` must be called
+**unconditionally**, before any early return. A guard like `if (!enabled) return` placed above
+them corrupts the slot table the moment the toggle flips at runtime. Inactive animations are
+expressed as a `1f..1f` transition, not as a skipped call. Every `remember` holding per-item
+state also needs a key (`remember(transaction.id)`) or a reused sheet shows the previous item's
+data.
+
+### Cancellation must not be swallowed
+`runCatching {}` catches `CancellationException`, which breaks `collectLatest` / `mapLatest`
+cancellation — the "cancelled" work keeps running to completion. Every guarded block re-throws
+it (`onFailure { if (it is CancellationException) throw it }`), or uses `try/catch` that does.
+
+### `stateIn` belongs to the ViewModel, not to a function call
+`fun historyFor(id) = flow.stateIn(viewModelScope, …)` leaks one sharing coroutine per
+invocation — and a composable body invokes it on every recomposition. Both `GoalsViewModel`
+and `AnalyticsViewModel` cache these per id, and call sites still wrap them in `remember(id)`.
+
+### Fail open, never lock the user out
+`MainActivity` renders nothing until the biometric preference has been read (`lockChecked`), and
+**both** reads default to "biometrics off" if they throw. The lock screen always offers
+«Войти по PIN-коду устройства». An earlier version started `isLocked = true` and prompted before
+the preference was known — a tester with a broken sensor had to reinstall and lost all history.
 
 ---
 

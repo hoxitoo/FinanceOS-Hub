@@ -1,20 +1,34 @@
 # FinanceOS-Hub — Session Context
 
 > Read this file at the start of every session to resume without re-reading the full roadmap.
+> It describes the **current state** of the project plus the invariants that keep getting
+> re-broken. Deep detail lives in `README.md` (user-facing) and `docs/CONTEXT.md` (technical).
 
 ## Project
-Android offline-first personal finance app. Reads bank SMS → auto-categorizes transactions → shows analytics.
-- **Platform:** Android (Kotlin + Jetpack Compose)
+Android offline-first personal finance app. Reads bank SMS/push → auto-categorizes transactions →
+shows analytics.
+- **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
+- **DB schema:** Room v10
+- **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
 ```
-main  ← stable releases only (PR from dev)
+main  ← stable releases only (PR from dev). A push here triggers release-apk.yml.
 dev   ← integration (PR from feature branches)
-  claude/project-setup-design-sndr3y  ← current session
+  claude/project-setup-design-sndr3y  ← current working branch
 ```
 **Never commit directly to main or dev.**
+
+## Build & verification
+The project **cannot be built in this container** (no Android SDK; the network policy blocks the
+AGP download). **CI is the compiler:** `.github/workflows/android.yml` runs `test` +
+`assembleDebug` + `lintDebug` on any PR targeting `dev` or `main`. Open a **draft PR to `dev`** to
+get a compile check without touching the release pipeline (which only fires on push to `main`).
+
+There are no instrumented/UI tests — gestures, rendering and screen behaviour are verified by
+review and reasoning only. State that honestly when reporting.
 
 ## Architecture
 Clean Architecture + MVVM + Hilt + Room + Compose + Coroutines/Flow
@@ -22,1128 +36,244 @@ Clean Architecture + MVVM + Hilt + Room + Compose + Coroutines/Flow
 ```
 app/
 ├── core/
-│   ├── database/   (entities, daos, converters, FosDatabase)
-│   ├── parser/     (BankParser interface, ParserEngine, banks/)
-│   ├── classifier/ (DictionaryClassifier)
-│   ├── sms/        (SmsReader, SmsReceiver)
-│   └── analytics/  (AnalyticsEngine, ScoreCalculator, InsightGenerator, AnalyticsWorker)
+│   ├── database/     (entities, daos, converters, FosDatabase, migrations)
+│   ├── parser/       (BankParser, ParserEngine, banks/, TransferPatterns, PromoFilter, AmountParser)
+│   ├── classifier/   (DictionaryClassifier, CategoryDefaults)
+│   ├── sms/          (SmsReader, SmsReceiver, PushNotificationListener)
+│   ├── account/      (AccountLinker)
+│   ├── transfer/     (TransferRouter)
+│   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
+│   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
+│   ├── ml/           (ModelLoader, TextFeatureExtractor, MLCategoryClassifier,
+│   │                  SpendingPredictor, BehavioralCluster)
+│   ├── pdf/          (PdfImporter, PdfTransactionParser)
+│   ├── backup/       (BackupManager, BackupCrypto)
+│   ├── update/       (UpdateChecker, UpdateCheckWorker)
+│   └── notifications/(NotificationHelper — 4 channels)
 ├── data/
-│   ├── repositories/
-│   └── preferences/ (UserPreferences via DataStore)
-├── di/             (DatabaseModule, ParserModule, PreferencesModule, AnalyticsModule)
-├── features/       (dashboard, transactions, analytics, budget, goals, onboarding)
-├── navigation/     (FosNavHost, FosRoutes)
+│   ├── repositories/ (Tx, Account, Card, Category, Budget, Goal, TransferRoute)
+│   └── preferences/  (UserPreferences via DataStore)
+├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
+├── features/         (dashboard, transactions, analytics, budget, goals,
+│                      subscriptions, categories, onboarding, settings)
+├── navigation/       (FosNavHost, FosRoutes)
+├── widget/           (BalanceWidget)
 └── ui/
-    ├── theme/      (FosColors, FosType, FosDimens, FosTheme, FosFormatter)
-    └── components/ (TransactionRow, LineChart, ScoreRing, GoalRing)
+    ├── theme/        (FosColors, FosType, FosDimens, FosTheme, FosFormatter,
+    │                  AmountVisualTransformation, Shimmer)
+    └── components/   (see README project structure)
 ```
 
-## Critical Design Rules (NEVER violate)
+---
+
+# Critical Design Rules (NEVER violate)
+
 1. `FosColors.Positive` (#4DFFA0) = income, success, savings ONLY
-2. `FosColors.Negative` (#FF6B6B) = expenses, errors, overrun ONLY — **expense amounts in TransactionRow MUST use Negative**
+2. `FosColors.Negative` (#FF6B6B) = expenses, errors, overrun ONLY — **expense amounts in
+   TransactionRow MUST use Negative**; TRANSFER renders NEUTRAL (`TextPrimary`, "↔ amount")
 3. All monetary/numeric `Text` → `fontFeatureSettings = "tnum"` (tabular-nums)
-4. `InsightCard` — colored left border ONLY, no icon inside. Border color = severity (CRITICAL→Negative, WARNING→Warning, INFO→Info)
+4. `InsightCard` — colored left border ONLY, no icon inside. Border color = severity
+   (CRITICAL→Negative, WARNING→Warning, INFO→Info)
 5. Net Worth negative → Negative color
+6. `ScoreDonut` slices never use Negative — red reads as "error", not "category"
 
 ## Amounts Storage
 - Store as `Long` kopecks (×100), convert to Double only in `FosFormatter`
-- Negative kopecks = expense, positive = income
+- Negative kopecks = expense, positive = income, TRANSFER signed by direction
+- `currency` is per-transaction (not just per-account) — RUB/USD/EUR/KGS
 
 ## SMS Deduplication
-`smsId = "${sender}_${timestamp}_${body.hashCode()}"` — checked before insert
+`smsId = "${sender}_${timestamp}_${body.hashCode()}"` — checked before insert, then
+`existsSimilarSmsOrPush(|amount|, ±5 min)` catches the SMS↔push twin of the same event.
 
-## Supported Banks
+## Supported Banks (12)
 - **P1:** Сбербанк, Т-Банк, ВТБ, Альфа-Банк, Газпромбанк
 - **P2:** Райффайзен, Росбанк, Открытие
 - **P3:** МТС Банк, Почта Банк, Россельхозбанк
-
-## Current Phase Status
-- [x] Gradle skeleton + AndroidManifest
-- [x] Design system (FosColors, FosType, FosDimens, FosTheme, FosFormatter)
-- [x] Database layer (entities, DAOs, FosDatabase, 16 categories [13 expense + 3 income] + ~90 merchant rules)
-- [x] Parser layer (5 P1 banks, ParserEngine, @IntoSet DI)
-- [x] SmsReceiver (real-time) + SmsReader (90-day import)
-- [x] DictionaryClassifier
-- [x] All 5 repositories
-- [x] Navigation + bottom bar
-- [x] UserPreferences (DataStore)
-- [x] Onboarding (permission request + import progress)
-- [x] Dashboard screen
-- [x] Transactions screen (red expenses ✓, grouped list, filter chips)
-- [x] Analytics screen (4 tabs: Overview, Categories, Trends, Insights)
-- [x] Budget screen (envelopes, dynamic bar color)
-- [x] Goals screen (SVG GoalRing)
-- [x] ScoreCalculator (savings/stability/mandatory/cushion, 0–100)
-- [x] InsightGenerator (6 rules, CRITICAL/WARNING/INFO severity)
-- [x] AnalyticsEngine (score + insights + sparkline30Days + forecastMonthEnd)
-- [x] AnalyticsWorker (WorkManager daily, HiltWorkerFactory)
-- [x] ScoreRing component (Canvas DrawScope)
-- [x] LineChart component (SVG Canvas, bezier curve ✓)
-- [x] Parser unit tests (5 banks × 6 tests)
-- [x] **Phase 2A behavioral analytics** (all 13 items complete)
-- [x] **Phase 3 TFLite ML layer + Settings + Notifications** (committed `d6d2111`)
-- [x] **Subscriptions screen** — recurring expense detection via BehavioralAnalyzer, missed-payment alerts, monthly total; accessible from Budget screen "↻ Подписки" button
-
-## Phase 2A — Behavioral Analytics ✓ COMPLETE
-All pure Kotlin, no TFLite. Committed in 3 batches.
-
-Implemented:
-1. `HeatmapGrid.kt` — 7×24 Canvas grid ✓
-2. `BehavioralAnalyzer.kt` — payday effect, fatigue curve, impulse classification ✓
-3. Category anomaly detection (rolling avg + stdDev) ✓
-4. Subscription gap detection ✓
-5. Fixed vs variable expense classification (CV ≤ 15%) ✓
-6. `WaterfallChart.kt` — running-baseline MoM waterfall ✓
-7. `NarrativeEngine.kt` — 8 Russian narrative templates ✓
-8. `WhatIfSimulator.kt` — interactive sliders, 6/12/24-month projection ✓
-9. `ExpensePyramid.kt` — 3-tier mandatory/regular/discretionary ✓
-10. InsightsTab — ОПОВЕЩЕНИЯ + АНОМАЛИИ + НАБЛЮДЕНИЯ sections ✓
-11. OverviewTab — pyramid + WhatIfSimulator + archetype card ✓
-12. CategoriesTab — fixed/variable badge per category ✓
-13. TrendsTab — 5 sections: daily chart, heatmap, fatigue, waterfall, impulse stats ✓
-
-## Phase 3 — TFLite ML + Settings + Notifications ✓ COMPLETE
-
-### ML Layer (`core/ml/`)
-- `ModelLoader.kt` — loads .tflite from `assets/models/`, returns null if absent (graceful fallback)
-- `TextFeatureExtractor.kt` — 256-dim char n-gram embedding, Fibonacci hash, L2 norm
-- `MLCategoryClassifier.kt` — 256→13 softmax; falls back to DictionaryClassifier below 40% confidence
-- `SpendingPredictor.kt` — LSTM end-of-month forecast; falls back to linear extrapolation
-- `BehavioralCluster.kt` — 5-archetype K-means (Плановик/Импульсивный/Гурман/Экономный/Путешественник); rule-based fallback
-
-### Settings (`features/settings/`)
-- `SettingsViewModel.kt` — SettingsState: heroVariant, biometric, notifications, ML toggle, budget threshold
-- `SettingsScreen.kt` — hero variant chips, notification toggle + budget threshold slider (50-95%), biometric toggle, ML toggle, info section
-
-### Notifications (`core/notifications/NotificationHelper.kt`)
-- 3 channels: fos_budget (HIGH), fos_weekly (DEFAULT), fos_insight (LOW)
-- CRITICAL insights sent as push notifications from AnalyticsWorker
-
-### Infrastructure
-- `di/MLModule.kt` — injects MLCategoryClassifier or DictionaryClassifier based on preference
-- TFLite deps: `org.tensorflow:tensorflow-lite:2.14.0` in libs.versions.toml + build.gradle.kts
-- `noCompress += "tflite"` in androidResources
-- Settings route wired in FosNavHost; gear icon in DashboardScreen
-
-### Requires (to activate ML)
-- Place trained model files in `app/src/main/assets/models/`:
-  - `category_classifier.tflite` (256 input → 13 output)
-  - `spending_predictor.tflite` (float[1][30][1] → float[1][1])
-  - `behavioral_cluster.tflite` (float[1][7] → float[1][5])
-
-## Completed Post-Phase-3 Polish
-- [x] BudgetViewModel wired to NotificationHelper (fires alert at configurable threshold, once per session per budget)
-- [x] BehavioralAnalyzerTest — 28 unit tests covering all 7 public methods + edge cases (fixed entity field names)
-- [x] Manual transaction entry — AddTransactionSheet (FAB in TransactionsScreen)
-- [x] Transaction search — search bar filters by merchant, category, description
-- [x] Transaction detail/edit sheet — tap row → edit merchant, category, note; soft-delete with confirmation
-- [x] Notification deep-links — budget → budget route, weekly/insight → analytics route
-- [x] Goals CRUD — AddGoalSheet (emoji picker, name, target), contribute dialog, delete
-- [x] Budget CRUD — AddBudgetSheet (period toggle, category picker, limit), delete envelopes
-
-## Security & Bug Audit ✓ COMPLETE
-
-Full audit performed; 9 issues found and fixed:
-
-| Severity | File | Fix |
-|----------|------|-----|
-| CRITICAL | `AnalyticsEngine.getTxSync` | Replaced blocking `.collect { return@collect }` pattern with `.first()` — was silently reading only first emission but could hang |
-| CRITICAL | `di/MLModule.kt` | Added `Dispatchers.IO` to `runBlocking { }` — prevents main thread ANR at DI graph construction |
-| CRITICAL | `core/sms/SmsReceiver.kt` | Added `CoroutineExceptionHandler` to scope — unhandled exceptions in SMS processing no longer crash silently |
-| HIGH | `core/ml/SpendingPredictor.kt` | Float×Long×Int multiplication now uses Double and `coerceAtMost(Long.MAX_VALUE)` — prevents overflow for extreme values |
-| HIGH | `features/dashboard/DashboardViewModel.kt` | Expenses stored as negative kopecks; `sumOf { it.amountKopecks }` returned negative. Fixed to `sumOf { abs(it.amountKopecks) }` |
-| HIGH | `core/notifications/NotificationHelper.kt` | Added `hasNotificationPermission()` guard (API 33+ check) before all three `notify()` calls — avoids `SecurityException` |
-| MEDIUM | `core/database/FosDatabase.kt` | Replaced string-interpolation SQL in `PREPOPULATE_CALLBACK` with parameterized `execSQL(sql, arrayOf(...))` — eliminates SQL injection surface |
-| LOW | Multiple screens | Added `key = { it.id }` to all `LazyColumn items()` calls — prevents item reuse bugs during list updates |
-| LOW | `AnalyticsEngine.kt` | Added missing `import kotlinx.coroutines.flow.first` |
-
-## Post-Audit Features
-- [x] **Account management UI** — AddAccountSheet (bank picker, name, card mask, initial balance), tap-to-edit account balance, delete via AlertDialog in DashboardScreen
-- [x] **InsightGeneratorTest** — 28 unit tests covering all 6 rules + edge cases + sort order
-- [x] **Category management** — CategoriesScreen (system=read-only, custom=deletable), AddCategorySheet (emoji picker, 12-color swatch picker, name), wired from Settings → "Категории" row; FosRoute.Categories added
-- [x] **CSV export** — "↑ CSV" button in TransactionsScreen header; shares current view as `.csv` via FileProvider (provider_paths.xml + manifest provider entry)
-- [x] **Push notification listener** — `PushNotificationListener` (NotificationListenerService + @AndroidEntryPoint); maps 9 banking app package names → parser senders; `TransactionSource.PUSH` added; toggle + permission status in Settings "УВЕДОМЛЕНИЯ ОТ БАНКОВ" section
-- [x] **Deep-link: Subscriptions → Transactions** — optional `categoryId` nav arg on Transactions route; tapping a subscription card pre-filters the list; dismissible banner with "× Сбросить"
-- [x] **P2 bank parsers** — RaiffeisenParser, RosbankParser, OtkritieParser; registered in ParserModule; push packages added (14 total package mappings)
-- [x] **P3 bank parsers** — MtsBankParser, PostaBankParser, RosselkhozParser; registered in ParserModule; push packages added (17 total package mappings)
-- [x] **Biometric auth** — BiometricHelper (BIOMETRIC_WEAK, API 26+), LockScreen composable, MainActivity wired (isLocked state, onResume prompt, onStop re-lock, AppCompatActivity base)
-- [x] **Home-screen widget** — BalanceWidget (AppWidgetProvider + EntryPointAccessors), widget_info.xml (2×2 cells, 30min update), widget_balance.xml layout, widget_bg.xml drawable; AndroidManifest receiver registered; `AccountDao.sumAllBalances()` + `TransactionDao.getTodayExpenses()` added
-- [x] **strings.xml** — 60+ strings covering all screens; appcompat dependency added
-
-## Full Audit #2 ✓ COMPLETE (codebase-wide)
-
-Parallel deep audit of all 105 source files. 20 genuine issues fixed:
-
-| Severity | Area | Fix |
-|----------|------|-----|
-| CRITICAL | `di/MLModule` + `di/PreferencesModule` | **Build failure**: two `@Singleton` bindings for `CategoryClassifier` in the same component (Dagger duplicate binding). Removed `PreferencesModule`; `MLModule` now `@Binds` a new `DelegatingCategoryClassifier` |
-| CRITICAL | `di/MLModule` | `runBlocking` DataStore read during graph construction (ANR). Replaced with `DelegatingCategoryClassifier` that reads the pref lazily inside the suspend `classify()` |
-| CRITICAL | `MainActivity.onNewIntent` | Called `setContent` a second time → leaked/recreated the whole NavHost on every notification deep-link. Now state-driven via `mutableStateOf` |
-| CRITICAL | `MainActivity` biometric | Silent-unlock bypass: when biometric enabled but none enrolled, app unlocked with no auth. Now falls back to device-credential (PIN/pattern) via `KeyguardManager`; only releases when device has no secure lock |
-| HIGH | `core/parser/ParserEngine` | `firstOrNull { canHandle }` dropped valid SMS when the first sender-matching parser failed the body. Now tries every matching parser (`firstNotNullOfOrNull`) |
-| HIGH | Parsers (Sberbank/Tbank/Mts) | Shared `900` short code claimed by 3 banks → non-deterministic routing. `900` kept only on Sberbank |
-| HIGH | All parsers | `parseAmount` threw `NumberFormatException` on bad input → aborted the whole 90-day import. New null-safe `AmountParser` (also handles NBSP/narrow-NBSP separators, clamps overflow). `SmsReader` rows now individually guarded |
-| HIGH | `AlfabankParser` | Amount regex lacked `\s` → could not parse any amount ≥ 1000 with a thousands separator. Fixed |
-| HIGH | Sberbank/Tbank income | `Перевод` (transfer) matched as INCOME → sign inversion (outgoing stored as positive). Removed from income patterns |
-| HIGH | `MainActivity` deep link | Exported activity navigated to attacker-controllable route string → crash. Added `FosRoute.sanitizeDeepLink` whitelist (validated in MainActivity + NavHost) |
-| HIGH | `AnalyticsViewModel` | One-shot `init` computation never refreshed; fragile `listOf<Any?>` positional casts (ClassCastException risk); unstructured `async` (one failure blanked all). Rewritten with `mapLatest` off the tx flow + per-call `runCatching` |
-| MEDIUM | `core/parser/ParserEngine` | NBSP/narrow-NBSP thousands separators not matched by `\s`. Normalised to regular space once, centrally |
-| MEDIUM | `BehavioralAnalyzer` | stdDev squared `(it-avg)²` in `Long` → overflow for large kopeck sums. Now squared in `Double` |
-| MEDIUM | `AnalyticsEngine.forecastMonthEnd` | `daysPassed` from elapsed millis mis-scaled the forecast (DST/long months). Uses `LocalDate.dayOfMonth` |
-| MEDIUM | `AnalyticsEngine.generateNarratives` | Per-day category average hard-divided by `90` → understated spend for users with < 90 days. Divides by actual data span |
-| MEDIUM | `BalanceWidget` | Unstructured `CoroutineScope` with no error handling (process crash); no `goAsync` (work killed mid-update); no click intent. Added all three |
-| MEDIUM | `TransactionsViewModel.buildCsvString` | CSV injection: only commas escaped. Now RFC-4180 quoting + formula-injection (`=+-@`) neutralisation |
-| MEDIUM | `DictionaryClassifier` | Re-queried DB and recompiled 60+ regexes per transaction. Now caches compiled rules once (Mutex-guarded) |
-| LOW | `AnalyticsWorker` | Matched severity by `.name == "CRITICAL"` string. Now `== InsightSeverity.CRITICAL` |
-| LOW | Parsers (Raiffeisen/Otkritie) + `AnalyticsEngine` | Over-broad sender aliases (`RSB`, `DISCOVERY`) and a dead `catNames` query removed |
-
-## ML Model Files
-- [x] `merchant_classifier.tflite` — bundled in `app/src/main/assets/models/` (256→128→64→13 softmax, 49KB)
-- [x] `spending_predictor.tflite` — trained on 20K synthetic sequences; Dense(30→16→8→1), 4.6KB
-- [x] `behavioral_cluster.tflite` — trained on 10K synthetic samples (2K/archetype); Dense(7→32→16→5 softmax), 5.7KB
-
-## ML Audit Fixes (this session)
-- `BehavioralCluster.classify` / `SpendingPredictor.predict` — made `suspend`; added `Mutex` guard around `interp.run()` (Interpreter is not thread-safe)
-- `MLCategoryClassifier.classify` — added `Mutex` guard around `interp.run()`
-- `BehavioralCluster.extractFeatures` — guard against empty expenses list to prevent `NaN` feature vector
-- `TextFeatureExtractor.extract` — removed unnecessary `Double→Float→Double` roundtrip in norm computation
-
-## PDF Import (`core/pdf/`)
-- `PdfImporter.kt` — extracts text from any PDF via SAF URI (no permissions); uses PdfBox-Android 2.0.27.0; `sortByPosition = true` keeps tabular statements in visual reading order
-- `PdfTransactionParser.kt` — **logical-row** parser (rewritten): reconstructs each statement row from wrapped physical lines (row starts at `DD.MM.YYYY`, absorbs continuation lines), then extracts posting date (4-digit year), posting amount (comma-decimal + currency suffix → distinguishes from inner dot-decimal `на сумму:`), sign, op code, and a cleaned merchant; dedup key = `pdf_{opCode}` (unique) with `pdf_{ts}_{kopecks}_{merchant.hashCode()}` fallback
-- `PdfTransactionParserTest.kt` — 7 tests against real Alfa-Bank "Операции по счету" layout
-- `TransactionSource.PDF` added to enum (stored as string → no Room migration)
-- `TransactionsViewModel.importPdf(uri)` — IO-dispatched; auto-classifies via CategoryClassifier; returns found/inserted counts
-- `ImportPdfSheet.kt` — bottom sheet with idle/loading/success/error states; "↓ PDF" button in TransactionsScreen header
-
-### PDF parser bug fixes (this session)
-- **Sign bug (critical)**: old parser passed the signed token to `AmountParser.toKopecks`, which returns `0` for negatives (`value <= 0`) → **every expense was silently dropped**, only income survived (all imports looked green/`+`). Now the sign is detected separately and only the unsigned magnitude is parsed.
-- **Multi-line layout**: old parser required date + amount on the *same physical line*; Alfa descriptions wrap across lines, so it latched onto stray fragments. Now rows are reconstructed before extraction.
-- **Inner-value confusion**: card rows contain `на сумму: 40.00 RUR` (dot) and `дата совершения операции: 19.12.25` (2-digit year). These are now excluded by construction (posting amount = comma-decimal, posting date = 4-digit year).
-- **Date display**: `FosFormatter.dayLabelYear()` added — transaction history (row meta, day header, detail sheet) now shows the year ("19 декабря 2025") instead of "19 декабря".
-
-## Transfer → Savings-Goal Auto-Routing (`core/transfer/`) ✓ COMPLETE
-Bank transfers (перевод / СБП / перечисление) are now first-class `TransactionType.TRANSFER` rows
-instead of being mis-booked as expenses. Because every analytics/aggregation query filters on
-`type='EXPENSE'`/`'INCOME'`, emitting TRANSFER makes them vanish from spend/income automatically.
-
-- **Detection** — `core/parser/TransferPatterns.kt`: conservative Russian keyword recognition (OUTGOING:
-  Перевод/Перечисление/Отправлен перевод/СБП/Списание…перевод; INCOMING: Зачисление перевода/Перевод от/
-  Входящий перевод). Captures destination card last-4 from "на карту/счёт *1234" when present. Wired into
-  **all 11 bank parsers** as the FIRST matcher in `parse()` so a transfer is never read as a purchase or
-  as inverted-sign income (the old "Перевод excluded from income" hack is now handled explicitly).
-- **Signed storage** — `ParsedTransaction` gained `counterpartyMask`, `outgoing`, and `signedKopecks()`
-  (EXPENSE −, INCOME +, TRANSFER ∓ by `outgoing`). All 3 insert sites (SmsReceiver, PushNotificationListener,
-  SmsReader) now use `parsed.signedKopecks()` and call `TransferRouter.onTransactionInserted(...)` only when
-  the row was actually inserted (`insertAll` rowId != -1).
-- **`TransferRouter`** — (@Singleton) for an inserted TRANSFER: (A) outgoing + matching a linked card/keyword
-  → `GoalRepository.contribute(goalId, magnitude)` + `TransactionDao.setGoal`; (B) otherwise pairs an
-  opposite-sign equal-magnitude counterpart within ±10 min via `findTransferCounterpart` +
-  `markAsPairedTransfer` (net worth unchanged); (C) unrouted outgoing ≥ 1000 ₽ → push. Whole body in
-  `runCatching` so routing never breaks ingestion.
-- **DB** — `TransferRouteEntity`/`TransferRouteDao`/`TransferRouteRepository` (`transfer_routes` table,
-  CARD|KEYWORD match, lowercased value). `TransactionEntity` gained `goal_id` + `transfer_pair_id` columns.
-  `FosTypeConverters` handles `TransferMatchType`. **DB bumped v2→v3** with `MIGRATION_2_3` (adds 2 columns +
-  `transfer_routes` table + index); registered in `DatabaseModule.addMigrations(...)` + DAO provider.
-- **Goal linking UI** — `GoalsViewModel` now combines goals + routes + accounts + cards (array-form combine),
-  exposing `cardMasks`, `routes`, `accounts`, and `linkCard/linkKeyword/linkAccount/unlink`. `LinkTransferRouteSheet.kt`
-  (🔗 button per goal card) lets the user attach a bank account, destination card chip, or an SMS keyword.
-- **`TransactionRow`** — TRANSFER renders NEUTRAL (`TextPrimary`, "↔ amount", never red/green, tabular-nums
-  preserved) with a "→ в цель" subtext when `goalId != null`. EXPENSE(red)/INCOME(green) unchanged.
-- **`NotificationHelper.notifyUnroutedTransfer(magnitude)`** — fos_insight channel, deep-links to "goals".
-
-## Bidirectional Account-Based Goal Routing ✓ COMPLETE
-
-Link a bank account to a goal (at creation or via 🔗 sheet):
-- Transfer INTO that account → `+amount` to goal progress
-- Transfer FROM that account → `-amount` from goal progress (clamped at 0)
-- Example: "Путешествия" linked to Alfa Travel; перевод 10k → цель +10k; снятие 5k → цель -5k
-
-Changes:
-- `TransferMatchType.ACCOUNT` added (stored as string — no DB migration needed)
-- `TransferRouter`: ACCOUNT routes checked for both incoming and outgoing before CARD/KEYWORD
-- `AddGoalSheet`: "ПРИВЯЗАТЬ СЧЁТ (АВТО)" chip picker — optional at goal creation
-- `LinkTransferRouteSheet`: "СЧЁТ В БАНКЕ" section with bidirectional badge
-- `GoalsViewModel.createGoal(linkedAccountId)` + `linkAccount(goalId, accountId)`
-- `GoalsState.accounts` exposed for pickers in both sheets
-
-### Known limitation
-- Counterparty (destination) card mask is only available when the bank SMS spells "на карту/счёт *NNNN".
-  Several push/SMS formats omit it (e.g. Alfa push, generic СБП notifications); for those the destination
-  mask is null and the user relies on **keyword routing** or **account routing**.
-
-## Post-Transfer Session Features
-- [x] **Volumetric bank cards** — `BankCard` with diagonal `Brush.linearGradient` (0%→45%→100%), 1dp gloss overlay, `BankSymbolBadge` (letter abbreviation in frosted corner badge)
-- [x] **BankColors.kt** — МБанк brand added; `FosFormatter.currencySymbol()` maps RUB/USD/EUR/KGS
-- [x] **HeroAmountMulti** (26sp) — used when account list has 3+ currencies to prevent text overflow
-- [x] **AccountLinker** (`core/account/AccountLinker.kt`) — resolves SMS/push card masks to accounts (account.card_mask → CardEntity); `syncBalance()` prefers bank-reported "Остаток" (authoritative) over delta
-- [x] **Card chip scroll fix** — card chips inside bank cards replaced with static `Row` (max 4 + "+N"), eliminates horizontal drag conflict with parent scroll
-- [x] **Swipe-to-delete** — `SwipeToDismissBox` on TransactionRow (→ softDelete) and AccountRow (→ deactivate)
-- [x] **AddTransactionSheet enhancements** — account picker chips (name + ••mask), income-source presets (Зарплата/Перевод/Букмекер/Подарок/Кэшбэк/Инвестиции/Другое), currency symbol follows account
-- [x] **Multi-currency hero** — `netWorthByCurrency` map per account group, `CalmHero` shows each currency on its own line
-
-## Audit #3 ✓ COMPLETE (this session)
-
-Deep audit of 4 critical paths. 3 genuine bugs fixed:
-
-| Severity | File | Fix |
-|----------|------|-----|
-| CRITICAL | `OnboardingScreen.kt` + `OnboardingViewModel.kt` | **SMS permission freeze bug**: `onRequestSmsPermission()` jumped to IMPORT step without showing the Android permission dialog → 0% forever. Replaced with `rememberLauncherForActivityResult(RequestMultiplePermissions)` for READ_SMS + RECEIVE_SMS. Added `permissionDenied` state, "Открыть настройки" deep-link, and "Пропустить" skip option. |
-| HIGH | `SmsReceiver.kt` | **Process kill race**: `onReceive()` launched coroutines without `goAsync()` — Android could kill the process before the DB write completed when app is backgrounded. Wrapped in `goAsync()` / `pendingResult.finish()` in finally block. |
-| HIGH | `AnalyticsEngine.kt` | **Cushion score always 0**: `buildScoreInput()` and `buildInsightData()` both hardcoded `totalBalance = 0L`. The cushion pillar (25 pts) of the 0–100 financial health score was permanently 0. Fixed to `accountDao.sumAllBalances()`. |
-
-## Post-Audit-3 Fixes (this session)
-- [x] **МБанк parser** (`core/parser/banks/MBankParser.kt`) — multi-currency KG bank (USD/KGS/EUR/RUB). Line-oriented push: `Покупка: 22 USD` / merchant line / `Карта: *6461` / `Доступно: 11.96 USD`. Extracts each field independently (amount taken AFTER the type keyword so `Доступно:` is never mis-read as the amount). Registered in `ParserModule` (`bindMBank`); push package `com.maanavan.mb_kyrgyzstan` → `MBANK` added to `PushNotificationListener`. `MBankParserTest` (7 cases). Amounts stored as minor units (×100) in the card's currency.
-- [x] **Manual-delete balance bug** — deleting a manually-added operation did not restore the account balance (insert applied a delta, delete did not undo it). `TransactionsViewModel.deleteTransaction` now loads the row first and, for `source == MANUAL` with an `accountId`, reverses `amountKopecks` from the account before soft-deleting. SMS/PUSH balances are bank-authoritative snapshots (not reversed); PDF rows have no account. Added `TransactionRepository.getById`.
-
-## Audit #4 ✓ COMPLETE (this session)
-
-Three parallel deep audits (transfer/goal routing · parsers/ingestion · DB/DI/analytics). 7 genuine bugs fixed:
-
-| Severity | File | Fix |
-|----------|------|-----|
-| CRITICAL | `TransactionsViewModel.deleteTransaction` + `TransferRouter.onTransactionReversed` | **Goal stayed inflated on delete**: deleting a transfer that funded a goal never un-funded it (`savedKopecks` permanently inflated; repeat add/delete could force completion). New `TransferRouter.onTransactionReversed(tx)` mirrors the original contribution sign (ACCOUNT = signed amount, CARD/KEYWORD = +magnitude) and is called for any `tx.goalId != null` before soft-delete. |
-| HIGH | `GoalsViewModel.addContribution` | **Divergent contribution paths**: manual contribute didn't floor-clamp or refresh `updatedAt`, unlike routed `GoalRepository.contribute`. Now delegates to `goalRepo.contribute` — single clamping/completion code path. |
-| HIGH | `GoalsViewModel` link methods | **Duplicate routes**: free-text card/keyword entry created duplicate `transfer_routes` rows (and the same account could link to two goals, non-deterministic). New `addRouteIfAbsent()` skips an identical (goal+type+value) route. |
-| HIGH | `AlfabankParser.pushMask` / `maskTail` | **Merchant digits read as card mask**: a bare `\d{4}` end-anchor captured a merchant ending in 4 digits (e.g. "АЗС 2024") as the card → wrong account link. Now requires the masking glyph `[*•·]{1,2}` before the digits (both for extraction and merchant-tail stripping). |
-| HIGH | `AccountLinker.syncBalance` | **Zero balance ignored**: `ostatokKopecks > 0L` treated an authoritative "Доступно: 0" as "no balance" and fell through to the delta path. Changed to `>= 0L` (only `null` falls through). |
-| MEDIUM | `MBankParser` amount/balance regex | **Multi-separator poisoning**: `[\d\s.,]*?` could capture two separators → `toDoubleOrNull` null → amount 0 → transaction dropped. Tightened to digit-grouping + at most one decimal group. |
-| MEDIUM | `TransactionDao.findTransferCounterpart` | **Double-count**: a goal-routed transfer leg could still be paired as net-worth-neutral. Query now excludes `goal_id IS NOT NULL` rows from counterpart matching. |
-
-Added `AlfabankParserTest` regression: merchant ending in 4 digits is not mistaken for a card mask.
-
-## Audit #5 ✓ COMPLETE (this session)
-
-### Balance sync fix (balance not updating on Alfa push transfer)
-Root cause: `TransferPatterns.detect()` lacked SOURCE_CARD and BALANCE regex extraction; `AccountLinker.resolveAccountId` had no bank-name fallback when card mask is absent; `toParsed()` hardcoded `balanceKopecks = null`.
-
-Fixed across 3 commits:
-- `TransferPatterns.kt` — added `SOURCE_CARD` + `BALANCE` regex, fixed AMOUNT regex (`\d{2}` → `\d{1,2}`), `Result.balanceKopecks`, auto-extract `resolvedMask` in `detect()`
-- `AccountLinker.kt` — complete rewrite: card mask lookup → CardEntity lookup → bank-name fallback (BANK_KEYWORDS map, only when single match); `syncBalance` `>= 0L` fix already applied (Audit #4)
-- `SmsReceiver`, `PushNotificationListener`, `SmsReader` — pass `parsed.bankId` to `resolveAccountId`
-
-### Comprehensive audit fixes (18 bugs, 14 files)
-
-| Severity | File | Fix |
-|----------|------|-----|
-| HIGH | `DashboardViewModel.kt` | `collect` → `collectLatest` + `.debounce(500)` — prevents 1500+ redundant analytics DB queries during batch SMS import |
-| HIGH | `TransactionDao.kt` `findTransferCounterpart` | Added `AND type = 'TRANSFER'` filter — prevented INCOME rows from being mis-classified as transfer legs |
-| HIGH | `TransactionDao.kt` `sumExpenses` | `SUM(amount_kopecks)` → `SUM(ABS(amount_kopecks))` — expenses stored as negative kopecks; query returned negative totals |
-| HIGH | `GoalRepository.kt` | Added `Mutex` + `withLock` around `contribute()` — eliminated TOCTOU race under concurrent coroutines; fixed `completedAt` reset bug |
-| HIGH | `SmsReader.kt` | `imported++` moved inside `rowIds != -1L` check — was over-counting skipped duplicates |
-| HIGH | `ScoreCalculator.kt` `calcStability` | `/3` → `/input.last3MonthsIncome.size` — hardcoded divisor broke score when fewer than 3 months of data |
-| HIGH | `AnalyticsEngine.kt` | 3 fixes: spanDays computed from EXPENSE rows only; `savingsHistory` uses offsets 1..3 (completed months); weekday/weekend avg per-transaction not per-bucket |
-| MEDIUM | `BehavioralAnalyzer.kt` line 77 | `(base1 + base2) / 2` → `/ 2.0` — integer truncation silently dropped payday events with tiny baselines |
-| MEDIUM | `BehavioralAnalyzer.kt` line 158 | `expenses.size.coerceAtLeast(1)` → `expenses.size`; `neutralCount = (...).coerceAtLeast(0)` — phantom neutral count of 1 when expense list is empty |
-| MEDIUM | `AnalyticsViewModel.kt` | `runCatching` swallowed `CancellationException`, breaking `mapLatest` cancellation. Replaced with `safeAsync` helper that re-throws `CancellationException` |
-| MEDIUM | `MainActivity.kt` | Cached `biometricEnabledCache` field; `onStop` now locks synchronously — eliminated coroutine race where `isLocked = true` was never written if lifecycle scope was cancelled first |
-| MEDIUM | `BalanceWidget.kt` | Removed `pending.finish()` from `CoroutineExceptionHandler` — `finally` block always calls it; double-finish caused a crash |
-| LOW | `FosDatabase.kt` | Added `MIGRATION_3_4` with indexes on `transactions.goal_id` and `transactions.transfer_pair_id`; DB version bumped 3→4 |
-
-## Backup / Restore + Opt-in SMS (this session)
-
-### Full backup to file (`core/backup/BackupManager.kt`)
-- Exports **all 8 tables** (accounts, cards, categories, goals, budgets, transfer_routes, transactions) to a single self-describing JSON file via `org.json` (no new dependency). `SCHEMA_VERSION = 1` header for forward-compat.
-- **Save:** SAF `CreateDocument("application/json")`, suggested name `financeos-backup-YYYY-MM-DD.json`. **Restore:** SAF `OpenDocument`.
-- Restore is additive + idempotent inside one `db.withTransaction { }`; FK-safe order (categories → accounts → goals → cards → budgets → routes → transactions). **Dangling-reference guard:** cards/budgets whose parent isn't in the backup are dropped; transaction `accountId`/`categoryId` not present are nulled — prevents Room FK abort.
-- New backup-read DAO methods: `CardDao.getAllActive`, `BudgetDao.getAllActive`, `GoalDao.getAllForBackup`, `TransactionDao.getAllForBackup` (non-deleted).
-- UI: Settings → "РЕЗЕРВНАЯ КОПИЯ" (создать / восстановить) with status line. `SettingsViewModel`: `exportBackup(uri)`, `restoreBackup(uri)`, `BackupUi` state.
-
-### SMS now opt-in (no auto-parse on fresh install)
-- New pref `SMS_REALTIME_ENABLED` (**default false**). `SmsReceiver` checks `prefs.smsRealtimeEnabled.first()` before processing — a fresh install never ingests SMS until the user opts in.
-- Onboarding reframed to an explicit choice: **"Импортировать из SMS за 90 дней"** vs **"Пропустить — добавлю вручную"**. Choosing import sets `SmsRealtimeEnabled = true`; skipping leaves it off.
-- Settings → "ОПЕРАЦИИ ИЗ SMS": toggle "Читать входящие SMS" + "Импортировать за 90 дней" (requests READ_SMS/RECEIVE_SMS, shows progress, then count). `SettingsViewModel.importSmsHistory()`, `SmsImportUi` state.
-- **Migration note:** existing installs relying on real-time capture must re-enable the toggle (or re-import); intentional per the opt-in design.
-
-## «Мерцание» Shimmer Layer ✓ COMPLETE (all 3 phases)
-
-Two toggles in Settings → «КАСТОМИЗАЦИЯ»:
-- **«Анимации»**: countUp, screenTransitions, touchRipple, holographicCards (variant A) / glassCards (variant B), ScoreRing count-up animation
-- **«Атмосфера Мерцание»**: particles, particlePulse, surfaceGlow, heroBreathing, depthTimeline, insightBorderGlow, semanticGlow, currencyReef
-
-System flags auto-override: `reduceMotion` (ANIMATOR_DURATION_SCALE==0) disables pulse/breathing; `powerSave` disables particles, forces glass cards, disables reef.
-
-### Phase 0 — Infrastructure
-- `Shimmer.kt` — `ShimmerConfig` data class + `LocalShimmer` + `ProvideShimmer` + `rememberSystemReduceMotion` + `rememberPowerSave`
-- `UserPreferences` — `ANIMATIONS_ENABLED`, `ATMOSPHERE_ENABLED`, `CARDS_VARIANT_B` DataStore keys
-- `SettingsScreen/ViewModel` — «КАСТОМИЗАЦИЯ» section, animated variant-B sub-toggle
-
-### Phase 1 — Анимации
-- `AnimatedAmount.kt` — count-up interpolation between Long kopeck values via Float progress
-- `ShimmerCardFx.kt` — `rememberDeviceTilt` (accelerometer, exponential smoothing) + `Modifier.shimmerTilt` (±8° graphicsLayer) + `ShimmerCardSheen` (holographic sweep gradient / glass frost)
-- `ScoreRing.kt` — Animatable arc sweep count-up from 0 on first render
-- `FosNavHost.kt` — `fadeIn(220ms) + scaleIn(0.98f)` / `fadeOut(160ms)` screen transitions
-
-### Phase 2 — Атмосфера
-- `ParticleLayer.kt` — 16 firefly dots (sin/cos analytic, frame loop via `withInfiniteAnimationFrameMillis`); `rememberBreathingScale` — always calls `rememberInfiniteTransition` (1f..1f when inactive, per Compose Rules of Hooks)
-- `InsightsTab.kt` — particles behind LazyColumn; horizontal gradient glow inward from severity border
-- `TransactionsScreen.kt` — depth-of-field alpha on day groups (`1f - groupIndex*0.07f`, min 0.45f), static (safe under reduce-motion)
-- `DashboardScreen.kt` — all 3 hero variants: particles + surface glow shadow + breathing scale; `BankCard` tilt + sheen
-
-### Phase 3 — Semantic + Reef
-- `ScoreRing.kt` — ambient radial glow (22%→0%) clipped to CircleShape, colour = score tier (Positive/Warning/Negative); never leaks to net-worth text
-- `CurrencyReef.kt` — bioluminescent blob organisms per currency (RUB=GlowIndigo, USD=GlowViolet, EUR=GlowPink); triple-layer circles (5/9/14% alpha × sin-pulse); drawn behind multi-currency amount Column in both CalmHero and ContrastHero
-
-### Phase 3.5 — Bioluminescent touch ripple (commit e9faafa)
-- `ShimmerRipple.kt` — `Modifier.shimmerRipple()`. Implemented WITHOUT Material `ripple()` (that needs BOM 2024.09+; we're on 2024.06). Observe-only `awaitEachGesture` reads the press position with `requireUnconsumed = false` and never consumes, so the host `clickable {}` still fires; a translucent radial bloom (GlowViolet, peak α≈0.28) expands via `drawWithContent`. Decorative palette only, low alpha keeps numbers readable. Gated by `LocalShimmer.touchRipple`. Wired into `BankCard`.
-
-### Build fixes (commits 5e1bc1b, dc25502)
-- **Real CI blocker** (dc25502): `ParticleLayer.kt` used `var time by remember { mutableStateOf(0f) }` but imported only `getValue`, not `setValue` → `Type 'MutableState<Float>' has no method 'setValue(...)'`. Added `import androidx.compose.runtime.setValue`.
-- (5e1bc1b) `rememberBreathingScale` early-return before `rememberInfiniteTransition` violated Compose Rules of Hooks → also fixed to always call the transition with `1f..1f` bounds when inactive (latent, would have failed at runtime).
-
-## Audit #6 Fixes (Shimmer layer, this session)
-
-5 Compose Rules of Hooks violations and performance issues fixed (commit 3c3718d):
-
-| Severity | File | Fix |
-|----------|------|-----|
-| CRITICAL | `ShimmerCardFx.kt` | `shimmerTilt` called `rememberDeviceTilt`/`animateFloatAsState` after early return → slot-table crash on toggle. All composable calls moved before the guard. |
-| CRITICAL | `AnimatedAmount.kt` | Early return before `remember`/`LaunchedEffect` → slot-table mismatch when animation toggled live. Removed early return; added `enabled` to LaunchedEffect keys. |
-| HIGH | `Shimmer.kt` | `rememberSystemReduceMotion` read scale once via `remember {}` — stale until recomposition. Replaced with `ContentObserver + DisposableEffect` (live, mirrors `rememberPowerSave`). |
-| MEDIUM | `InsightsTab.kt` | `itemsIndexed(narratives)` missing key lambda → index-based reuse, wrong items on list reorder. Fixed: `key = { _, n -> n.id }`. |
-| LOW | `ShimmerRipple.kt` | `Brush.radialGradient` allocated per-frame per-ripple (GC pressure @ 60 fps). Replaced with 3 concentric `drawCircle` + `Color.copy(alpha)` (zero allocation). |
-
-## Branch / Merge History
-- `claude/project-setup-design-sndr3y` → `dev` (PR #2, merged)
-- `dev` → `main` (PR #3, merged)
-- All branches in sync as of 2026-06-22
-- **PR #10** open: `claude/project-setup-design-sndr3y` → `dev` (self-update feature, CI green ✅)
-- **Next**: merge PR #10 → then create dev → main PR to trigger first APK release
-
-## Post-Audit-6 Features (this session)
-
-### Backup encryption (`core/backup/BackupCrypto.kt`)
-- AES-GCM-256 via Android Keystore (hardware-backed TEE/SE when available)
-- Key alias `fos_backup_key`; 12-byte GCM IV prepended; 128-bit auth tag
-- File format: `FOSENC1:` header (8 bytes) + IV (12 bytes) + ciphertext
-- Backward compat: files without the header (old plaintext exports) are accepted on restore as-is
-- Suggested filename extension changed from `.json` → `.fose`
-
-### Cross-channel SMS↔push dedup (`TransactionDao`, `SmsReader`, `PushNotificationListener`)
-- New `TransactionDao.existsSimilarSmsOrPush(magnitude, fromTs, toTs)` query: checks if any SMS/PUSH transaction with the same absolute amount exists within a ±5-minute window
-- `PushNotificationListener.processPush` now calls this guard after the `existsBySmsId` check — rejects push if SMS already imported the same event
-- `SmsReader.importLast90Days` applies the same guard — rejects SMS if push was already ingested
-- Prevents double-counting on banks that send both SMS and push for every operation (e.g. Sberbank)
-
-## Parser Tests — Full Coverage ✓
-All 11 bank parsers now have unit tests (7 cases each = 77 total parser test cases):
-
-| Bank | File | Status |
-|------|------|--------|
-| Сбербанк | `SberbankParserTest` | ✓ (prior) |
-| Т-Банк | `TbankParserTest` | ✓ (prior) |
-| ВТБ | `VtbParserTest` | ✓ (prior) |
-| Альфа-Банк | `AlfabankParserTest` | ✓ (prior) |
-| Газпромбанк | `GazprombankParserTest` | ✓ (prior) |
-| МБанк | `MBankParserTest` | ✓ (prior) |
-| Райффайзен | `RaiffeisenParserTest` | ✓ (this session) |
-| Росбанк | `RosbankParserTest` | ✓ (this session) |
-| Открытие | `OtkritieParserTest` | ✓ (this session) |
-| МТС Банк | `MtsBankParserTest` | ✓ (this session) |
-| Почта Банк | `PostaBankParserTest` | ✓ (this session) |
-| Россельхоз | `RosselkhozParserTest` | ✓ (this session) |
-
-## Critical Bug Fixed (this session)
-- `ShimmerRipple.kt` — `import androidx.compose.ui.graphics.Color` was dropped by the audit fix that replaced Brush.radialGradient. Color is still used in `RippleSpec.color: Color` and the function signature → compile error. Fixed.
-
-## Screenshot Bug Fixes (this session)
-
-Three user-reported bugs from real-device screenshots fixed:
-
-| # | Bug | Root cause | Fix |
-|---|-----|-----------|-----|
-| 1 | "Транспорт Перми" auto-categorised as «Другое» | No merchant rule matched generic transit wording; the classifier is **purely rule-based and never learns from manual corrections** | Added 15 public-transport merchant rules (`транспорт`, `тройка`, `подорожник`, `проездной`, `метрополитен`, `маршрутка`, `каршеринг`, `такси`, …) → `cat_transport` |
-| 2 | Auto-parsed salary/income had no category (only manual entry offered «Зарплата») | All 13 system categories were expense-only; income SMS (often `merchant = null`, e.g. Alfa «Зачисление») classified to null | Added 3 income categories (`cat_salary` 💼, `cat_income` 💰, `cat_cashback` 💸) + income rules (`зарплата`, `аванс`, `кэшбэк`, `поступление`, `зачисление`…). New `CategoryDefaults.forType()` gives every INCOME row a `cat_income` fallback when no merchant matches; wired into all 3 ingestion sites (SmsReceiver, PushNotificationListener, SmsReader) |
-| 3 | Transfer «со счета 4\*1139 на счет 4\*3583» counted but didn't fund the goal linked to the destination account | (a) `DEST_MASK`/`SOURCE_CARD` regexes couldn't parse the network-prefixed `4*NNNN` form → both masks lost (source even mis-read as the trailing dest); (b) `TransferRouter` only checked ACCOUNT routes against `tx.accountId` (the **source**), never the destination account the goal was linked to | (a) Both regexes now consume an optional leading network digit `(?:\d\s*)?` before the masking glyph; `SOURCE_CARD` gained a leading «со счёта…» branch so the source wins as the leftmost match. (b) `TransferRouter` resolves the counterparty account via `AccountLinker` and routes **both legs** — money entering an account → +progress, leaving → −progress — so an outgoing transfer INTO a goal-linked savings account now funds it. `onTransactionReversed` mirrors the two-leg sign logic. |
-
-- **DB bumped v4→v5** with `MIGRATION_4_5` (re-runs both `INSERT OR IGNORE` seed helpers — adds the new categories/rules to existing installs, leaves user data untouched); registered in `DatabaseModule`.
-- New test: `TransferPatternsTest` (6 cases) locks the mask-extraction fix.
-- **Note for users:** ML/classifier does **not** learn from manual category edits — categorisation is deterministic rule-based; a new merchant needs a rule (or a manual edit per transaction).
-
-## In-App Self-Update + Release Pipeline ✓ COMPLETE (this session)
-
-Ship the app to friends as a sideloadable APK with one-tap in-app updates.
-
-### Release pipeline (`.github/workflows/release-apk.yml`)
-- Triggers on push to `main` (+ `workflow_dispatch`); `permissions: contents: write`.
-- Builds the debug APK with `FOS_BUILD_NUMBER=${{ github.run_number }}`, publishes a GitHub
-  Release tagged `v0.1.0.<run>` with the APK attached (`softprops/action-gh-release@v2`,
-  `make_latest: true`).
-
-### Stable debug signing (required for updates to install)
-- `app/debug.keystore` — committed, password `android`, alias `androiddebugkey`. `.gitignore`
-  has `!app/debug.keystore` to un-ignore it (debug key only, never used for release).
-- `app/build.gradle.kts` — `signingConfigs.shared` points at it; `debug { signingConfig = shared }`.
-  Without one shared signature, CI's per-run auto-generated debug keys would block updates with
-  a signature mismatch.
-- **Removed `applicationIdSuffix = ".debug"`** so the distributed debug build keeps the real
-  package `com.financeos.hub` and updates replace the same package the user installed.
-
-### Versioning (`app/build.gradle.kts`)
-- Reads `FOS_BUILD_NUMBER` env → `versionCode = run`, `versionName = "0.1.0.<run>"` (falls back
-  to `1` / `"0.1.0"` locally). `buildConfigField("String","GITHUB_REPO","hoxitoo/financeos-hub")`.
-
-### Updater (`core/update/UpdateChecker.kt`, @Singleton)
-- Plain `HttpURLConnection` + `org.json` (no new dependency). Queries
-  `/repos/{GITHUB_REPO}/releases/latest`, picks the `.apk` asset, compares the normalised tag
-  (`normalize`: strips leading `v` + `-debug` suffix) numerically component-wise (`isNewer`).
-- `download()` streams the APK into `cacheDir/updates/` (covered by existing `provider_paths`
-  `cache-path "."`), reports 0..1 progress. `installApk()` fires `ACTION_VIEW` via FileProvider
-  (`${packageName}.provider`, matches CSV export). `canInstall()` / `openUnknownSourcesSettings()`
-  handle the Android 8+ per-app unknown-sources gate.
-- Only networked component in the app — `INTERNET` + `REQUEST_INSTALL_PACKAGES` added to manifest
-  (commented as update-only; no user data leaves the device).
-
-### UI (`features/settings/`)
-- `SettingsViewModel` — `UpdateUi` (Idle/Checking/UpToDate/Available/Downloading/ReadyToInstall/
-  Error), `checkForUpdates()`, `downloadUpdate()`, `installUpdate()`, `currentVersion`.
-- `SettingsScreen` — new «ОБНОВЛЕНИЯ» section: single state-driven row (check → download →
-  install) + release-notes preview. «О ПРИЛОЖЕНИИ» version row now reads `BuildConfig.VERSION_NAME`.
-
-## Balance Sync Fix — Retroactive Re-link (this session)
-
-User-reported bug (screenshots): an Alfa push «−43 ₽ … Остаток: 6 287,48 ₽; ··2548» recorded
-the transaction, but the «текущий» account balance stayed at 6 330,48 (off by exactly the txn
-amount). Card ··2548 is a **second** card on a multi-card account, and the user has **5 Alfa
-accounts**.
-
-Root cause: at ingest time `AccountLinker.resolveAccountId("2548", "alfabank")` returned `null` —
-card ··2548 wasn't yet resolvable to the account, and with 5 Alfa accounts the bank-name fallback
-is ambiguous (multiple matches → null). So `syncBalance` no-op'd and the bank-authoritative
-`Остаток` was dropped. Registering/adding the card later did **nothing retroactive**: the already-
-ingested transaction was never re-linked and the balance never reconciled.
-
-Fix:
-- **`balance_kopecks` column on `transactions`** (DB **v6→v7**, `MIGRATION_6_7`, registered in
-  `DatabaseModule`). Every ingested SMS/PUSH row now persists `parsed.balanceKopecks` (all 3 sites:
-  `SmsReceiver`, `PushNotificationListener`, `SmsReader`).
-- **`AccountLinker.relinkOrphans(accountId, cardMask)`** — attaches orphan (`account_id IS NULL`)
-  SMS/PUSH transactions with that `source_mask` to the account (`TransactionDao.linkOrphansToAccount`,
-  only touches still-unlinked rows so nothing is stolen), then reconciles the account to the most
-  recent bank-authoritative balance across its cards (`TransactionDao.latestBalanceForAccount`).
-  Uses authoritative balance only — never a delta — so no double-count.
-- Wired into `DashboardViewModel.createAccount` and `addCard` (`AccountLinker` injected).
-- **Note:** the row already stuck before the migration has no stored balance, so it won't
-  auto-reconcile retroactively; it self-heals on the next push for that card (now that the card
-  resolves), or via a one-time manual balance edit. All future ingests are fully covered.
-
-## Audit #7 ✓ COMPLETE (this session)
-
-Expert audit across 8 dimensions (3 parallel subagents). 9 genuine bugs fixed:
-
-| Severity | File | Fix |
-|----------|------|-----|
-| HIGH | `AnalyticsEngine.kt` | `buildScoreInput` and `buildInsightData` both used offsets `0..2` (current partial month + 2 prior) for `last3Income` and `avg3Expense`. Changed to `1..3` (3 completed months only) — current-month partial income made stability score drop to 0 early in month; partial expense made cushion score overstate by up to 15 pts |
-| HIGH | `DashboardViewModel.kt` | `runCatching{}` inside `collectLatest` swallowed `CancellationException` — when a new TX emission arrived, `collectLatest` cancelled the old block but all 3 heavy engine calls (`computeScore/forecastMonthEnd/sparkline30Days`) still ran to completion. Replaced with `try/catch` that re-throws `CancellationException` |
-| HIGH | `BudgetViewModel.kt` | `month`/`from`/`to` computed once at ViewModel construction — budget showed wrong month's data if app left open past midnight. Replaced with a `_monthTick` `MutableStateFlow` + midnight `delay` loop inside `init`, then `flatMapLatest` so the query window recomputes on month change |
-| HIGH | `TransactionDetailSheet.kt` | All four `remember {}` state fields had no key — if a different transaction was shown while the sheet was still in composition, the old merchant/note/categoryId remained stale. Fixed: `remember(transaction.id)` |
-| HIGH | `AddGoalSheet.kt` | All four `remember {}` fields had no key — edit goal A → dismiss → edit goal B showed goal A's prefilled data. Fixed: `remember(existing?.id)` |
-| HIGH | `UpdateChecker.download()` | `apkUrl` from GitHub API JSON was not validated to be HTTPS before opening a connection — a MITM could substitute `http://evil/malware.apk`. Added guard: `if (!apkUrl.startsWith("https://"))` throws before connecting |
-| HIGH | `UpdateChecker.check()` | `runCatching{}.getOrElse{}` swallowed `CancellationException` — a cancelled update check kept the IO thread blocked for up to 15 s on network timeout. Added `if (e is CancellationException) throw e` in the catch handler |
-| MEDIUM | `GoalRepository.contribute()` | `completedAt` was never cleared when a reversal brought `savedKopecks` back below target — goals card showed "completed on <date>" for an incomplete goal. Fixed: `completedAt = when { completed && g.completedAt == null → now; !completed → null; else → g.completedAt }` |
-| MEDIUM | `TransferPatterns.kt` | `AMOUNT` and `BALANCE` regexes used `\s` in a char class, which matches `\n` — multiline push bodies could bleed across lines → `toDoubleOrNull` returns null → transfer/balance silently dropped. Replaced `\s` with explicit horizontal-whitespace set `[ \t  ]` |
-| MEDIUM | `BioluminescentIndication.kt` | `remember(blooms, color)` — `blooms` SnapshotStateList as a `remember` key allocated a new `IndicationInstance` on every bloom add/remove (GC pressure at 60fps). Changed to `remember(color)` only; Compose already tracks `blooms` reads inside `drawIndication()` |
-
-## «Кот-режим» (Cat Mode) ✓ COMPLETE (this session)
-
-A third customization tumbler (Settings → «КАСТОМИЗАЦИЯ») that adds a mood-matched cat mascot and
-paw-print particles. Standalone — works without «Анимации»/«Атмосфера», off by default.
-
-### Assets (`app/src/main/res/drawable/`)
-9 cat assets committed (`f3d8fed`): 5 WebP (verified true alpha, corners α=0) + 4 vector drawables.
-- Mood WebP: `cat_mood_excited`, `cat_mood_neutral`, `cat_mood_sad`, `cat_mood_loaf`, `cat_face_mono`
-- Vectors: `cat_mood_sleeping` (curled + zzZ), `cat_silhouette` (icon), `cat_paw_glow` + `cat_paw_ghost` (particles)
-
-### Mood system (`ui/components/CatMascot.kt`)
-- `CatMood` enum + `catMoodFor(score)` — thresholds IDENTICAL to `ScoreRing` colour tiers so the cat
-  and ring never disagree: ≥70 EXCITED / 40–69 NEUTRAL / 20–39 SAD / <20 SLEEPING.
-- `CatMascot(score, animated)` — `Image` via `painterResource` (handles both WebP + vector); optional
-  ±2 % vertical "bob" idle via always-called `rememberInfiniteTransition` (Rules of Hooks), origin
-  anchored to feet. Static (scaleY=1f) when `animated=false`.
-- `PawParticleLayer(count, animated)` — paw-print replacement for `ParticleLayer`'s fireflies. Same
-  analytic-drift maths (one accumulated time value, loop only while `animated`). Glow/ghost paws
-  alternated for a trail feel; drawn via `with(painter){ draw(size, alpha) }` inside `translate`+`rotate`.
-
-### Wiring
-- `UserPreferences.CAT_MODE_ENABLED` (+ flow + setter), default false
-- `ShimmerConfig.catMode` + derived `catMascot` (= catMode), `catMascotAnimated` (catMode && !reduceMotion
-  && !powerSave), `catPawParticles` (catMode && particles). Wired into `ProvideShimmer`.
-- `SettingsViewModel`/`SettingsScreen` — toggle in «КАСТОМИЗАЦИЯ» (inner combine widened to 4)
-- `DashboardScreen` — mascot in the **header** (next to ⚙, 44dp) so it shows for every hero variant and
-  never overlaps a monetary number; firefly→paw swap in all 3 heroes
-- `InsightsTab` — same firefly→paw swap
-- **Build note:** project does not compile in this env — network policy blocks `dl.google.com` (AGP
-  download). Verified by review; paw drawing uses the canonical `with(painter){ draw() }` Canvas idiom.
-
-### Cat Mode — possible follow-ups (not done)
-- Cat-flavoured push notification copy ("мяу"-styled CRITICAL insights)
-- Mascot tap → playful toast/caption
-- Swap fireflies→paws in remaining atmosphere surfaces if any are added
-
-## Background Update Notifications ✓ COMPLETE (this session)
-
-The app now proactively pushes a notification when a newer GitHub release exists — no need to open
-Settings to discover updates. The push deep-links to Settings → «ОБНОВЛЕНИЯ» where the existing
-in-app download/install flow takes over (the worker never downloads/installs by itself).
-
-### `UpdateCheckWorker` (`core/update/UpdateCheckWorker.kt`, `@HiltWorker`)
-- Periodic WorkManager job, **12 h** interval, `NetworkType.CONNECTED` constraint, KEEP policy.
-- `doWork()`: respects the opt-out toggle (returns `success` without network work when off); calls
-  `UpdateChecker.check()`; on `Available` fires `NotificationHelper.sendUpdateAvailable` **once per
-  version** (de-duped via `lastNotifiedVersion` pref). Re-throws `CancellationException`; returns
-  `success` (not `retry`) on error so a no-release/transient-network repo isn't hammered every backoff.
-- On `UpToDate` reconciles `lastNotifiedVersion` → installed version (clears the sticky marker once
-  the user has caught up — fixes the audit-flagged stale-suppression edge case).
-- Scheduled in `FinanceOsApplication.onCreate()` next to `AnalyticsWorker`.
-
-### Notification (`NotificationHelper`)
-- New channel `fos_update` ("Обновления", DEFAULT importance), registered in `createChannels()`.
-- `sendUpdateAvailable(version, notes)` — BigText with release notes, deep-links to `"settings"`
-  (already in the `deepLinkable` whitelist), guarded by `hasNotificationPermission()`.
-
-### Prefs + UI
-- `UserPreferences.UPDATE_NOTIFICATIONS_ENABLED` (default **true**) + `LAST_NOTIFIED_VERSION`.
-- Settings → «ОБНОВЛЕНИЯ»: new toggle "Уведомлять о новой версии" (`SettingsState.updateNotifyEnabled`,
-  inner custom combine widened 4→5).
-
-## Audit #8 ✓ COMPLETE (cat mode + update feature, this session)
-
-3 parallel expert audits (UI/Compose · WorkManager/Hilt · state-wiring). Findings:
-
-| Severity | File | Fix |
-|----------|------|-----|
-| HIGH (pre-existing) | `core/analytics/AnalyticsWorker.kt` | **Missing `@HiltWorker` annotation** → `HiltWorkerFactory` could not instantiate it; the daily analytics/insight worker **silently never ran** since it was added. Added `@HiltWorker` + import. |
-| MEDIUM | `core/update/UpdateCheckWorker.kt` | Sticky `lastNotifiedVersion` was never reconciled once the user updated → contrived case could suppress a legitimate re-notify. Now reset to installed version on `UpToDate`. |
-- **Clean (verified correct, no change needed):** `with(painter){draw()}` inside Canvas `translate`+`rotate`
-  (canonical API, compiles); Compose Rules of Hooks in `CatMascot`/`PawParticleLayer` (all hooks
-  unconditional, mirror `ParticleLayer`); 5-arg `combine` overloads + index mapping + casts in
-  `SettingsViewModel`; `ShimmerConfig` `remember` keys complete; defaults consistent across
-  state/pref/config; deep-link `"settings"` end-to-end; `ACCESS_NETWORK_STATE` auto-merged from the
-  work-runtime AAR.
-- **Accepted (not fixed):** `density` not in `PawParticleLayer`'s `remember(count)` key — identical to
-  the pre-existing `ParticleLayer` pattern (config change recreates the Activity anyway).
-
-## Audit #9 Fixes — Push/Balance/Source (this session)
-
-Four bugs fixed (commit 090970f):
-
-| Severity | File | Fix |
-|----------|------|-----|
-| HIGH | `AlfabankParser.kt` | `pushMask`/`maskTail` had `$` end-anchor — card «··2548» in notification title was lost after `PushNotificationListener` joined title+body with space → `cardMask=null` → orphaned transaction → balance never updated. Replaced `$` with `(?!\d)` negative lookahead |
-| HIGH | `SberbankParser.kt` | No push parser at all — all Sberbank push notifications silently returned `null` and were dropped. Added `parsePush()` using «В запасе:» as anchor; amount = last ₽-value before anchor; card from «СЧЁТ • 4102»/«Карта •NNNN»; type from Зачисление/Пополнение keywords |
-| MEDIUM | `TransferPatterns.kt` | «Забросил[аи]? деньги» (Sberbank inter-bank transfer verb) missing from `OUTGOING`; «В запасе» (Sberbank balance field) missing from `BALANCE` — both now added |
-| MEDIUM | `SmsReceiver.kt` | Missing cross-channel dedup: push+SMS for same event had different smsIds → double insert. Added `existsSimilarSmsOrPush(±5 min)` guard after `existsBySmsId` check |
-| LOW | `TransactionDetailSheet.kt` | Source label hardcoded «SMS» for all non-MANUAL sources. Replaced with `when(source)` showing «push» (Info colour) / «PDF» / «вручную» / «SMS» correctly |
-
-## Balance Sync — Root-Cause Fix (Audit #11, this session)
-
-**User report (recurring):** Alfa pushes for a secondary card (··2548 on «текущий», one of 5 Alfa
-accounts) create transactions that appear in the list WITH the card shown, but the account balance
-freezes at an old value and never updates — not via the card, not via manual «Пересчёт», not via
-re-adding the card. This bug had been "fixed" 5× before (`090970f`, `9799f2c`, `82f984e`, `2604eb4`,
-`226a084`) and kept returning — because the previous fixes treated symptoms, not the design flaw.
-
-**Root cause (two parallel deep audits converged):** balance application was **coupled to transaction
-insertion**, and the cross-channel dedup is **balance-/account-blind**:
-1. A bank delivers the SAME event more than once — Android `onNotificationPosted` re-fires
-   collapsed→expanded, and some banks send an SMS twin. The FIRST (skeletal) copy often lacks the
-   «Остаток»/card line → with 5 Alfa accounts the bank-name fallback is ambiguous → `resolveAccountId`
-   returns null → orphan row, balance never set.
-2. The SECOND (rich) copy that DOES carry «Остаток: 5 593 ₽; ··2548» hits
-   `existsSimilarSmsOrPush` (matches on `ABS(amount)` ±5 min, source IN SMS/PUSH) and `return`s
-   **before** `syncBalance` — discarding the authoritative figure permanently.
-3. `reconcileAccount` was gated on `if (accountId != null)`, so the self-heal skipped exactly the
-   orphaned rows that needed it. Since no row ever stored the fresh balance, manual reconcile / card
-   re-add had nothing to snap to → frozen forever.
-
-**Fix — decouple balance from the transaction row (`AccountLinker` + both real-time ingest sites):**
-- `AccountLinker.resolveAccountByCardMask(mask)` — card-mask-ONLY resolution (no ambiguous bank-name
-  fallback; never routes a balance to the wrong account of a multi-account bank).
-- `AccountLinker.applyAuthoritativeBalance(cardMask, ostatok)` — sets the owning account's balance
-  from the card mask alone, independent of any transaction row.
-- `PushNotificationListener` + `SmsReceiver`: both dedup `return` paths (`existsBySmsId` and
-  `existsSimilarSmsOrPush`) now call `applyAuthoritativeBalance(...)` before bailing — the dropped twin
-  is the same event but may carry the balance the kept row lacked, so its «Остаток» is applied without
-  inserting a duplicate transaction.
-- Post-insert self-heal now resolves the account by card mask when the row itself orphaned:
-  `val healId = accountId ?: resolveAccountByCardMask(parsed.cardMask)` → `reconcileAccount(healId)`.
-- `SmsReader` (90-day batch) left as-is: chronological import, no per-row reconcile by design; the
-  bug is real-time only.
-
-**Note for the currently-frozen balance:** rows whose rich copy was already dropped never stored a
-balance, so «Пересчёт» can't retroactively recover it. The balance now self-corrects on the **next**
-push/SMS for that card (which applies the «Остаток» even if deduped), or via a one-time manual edit.
-All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
-was purely in how/when the balance was applied.
-
-## Batch 5 — Categories tab: interactive 3D pie + drill-down (working branch only)
-
-### `ui/components/Pie3D.kt`
-Pseudo-3D pie built from two cheap tricks instead of a renderer: the disc is squashed vertically
-(`PERSPECTIVE = .52`) so it reads as tilted, and the same wedges are redrawn a few pixels lower in a
-darkened shade to fake the extruded side. Tapping a wedge selects it (animated "explode" outward via
-`animateFloatAsState`); tapping it again or the background clears. **Hit-testing un-squashes the touch
-point back into circle space** (`nx = (x−cx)/rx`, `ny = (y−cy)/ry`) before measuring the angle, so it
-stays accurate under the perspective; angles start at 0° = 3 o'clock and run clockwise, matching the
-draw order exactly (verified by simulation).
-
-### CategoriesTab rebuilt
-- **3D pie** coloured by each category's own stored `color` (palette fallback by position).
-- Tap a slice → emoji + name + amount + share, and a «Показать операции ›» link.
-- **ТОП-3 ТРАТЫ** block under the chart, then the full category list — every row is clickable.
-- `AnalyticsState` gained `categoryColors` / `categoryEmojis`.
-
-### Category drill-down (`CategoryOpsSheet`)
-Tapping a category opens a sheet with **all its operations for the current AND previous month**,
-each with date and amount, plus a month-over-month headline ("На N больше, чем в прошлом месяце").
-`AnalyticsViewModel.categoryOperations(categoryId)` returns `CategoryOps(current, previous)` and
-deliberately **ignores the period chips** — this drill-down answers a fixed month-vs-month question.
-Wrapped in `remember(categoryId)` at the call site (it builds a `stateIn` flow, so calling it from the
-composable body would spawn a collector per recomposition — same trap as `GoalHistorySheet`).
-`CategoriesTab` now takes the ViewModel, so `AnalyticsScreen` passes `vm`.
-
-## Batch 4 — Trends tab made readable (working branch only — NOT merged to main)
-
-New shared components in `ui/components/AnalyticsCharts.kt`: `InfoBadge` (tappable «?» → plain-language
-dialog), `SectionHeader` (caption + badge), `MoMComparison`, `FatigueBars`, `SegmentedDonut`.
-
-### «Месяц к месяцу» — waterfall → diverging bars with «было → стало»
-The waterfall showed only a *difference*, and because `delta = prev − current` internally, a RISE in
-spending rendered green-with-a-plus — reading as income/good. Now each row shows the raw change with
-a bar diverging from a centre line: **left+green = потратили меньше, right+red = потратили больше**,
-with `было X → стало Y` underneath and a one-line headline ("Расходы выросли на N").
-- `WaterfallBar` gained `prevKopecks` / `currentKopecks` / `isIncome`. **`isIncome` matters:** for the
-  income row a rise is GOOD, for expense rows a rise is BAD — without the flag the UI would paint an
-  income increase red. The sign shown is now derived from the raw change so it always matches the
-  numbers printed below it.
-
-### «Импульсивность» — explained + made checkable
-- `InfoBadge` documents the actual heuristic (impulse = < 2 000 ₽ between 21:00–06:00; planned =
-  > 5 000 ₽ on a weekday 08:00–13:00) and states outright that it is a time/amount heuristic.
-- Headline is now the share of MONEY (not receipts), plus a proportion bar (импульсивные/плановые/
-  обычные) and — the key change for the "о, действительно импульсивная" effect — **the actual flagged
-  purchases** with merchant, date and the hour that triggered the flag.
-- `ImpulseStats.samples` added (top-5 by amount) in `BehavioralAnalyzer.computeImpulseStats`.
-
-### «Усталость бюджета» — explained + readable chart
-`InfoBadge` explains the averaging. The bare line chart became `FatigueBars`: one bar per day of month,
-a grey average reference line, above-average days in Warning, the peak day in Negative, axis labels
-1/15/31 and a sentence naming the peak day and its average amount.
-
-### «Когда ты тратишь» — heatmap → two tappable donuts
-The 7×24 grid was tall and unreadable on a phone. Replaced with two `SegmentedDonut`s side by side:
-**by weekday** and **by 4-hour bucket** (24 tappable hour slices would be far too small). Tapping a
-slice shows its share and amount in the centre; tapping again clears. Adds compact legends and a
-plain-language takeaway ("Больше всего вы тратите в субботу, чаще всего в 20–24 ч.").
-Tap→slice mapping converts the touch angle to degrees clockwise from 12 o'clock and walks the same
-sweep order used for drawing; taps in the hole or outside the ring clear the selection.
-
-`WaterfallChart.kt` is now unused but kept (harmless, may return for a different view).
-
-## Batch 3 of the long improvement cycle (working branch only — NOT merged to main)
-
-### 1. Budget alert spam — throttled and persisted
-**Root cause:** `alertedBudgets` was an in-memory set on `BudgetViewModel`, which is recreated on
-every navigation to the Budget screen — so each visit re-fired the alert for every over-threshold
-envelope ("может придти 10 раз"). `checkAndFireAlerts` also runs inside the `combine` transform, i.e.
-on every flow emission.
-**Fix — three layers of throttling:**
-1. **Persisted per-budget key** `<budgetId>:<YYYY-MM>` in DataStore → one alert per budget per month,
-   surviving ViewModel death and app restart.
-2. **Hard cap `MAX_ALERTS_PER_DAY = 2`** with a persisted epoch-day counter (new day → reset).
-3. In-session guard so repeated emissions don't even read DataStore.
-New `UserPreferences.BudgetAlertState` + `budgetAlertState()` / `saveBudgetAlertState()`
-(`BUDGET_ALERT_DAY`, `BUDGET_ALERT_COUNT`, `BUDGET_ALERTED_KEYS`; keys list bounded to 50).
-
-### 2. «Букмекер» expense category
-`cat_betting` (🎰) added — betting only existed as an INCOME *preset label*, never as an expense
-category. Appended LAST in the seed list on purpose: `sort_order` is the list index and existing
-installs keep their stored order via `INSERT OR IGNORE`, so inserting mid-list would only reshuffle
-new installs. One colour appended to keep `colors[i]` in range (17 cats / 17 colours).
-
-### 3. Marketplace + bookmaker auto-categorisation
-- **Marketplaces → `cat_shopping`** (r150–r175): озон/ozon.ru, вайлдберриз/вайлдберрис/wb.ru,
-  Яндекс Маркет, Мегамаркет/СберМегаМаркет, AliExpress/алиэкспресс, авито, ламода, Детский мир,
-  МВидео, Эльдорадо, ДНС, Ситилинк. Latin `ozon`/`wildberries` already existed (r070–r071) — banks
-  send merchants in **both** alphabets, hence the Cyrillic twins.
-- **Bookmakers → `cat_betting`** (r180–r201): фонбет/fonbet, winline, 1xbet, лига ставок, betboom,
-  betcity, marathonbet, олимпбет, париматч, тенниси, plus generic «букмекер».
-- **DB v9→v10** `MIGRATION_9_10` re-runs both seed helpers so existing installs get the new category
-  and rules without touching user data.
-- Note: only NEW transactions are classified — already-stored rows keep their category.
-
-## Batch 2 of the long improvement cycle (working branch only — NOT merged to main)
-
-### 1. Pixel-art backdrop on goal cards (`ui/components/GoalArt.kt`)
-`GoalArtKind` (vacation/home/car/tech/education/health/gift/purchase/savings) is derived from the
-goal's **emoji first, then name keywords** — so existing goals get art with **no DB migration** and no
-extra step in the create flow. `GoalArtBackdrop` resolves `goal_art_<kind>` via
-`resources.getIdentifier` at runtime: the app builds and looks finished **without** any artwork, and
-each drawable starts showing the moment it is dropped into `res/drawable` (same graceful-degradation
-approach as the optional `.tflite` models). Until then a themed diagonal gradient stands in.
-Drawn with `FilterQuality.None` (crisp pixels) at alpha .38 under a horizontal scrim so the card's
-text/amounts keep contrast. **Generation prompts: `docs/GOAL_ART_PROMPTS.md`** (Nano Banana, 1024×320,
-subject in the RIGHT half because the left third is covered by the scrim).
-
-### 2. Money inputs: kopecks preserved + thousands grouped
-- **Kopecks were destroyed on balance edit:** the field prefilled with `account.balanceKopecks / 100`
-  (integer division), so opening the editor on 1 417,59 ₽ and saving silently wrote 1 417,00 ₽.
-- **Float truncation:** every money field parsed with `(value * 100).toLong()`; `1417.59 * 100` is
-  `141758.999…` in binary floating point → `toLong()` truncated a kopeck away on each edit.
-- New `FosFormatter` helpers: `amountInput(kopecks)` (kopecks-preserving raw string),
-  `groupAmountInput(raw)` (groups the integer part while typing, keeps the decimals → `1 000`),
-  `parseAmountInput(raw)` (strips NBSP/spaces, **rounds** instead of truncating).
-- Applied to **all five** money fields: account balance edit, add-account balance, add-transaction
-  amount, goal contribution, budget limit. Display formatting (`amount`/`compact`) already grouped —
-  only the INPUT fields showed a run-on `1000`.
-
-### 3. «Откуда» / «Куда» — two-step account picker
-Replaced the single long horizontal strip of every card (which forced a scroll hunt) with
-`AccountPicker`: a row per **bank** (brand-coloured badge via `bankBrand`), tap to expand that bank's
-accounts showing **name + ••last4 + current balance**. Selected bank auto-expands; picking collapses
-back to a compact summary showing the chosen card. Labels are now «Откуда» / «Куда» (for INCOME the
-source label reads «Куда»). `SourceOption` gained `bank`, `balanceKopecks`, `currency`.
-
-## Batch 1 of the long improvement cycle (this session, working branch only — NOT merged to main)
-
-**Release note:** this cycle is pushed to `claude/project-setup-design-sndr3y` only, so the APK
-pipeline does not rebuild on every change. Merge to `dev`→`main` when a batch is ready to ship.
-
-### 1. Multi-colour financial-health donut
-`ui/components/ScoreDonut.kt` replaces the single-colour ring: one arc per score pillar, each pillar
-owning a slice proportional to its max points (Сбережения 30 → Positive, Стабильность 20 → Info,
-Обязательные 25 → Warning, Подушка 25 → Shimmer.GlowViolet). Inside its slice the earned part is full
-colour and the shortfall stays dimmed (alpha .16), so a weak pillar is visible at a glance. A 3° gap
-keeps adjacent colours from blending. `FosColors.Negative` is deliberately never used for a slice —
-red means "expense/overrun" in this design system and would read as an error, not a category.
-- Used in **Analytics → Обзор** (legend rows gained matching colour dots) and in the **«Спокойный»
-  hero only** (plus a compact colour-dot legend). Other hero variants never had a ring — untouched.
-- `DashboardState.scoreBreakdown` added (`_score` now carries the whole `ScoreBreakdown`, not `.total`).
-
-### 2. Biometric lock no longer prompts when disabled (and can't lock you out)
-**Root cause:** `isLocked` started as `true`, so `LockScreen` composed immediately and its
-`LaunchedEffect(Unit) { onUnlockRequested() }` fired the fingerprint prompt **before** the async
-preference read finished — the app asked for a fingerprint even with biometrics switched off. A tester
-whose sensor broke was then permanently locked out and had to reinstall, losing all history.
-- `MainActivity` gained a `lockChecked` gate: the preference is read once in `onCreate`; until it is
-  known the UI renders nothing (never the lock screen, never the content). Only a confirmed-enabled
-  preference sets `isLocked = true` and fires the prompt.
-- `LockScreen` no longer auto-triggers auth (that was the race) and gained an explicit
-  **«Войти по PIN-коду устройства»** escape hatch → `triggerDeviceCredential()`, so a damaged or
-  unrecognised fingerprint can never cost a user their data.
-- Turning the setting off in Settings now releases the lock immediately on resume.
-
-### 3. Goals: money no longer vanishes on transfer + goal history
-- **Vanishing money (root cause):** the bank books an internal transfer on ONE account only, and
-  `syncBalance` applied the row to `tx.accountId` (the source). Nothing ever credited the destination,
-  so the amount left one account and arrived nowhere — exactly the reported "деньги просто пропадают
-  со счета". `AccountLinker.adjustBalance(accountId, delta)` added; `TransferRouter` now moves the
-  counterparty leg. Guarded by a `findTransferCounterpart` check so a two-push transfer (each account
-  gets its own push) is never double-counted.
-- **Goal history:** `TransactionDao.observeByGoal` + `TransactionRepository.observeByGoal` +
-  `GoalsViewModel.historyFor(goalId)`; new `GoalHistorySheet` opened from a «История ›» link on the
-  goal card, listing every routed operation with its date. Amounts are shown from the GOAL's
-  perspective (outgoing transfer = +progress), which also makes a withdrawal from a goal-linked
-  account visible instead of the progress silently dropping.
-- Note: `historyFor()` is wrapped in `remember(goal.id)` at the call site — it builds a `stateIn`
-  flow, so calling it straight from a composable body would spawn a collector per recomposition.
-
-## Manual transfer destination + Alfa «408*01139» / «Получатель платежа» parse (this session)
-
-- **Manual transfer «на какой счёт»:** `AddTransactionSheet` now shows a destination account picker
-  «На какой счёт (зачисление)» when type = TRANSFER. `insertManual(destAccountId=…)` credits the
-  destination (+сумма) as well as debiting the source (−сумма), so an internal transfer keeps net
-  worth unchanged. (Safe now that `AccountDao` uses `@Upsert` — crediting via upsert no longer wipes
-  cards.)
-- **Alfa account-number parse fix:** «Списание со счета 408\*01139 … Получатель платежа FONBET» left the
-  account "не определился" because `pushMask` (`[*•·]{1,2}(\d{4})(?!\d)`) can't capture a glyph
-  followed by 5 digits. Added `acctNumber` regex (`сч[её]т… \d*[*•·](\d{4,})` → LAST 4 = «1139») and
-  `payeeRe` («Получатель платежа X» → merchant «FONBET»). The balance mismatch the user suspected was
-  NOT the cause — it was purely the mask format. Regression test added.
-
-## Manual-entry «Перевод» + clickable dashboard ops + no delete button (this session)
-
-Three UX asks:
-- **Manual transfer:** `AddTransactionSheet` type toggle gained a third option «Перевод» (Info-blue chip)
-  so a transfer that never arrived as a push can be logged by hand. Category picker is hidden for
-  TRANSFER (transfers have no category); `insertManual` already signs it as an outgoing transfer and
-  debits the chosen account.
-- **Clickable dashboard ops:** «Недавние» rows now take `onClick` → open `TransactionDetailSheet`.
-  `DashboardState` exposes `categoryEntities`; `DashboardViewModel` gained `updateTransaction` (mirrors
-  TransactionsViewModel, injects `TransferRouter` to un-route a goal on transfer reclassification).
-- **Removed the hidden delete button:** `TransactionDetailSheet` no longer has the «Удалить операцию»
-  button / confirm dialog / `onDelete` param (it sat below «Сохранить», off-screen). Deletion is
-  swipe-left-to-trash only. Both call sites (Transactions + Dashboard) updated.
-
-## ROOT CAUSE of the card-disappearing saga: REPLACE-upsert + FK CASCADE (this session)
-
-**Decisive user report:** "I manually typed the balance into «текущий» and the instant I did, cards
-2548 and 6687 were deleted from the account." → reproducible, code-level.
-
-**Root cause (the real one behind the whole saga):** `AccountDao.upsert` was `@Insert(onConflict =
-REPLACE)`, and `CardEntity` has `ForeignKey(onDelete = CASCADE)`. In SQLite, **REPLACE on an existing
-row = DELETE + INSERT** — so `accountRepo.upsert(account.copy(balance = …))` DELETED the account row
-(CASCADE-deleting ALL its cards) then re-inserted it. Every balance edit (`updateAccountBalance`),
-manual op (`insertManual`), and delete-reversal adjusts the balance via `upsert` → each one silently
-wiped the account's cards. This is why cards kept "auto-detaching" and why re-adding a card never stuck
-(the next balance change deleted it again).
-
-**Fix:** `AccountDao.upsert`/`upsertAll` changed from `@Insert(REPLACE)` to **`@Upsert`** (Room 2.6.1
-supports it). `@Upsert` updates the existing row IN PLACE — no delete, no cascade. One line, covers all
-callers (balance edit, manual op, delete, createAccount, backup restore).
-
-**Note:** the previous "account delete cleans up cards/routes" fix is still correct hygiene, but THIS
-was the actual cause of the recurring card loss. With cards no longer wiped on balance edits, a re-added
-card finally sticks.
-
-## Account delete now cleans up its cards + goal-routes (this session)
-
-**User report:** card ··2548 "auto-detached" from «текущий» (never touched manually); a 15 000 ₽ Alfa
-transfer 1139→3583 didn't fund the goal linked to the destination account.
-
-**Root cause (both):** no code auto-detaches a card (only explicit add/delete + backup write cards; there
-is NO hard account delete, so the FK CASCADE never fires). The real cause is **account delete+recreate
-during troubleshooting**: `deleteAccount` only did `accountRepo.deactivate(id)` — it left the account's
-**cards** (still `is_active=1`, pointing at the now-dead account id) and its **goal-routes** (ACCOUNT
-route `match_value` = dead account id) dangling. A re-created same-named account gets a NEW id, so the
-old card no longer shows under it ("auto-detach"), and the goal's route points at a ghost so a transfer
-into the live account never matches → goal not funded.
-
-**Fix:** `deleteAccount` now also `cardRepo.deactivateByAccount(id)` + `transferRouteRepo.removeAccountRoutes(id)`
-(new `CardDao.deactivateByAccount`, `TransferRouteDao.deactivateByAccountValue`). The goal itself is kept —
-only its dangling link is cut, so it visibly shows "unlinked" prompting a clean re-link.
-
-**Does NOT retroactively fix the user's current state** (the zombie card/route already exist): remedy is
-to re-add card ··2548 to «текущий» and re-link the goal to «тревел» via 🔗. Also honest gap: an internal
-transfer credits only the SOURCE account (money can appear to "vanish" from net worth until the
-destination is reconciled/edited) — left as-is to avoid double-credit with the pairing path.
-
-## Analytics period selector + dashboard month label (this session)
-
-Two UX additions, both isolated from the fragile analytics/score math:
-- **Dashboard month caption:** `FosFormatter.currentMonthName()` («Июль»); a `SectionCap` label sits above
-  the Доходы/Расходы/Прогноз metric row in both hero variants, so near-zero figures on the 1st read as
-  "month just started" rather than "data lost".
-- **Analytics period selector:** `AnalyticsPeriod` enum (MONTH / HALF_YEAR / YEAR / ALL) + chip row under
-  the «Аналитика» title. `AnalyticsViewModel` gained `_period` (MutableStateFlow) folded into the combine;
-  `periodWindow(period)` filters the tx list for `categoryExpenses` / `dailyExpenses` / `transactions`
-  only. **Every `analyticsEngine.*` call is untouched** — score, forecast, heatmap, fatigue, waterfall,
-  narratives, archetype keep their own monthly/rolling windows by design (a health score is point-in-time,
-  not a period aggregate). So the toggle drives the cumulative category breakdown + spending curve without
-  any risk to the score/behavioural logic.
-
-## Financial-health score no longer craters on the 1st of the month (this session)
-
-**User report (01.07):** on a new month the app "looked reset" — analytics from zero, financial health
-recomputed. **Verdict:** monthly counters (Доходы/Расходы за месяц, «Обзор» current-month categories)
-resetting IS expected (July MTD is near-empty on July 1; Trends use history and don't reset). But the
-**score cratering is a real flaw:** `ScoreCalculator` savings pillar = `(income−expense)/income` for the
-CURRENT month → income 0 on the 1st → 0/30; mandatory pillar with expense 0 → falsely 25/25.
-
-**Fix:** `AnalyticsEngine.buildScoreInput` — when the current month has no income yet, fall back to the
-last completed month (income/expense/mandatory taken from the same month) so the health score reflects
-real recent behaviour instead of an empty partial month. `last3Income`/`avg3Expense`/cushion already use
-completed months, so they were unaffected.
-
-## Swipe-to-delete UX — left-swipe reveals trash, tap to confirm (this session)
-
-Replaced the `SwipeToDismissBox` (which auto-deleted on a flick in EITHER direction — too easy to
-trigger by accident) with a new reusable `ui/components/SwipeToRevealDelete.kt`: drag the row LEFT to
-expose a red 🗑 button pinned to the right edge; the swipe never deletes by itself — TAP the trash to
-confirm. Built with `Animatable` + `draggable` (no Material auto-dismiss); offset clamped to `[-76dp, 0]`
-so only left-swipe reveals; releasing below half closes. Wired into both `TransactionsScreen` (operations)
-and `AccountDetailSheet` (accounts); old `SwipeDeleteBackground`/`AccountSwipeDeleteBg` helpers removed.
-
-## Balance — Recency Guard: re-link no longer reverts a manual edit (this session)
-
-**User report (after the ghost fix worked for 2 days):** made 2 Alfa transfers; one push carried the
-card/«Остаток», the other did not. Balance updated for the one with a number. User then manually
-corrected the balance (−300). Re-attaching card ··2548 **reverted the balance to the pre-transfer
-value** (screens: «текущий» 2 247,69 → 3 047,69, +800) — the stale stored «Остаток» overwrote the
-fresher manual edit.
-
-**Root cause:** `relinkOrphans`/`reconcileAccount` snapped unconditionally to
-`latestBalanceForAccount` (the most recent stored `balance_kopecks`). But transfers without an
-«Остаток» don't update that figure, and a manual edit doesn't write a transaction balance — so the
-"latest stored balance" was a pre-transfer push, OLDER than the manual edit, and snapping reverted it.
-
-**Fix — recency arbiter:** new `TransactionDao.latestBalanceSnapshotForAccount` returns the latest
-bank balance WITH its message timestamp. `AccountLinker.snapToAuthoritativeIfNewer` only overwrites the
-account balance when `snapshot.timestamp > account.updatedAt` — so the freshest signal wins, whether
-it's a manual edit or a bank «Остаток». Used by both `relinkOrphans` and `reconcileAccount` (incl. the
-«Пересчёт» button). A normal post-insert reconcile is unaffected (syncBalance already set the value).
-
-## Alfa Balance — GHOST ACCOUNT root cause FOUND + fixed (this session)
-
-**Decisive diagnostic:** with the account-NAME diagnostic shipped, the user saw МБанк op → «Привязан к
-счёту: виртуальный» (name), but Альфа ··2548 op → «Привязан к счёту: **да**» (no name). The name comes
-from `state.accounts.firstOrNull { it.id == tx.accountId }?.name`, and `accountRepo.observeAll()` =
-`WHERE is_active = 1`. So «да» without a name ⇒ the op's `account_id` points to an account NOT in the
-active set — a **deleted (deactivated) account**.
-
-**Root cause (finally, no contradictions):** the user deleted the Alfa account card ··2548 was originally
-on (`deactivate` = `is_active = 0`, a soft delete) and re-added the card to the new «текущий». The OLD
-··2548 transactions kept `account_id = <ghost>`, and `updateBalance` (no is_active guard) applied each
-«Остаток» to the **ghost**. «текущий» never received it → frozen. МБанк worked because its «виртуальный»
-account was never deleted. «Пересчёт» couldn't help because `linkOrphansToAccount` only adopted
-`account_id IS NULL` rows — the ghost-linked rows (account_id NOT null) were skipped. Also: deactivating
-an account does NOT deactivate its cards, so a stale ··2548 card row could still point at the ghost and
-win the bare `LIMIT 1` lookup → even new pushes could re-link to the ghost.
-
-**Fix:**
-- `TransactionDao.linkOrphansToAccount` now reclaims rows that are `account_id IS NULL` **OR** linked to
-  a non-active account (`account_id NOT IN (SELECT id FROM accounts WHERE is_active = 1)`) — never steals
-  a row already on a live account. So «Пересчёт»/reconcile pulls the ghost-stranded ··2548 rows onto
-  «текущий» and `latestBalanceForAccount` snaps the balance.
-- `AccountLinker.resolveAccountByCardMask` rewritten to resolve against **active accounts only**
-  (in-memory filter of `getAllActive` for both the account's own mask and registered cards), so a stale
-  card row pointing at a ghost can never capture the balance again; digit-tolerant last-4 match retained.
-
-**User remedy:** update, then «Пересчёт» on «текущий» once → reclaims the ··2548 history from the ghost
-and snaps to the latest «Остаток» (4 325,06).
-
-## Alfa Balance — Digit-Tolerant Card Link + Detail-Sheet Diagnostics (this session)
-
-**User refutation (correct):** МБанк did NOT send SMS — it was a push too; and the operation card
-DOES display the parsed mask ··2548. So "the listener doesn't see the number" was wrong — if the mask
-is shown, it was parsed (and the «Остаток» on the same line with it). The defect is therefore in
-**card→account linking**, not parsing/capture.
-
-**Refined root cause:** both banks push; МБанк's card resolves, Альфа's ··2548 does not. The user
-earlier reported ··2548 was missing from the manual-entry picker (which reads the `cards` table) →
-strong evidence the stored `card_mask` for 2548 is malformed (stray space/glyph from a delete→re-add
-or a backup restore), so the exact `card_mask = '2548'` SQL match silently misses while the chip still
-renders. Null resolution → orphan → balance never set → «Пересчёт» (needs a stored balance on a linked
-row) has nothing to snap to.
-
-**Fix:**
-- `AccountLinker.resolveAccountByCardMask` now does exact match, then a **digit-tolerant fallback**
-  comparing the LAST 4 DIGITS across active accounts/cards — rescues a format-drifted stored mask.
-  `resolveAccountId` routes through it (so ingest + reconcile + applyAuthoritativeBalance all benefit).
-- **Detail-sheet diagnostics** (`TransactionDetailSheet`): for SMS/PUSH ops, added «Привязан к счёту:
-  да/НЕТ», «Остаток в сообщении: <amount>/не пойман», and (prior) «Исходный текст». One screenshot of
-  a fresh Alfa op now pinpoints linking-vs-capture definitively.
-
-## Alfa Push Balance — Read ALL Notification Text Fields (this session)
-
-**Confirmed via release mapping:** user on `0.1.0.18` already had the balance root-cause fix
-(`0.1.0.16`), yet Alfa balance still froze and «Пересчёт» did nothing → NOT an update issue, a live bug.
-
-**Root cause (finally pinned):** MBank works because it sends an **SMS** (full text in one piece:
-amount + `Карта: *NNNN` + `Доступно`). Alfa sends a **push**, and `PushNotificationListener` read only
-`EXTRA_TITLE`/`EXTRA_TEXT`/`EXTRA_BIG_TEXT`. The Alfa `Остаток: … ; ··2548` line is delivered in a
-DIFFERENT extra (SUB_TEXT / SUMMARY_TEXT / INFO_TEXT / an InboxStyle `TEXT_LINES` entry / ticker), so the
-app captured only `«−617,94 ₽. Магнит»` → no card, no balance → orphan row, balance never set, and
-«Пересчёт» (`latestBalanceForAccount`) had no stored balance to snap to.
-
-**Fix:**
-- `PushNotificationListener.extractBody()` now gathers EVERY text extra (TITLE, TEXT, BIG_TEXT,
-  SUB_TEXT, SUMMARY_TEXT, INFO_TEXT, all `EXTRA_TEXT_LINES`, ticker) and appends any not already in the
-  main body — so a balance/card line in any field is now seen by the parser.
-- **Diagnostic:** `TransactionEntity.raw_text` (DB **v8→v9** `MIGRATION_8_9`) stores the exact captured
-  body; `TransactionDetailSheet` shows it under «Исходный текст». Lets us confirm whether the balance
-  line is present at all (if Alfa renders it only via custom RemoteViews, NO extras reading can recover
-  it → SMS or manual entry is the only path).
-- Stored at all 3 ingest sites from `parsed.rawSms`.
-
-**Next-step ask to user:** update, make a test Alfa purchase, tap the op → screenshot «Исходный текст» →
-confirms whether the `Остаток ··2548` line is now captured. Meanwhile the current frozen balance is fixed
-by editing the account balance manually once.
-
-## Multi-Currency Transaction Display (this session)
-
-**User report:** an МБанк USD charge (GOOGLE *ChatGPT, $19.99) parsed from push and **updated the
-account balance correctly in $**, but the operation row in history showed «−19,99 ₽». Balance was
-right (the account carries the currency), the **transaction** lost it.
-
-**Root cause:** `TransactionEntity`/`ParsedTransaction` had **no currency field**; `TransactionRow`/
-`TransactionDetailSheet` always formatted with the default ₽. МБанк parses USD/KGS/EUR amounts fine
-but the currency was dropped at the boundary.
-
-**Fix (end-to-end):**
-- `ParsedTransaction.currency` (default `"RUB"`); `MBankParser` captures the currency token from the
-  amount (`($number)\s*($cur)`, group 2) and normalises сом→KGS, €→EUR, $→USD via `normCurrency`.
-- `TransactionEntity.currency` column; **DB v7→v8** `MIGRATION_7_8` (`ALTER TABLE transactions ADD
-  COLUMN currency TEXT NOT NULL DEFAULT 'RUB'`), registered in `DatabaseModule`.
-- All 3 ingest sites + `insertManual` (from the chosen account's currency) set it; `TransactionRow`
-  and `TransactionDetailSheet` render `FosFormatter.currencySymbol(transaction.currency)`.
-- `BackupManager` now round-trips `currency` (+ `balanceKopecks`, which was also missing).
-- **Note:** rows ingested BEFORE the migration default to RUB, so the already-stored $19.99 row stays
-  «₽»; only ops ingested after the update show the right symbol.
-
-## Marketing-Push False Parse Fix (this session)
-
-**User report (screenshot):** a T-Bank credit-card OFFER push — «Одобрили кредитку 💳 Получите карту
-с лимитом 163 000 ₽, кэшбэком до 30%, рассрочками и бесплатными переводами» — was booked as a real
-163 000 ₽ outgoing TRANSFER and fired the «Перевод не распределён» alert.
-
-**Root cause (two compounding defects):**
-1. `TransferPatterns.OUTGOING` matched the marketing word «перевод**АМИ**» by SUBSTRING against the
-   `Перевод` keyword (`containsMatchIn`, no boundary) → `outgoing = true`; then `AMOUNT` grabbed
-   «163 000 ₽» from "лимитом 163 000 ₽".
-2. Nothing filtered promotional pushes anywhere — any money amount + a transaction-keyword substring
-   became a transaction, across all 11 banks.
-
-**Fix (two layers):**
-- `core/parser/PromoFilter.kt` — central marketing guard called in `ParserEngine.parse()` BEFORE any
-  bank parser, so it covers SMS + push for every bank. Curated markers that appear only in offers
-  (`одобрили кредитку`/`получите карту`/`кэшбэк … до`/`до N%`/`N% годовых`/`бесплатными переводами`/
-  `приведи друга`/`вклад под N`…). Deliberately narrow: a real «Кэшбэк 150 ₽» credit or a purchase
-  mentioning «доступный лимит» still passes (verified by tests).
-- `TransferPatterns` — stem-anchored the keywords with a Cyrillic lookahead
-  (`Перевод(?![А-Яа-яёЁ])`, `Перевели(?![…])`, bounded `СБП`) so «переводами»/«переводов» can no longer
-  match «Перевод» (defense in depth). `Перечислен` stem kept boundary-free (its own word continues
-  with a Cyrillic letter).
-- Tests: `PromoFilterTest` (9 cases) + 3 new `TransferPatternsTest` regression cases. Regex logic
-  validated standalone (project can't compile in this env: network blocks the AGP download).
-
-**Note for the user:** the already-inserted phantom 163 000 ₽ transfer is still in the DB — delete it
-once via swipe-to-delete. All future marketing pushes are now dropped before parsing.
-
-### Follow-up: deleting a delta-applied push now reverses the balance
-The phantom transfer carried no «Остаток», so at insert `syncBalance` used the DELTA path and debited
-−163 000 ₽ from the single T-Bank account. Deleting it did NOT restore the balance — `deleteTransaction`
-only reversed `source == MANUAL`. Net worth («Состояние» = `accounts.sumOf { balanceKopecks }` per
-currency) went to −132 224,19 ₽ (Alfa +12 071,35 + a hidden T-Bank account ≈ −144 295).
-- **Fix:** `TransactionsViewModel.deleteTransaction` now reverses the balance for ANY op applied as a
-  delta — `tx.accountId != null && tx.balanceKopecks == null && source != PDF` — i.e. MANUAL plus
-  SMS/PUSH rows with no authoritative balance. Rows that carried a real «Остаток» (balanceKopecks
-  non-null) set an absolute snapshot, not a delta, so they're still left as-is. Insert/delete are now
-  symmetric, so a mis-parsed push self-heals on delete.
-- **Already-stuck balance (this user):** the bad transfer was deleted BEFORE this fix, so the −163 000
-  is still applied. Remedy now: open the T-Bank account → «Пересчёт» (snaps to the latest real
-  «Остаток» if one exists) or edit the balance manually once.
-
-## Audit #10 Fixes (this session)
-
-Two bugs fixed (commit d6cbbe8):
-
-| Severity | File | Fix |
-|----------|------|-----|
-| HIGH | `AlfabankParser.kt` | Audit #9 removed the `$` end-anchor from `pushMask` and switched to `(?!\d)` lookahead, but left `find()` (first match). For a push body «−43 ₽ ··1139 … Остаток: 6 201,48 ₽; ··2548», `find()` returned ··1139 (counterparty in title) instead of ··2548 (user's card). Changed to `findAll().lastOrNull()` — restores "last wins" semantics. |
-| MEDIUM | `NotificationHelper.kt` | `@Volatile` manual null-check cache was not atomic: two concurrent callers (AnalyticsWorker + BudgetViewModel) could both pass the null-check and decode `cat_face_mono` twice. Replaced with `by lazy {}` which uses `LazyThreadSafetyMode.SYNCHRONIZED` by default. |
-
-Also fixed (commits d5f8c0a / separate):
-- **Secondary card ··2548 missing from manual entry picker**: `AddTransactionSheet` only showed `account.cardMask` (primary card). Added `SourceOption` model; `sourceOptions = remember(accounts, cards)` builds one chip per physical card (primary + all secondary from `cards` table). `onSave` signature widened to pass `sourceMask` separately from `accountId`.
-
-## Next Steps
+- **KG:** МБанк (multi-currency USD/KGS/EUR/RUB)
+
+All 12 have unit tests (~7 cases each).
+
+---
+
+# Hard-won invariants
+
+These are the defects that recurred across many sessions. Re-read before touching the
+corresponding area.
+
+### 1. Room accounts use `@Upsert`, never `@Insert(onConflict = REPLACE)`
+REPLACE = DELETE + INSERT in SQLite, and `CardEntity` has `ForeignKey(onDelete = CASCADE)`. Every
+balance edit / manual op / delete-reversal therefore wiped the account's cards. This was the root
+cause of the entire "cards keep detaching themselves" saga (5 failed symptom-fixes before it).
+
+### 2. Balance is decoupled from the transaction row
+- A bank «Остаток» is an **absolute snapshot**; a message without one applies a **delta**.
+- On a **dedup hit** the row is dropped but `applyAuthoritativeBalance(cardMask, ostatok)` still
+  runs — the dropped twin often carries the balance the kept row lacked.
+- `snapToAuthoritativeIfNewer` compares the snapshot timestamp against `account.updatedAt`, so
+  re-linking a card never reverts a fresher manual correction.
+- Deleting a **delta-applied** row (`accountId != null && balanceKopecks == null`, source ≠ PDF)
+  reverses the balance. A row carrying a real «Остаток» is left alone.
+- `AccountLinker` resolves against **active accounts only**; `linkOrphansToAccount` also reclaims
+  rows stranded on a deactivated ("ghost") account, never one already on a live account.
+
+### 3. Soft delete leaves references behind
+`deactivate` sets `is_active = 0` and nothing else. `deleteAccount` must also deactivate the
+account's cards and drop its ACCOUNT goal-routes, or a re-created account (new id) leaves a
+zombie card and a goal linked to a ghost.
+
+### 4. Compose Rules of Hooks
+`remember` / `LaunchedEffect` / `rememberInfiniteTransition` / `animate*AsState` must be called
+**unconditionally, before any early return** — an `if (!enabled) return` above them corrupts the
+slot table when the toggle flips at runtime. Inactive animation = `1f..1f` transition, not a
+skipped call. Per-item `remember` needs a key (`remember(tx.id)`) or a reused sheet shows the
+previous item's data. `LazyColumn` items always take a stable `key`.
+
+### 5. `runCatching` swallows `CancellationException`
+That breaks `collectLatest` / `mapLatest` cancellation — the "cancelled" work runs to completion
+anyway. Always re-throw it.
+
+### 6. `stateIn` belongs to the ViewModel, not to a function call
+`fun historyFor(id) = flow.stateIn(...)` leaks a coroutine per call, and a composable body calls
+it on every recomposition. Cache per id in the ViewModel **and** `remember(id)` at the call site.
+
+### 7. Money input fields
+State holds the **raw** string; grouping goes through `AmountVisualTransformation`. Formatting
+`value` directly desynchronises the caret (typing `12345` produced `12354`).
+`parseAmountInput` **rounds** — `(1417.59 * 100).toLong()` truncates a kopeck.
+`sanitizeAmountInput` allows one separator and ≤2 decimals so the field can't show `1,23` while
+saving 0 ₽.
+
+### 8. Analytics windows
+Score pillars that need history use offsets `1..3` — **completed** months only. `buildScoreInput`
+falls back to the last completed month when the current one has no income yet, otherwise the
+score craters every 1st of the month. The Analytics period chips filter only the category/daily
+aggregates — **never** an `analyticsEngine.*` call.
+
+### 9. Categories are append-only in the seed list
+`sort_order` is the list index and existing installs keep their order via `INSERT OR IGNORE`, so
+a new category goes **last** and the colour list grows with it (17 cats / 17 colours). Adding
+categories/rules = re-run both seed helpers in a new migration.
+
+### 10. Categorisation does not learn
+Rule-based + a frozen TFLite model. Correcting a transaction changes that row only. A new
+merchant needs a merchant rule (or offline retraining + a new `.tflite`).
+
+### 11. Fail open on the lock screen
+`MainActivity` renders nothing until the biometric preference is known, both reads default to
+"off" on failure, and the lock screen always offers device-PIN. A tester once had to reinstall
+and lost all history.
+
+### 12. Parser hygiene
+- `PromoFilter` runs in `ParserEngine.parse()` **before** any bank parser — marketing pushes
+  ("лимит 163 000 ₽") were being booked as real transfers.
+- Transfer keywords are stem-anchored with a Cyrillic lookahead so «переводами» ≠ «Перевод».
+- Every sender-matching parser is tried (`firstNotNullOfOrNull`), not just the first.
+- `AmountParser` is null-safe (a throw aborted the whole 90-day import) and handles NBSP.
+- Card-mask regexes require the masking glyph — a merchant ending in 4 digits was read as a card.
+
+---
+
+# Feature Status
+
+Everything below is **implemented and shipped** unless marked otherwise.
+
+## Core
+- [x] Gradle skeleton, AndroidManifest, design system, database, navigation, onboarding
+- [x] 12 bank parsers + `ParserEngine` (@IntoSet DI) + `TransferPatterns` + `PromoFilter`
+- [x] `SmsReceiver` (real-time, `goAsync`), `SmsReader` (90-day import), `PushNotificationListener`
+      (reads **every** notification text extra)
+- [x] SMS is **opt-in** (`sms_realtime_enabled`, default false)
+- [x] `DictionaryClassifier` (143 rules), `CategoryDefaults.forType` income fallback
+- [x] `AccountLinker` (card→account, authoritative balance, orphan re-link, recency guard)
+- [x] `TransferRouter` (goal routing by account/card/keyword, counterparty leg, internal pairing)
+- [x] All 7 repositories, `UserPreferences` (DataStore, ~20 keys)
+
+## Screens
+- [x] Dashboard (3 hero variants, month label, bank cards, clickable recent ops, account CRUD)
+- [x] Transactions (search, filters, swipe-left-to-reveal delete, detail/edit sheet with source
+      diagnostics, CSV export, PDF import, manual add incl. **Перевод** with destination account)
+- [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
+- [x] Budget (envelopes, CRUD, throttled alerts), Goals (art backdrops, history, 🔗 routing)
+- [x] Subscriptions, Categories CRUD, Settings, Onboarding
+
+## Analytics
+- [x] `ScoreCalculator` (4 pillars, 0–100) + `ScoreDonut` multi-colour rendering
+- [x] `InsightGenerator` (6 rules), `NarrativeEngine` (8 templates), `AnalyticsEngine`
+- [x] `BehavioralAnalyzer` — payday effect, fatigue curve, impulse classification, anomalies,
+      subscription gaps, fixed/variable (CV ≤ 15%)
+- [x] `AnalyticsWorker` (daily, `@HiltWorker`), `WhatIfSimulator`, `ExpensePyramid`
+
+## ML (`core/ml/`) — pre-trained, inference-only
+- [x] `merchant_classifier.tflite` (256→13), `spending_predictor.tflite`, `behavioral_cluster.tflite`
+      — all bundled in `assets/models/`; every one falls back gracefully when absent
+- [x] Interpreter calls are `Mutex`-guarded (TFLite `Interpreter` is not thread-safe)
+
+## Platform
+- [x] Backup/restore — 8 tables → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
+- [x] Notifications — 4 channels, allowlisted deep-links, permission-guarded
+- [x] Biometric lock (fail-open, device-PIN escape hatch), 2×2 home-screen widget
+- [x] In-app self-update + `UpdateCheckWorker` (12 h) + `release-apk.yml` pipeline
+- [x] Shimmer layer («Анимации» / «Атмосфера») + «Кот-режим» mascot & paw particles
+
+## Release pipeline
+- `release-apk.yml` on push to `main` → builds the debug APK with
+  `FOS_BUILD_NUMBER=${{ github.run_number }}`, publishes GitHub Release `v0.1.0.<run>` with the
+  APK attached.
+- Stable signing via the committed `app/debug.keystore` (password `android`, debug-only) —
+  without one shared signature the in-app updater hits a signature mismatch. No
+  `applicationIdSuffix`, so updates replace the installed package.
+
+---
+
+# Changelog (condensed)
+
+| Phase | Content |
+|-------|---------|
+| **1** | Skeleton, design system, DB, 5 P1 parsers, all screens, score, insights, charts |
+| **2A** | Behavioural analytics — heatmap, payday, fatigue, impulse, anomalies, waterfall, narratives, what-if, pyramid |
+| **3** | TFLite ML layer, Settings, notifications |
+| **Post-3** | Manual entry/edit, search, goals & budget CRUD, account management, categories CRUD, CSV export, push listener, P2/P3 parsers, biometrics, widget |
+| **Transfers** | TRANSFER as a first-class type, `TransferRouter`, goal auto-routing by account/card/keyword, bidirectional account routing |
+| **Shimmer** | «Анимации» + «Атмосфера» layers (particles, tilt/sheen, breathing hero, bioluminescent ripple, currency reef) |
+| **Cat mode** | Mood-matched mascot + paw particles, mood tiers identical to the score tiers |
+| **Distribution** | Release pipeline, in-app updater, background update notifications, encrypted backups |
+| **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
+
+**Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
+*Hard-won invariants* above; the rest are visible in `git log`.
+
+### Known limitations
+- Counterparty card mask is only available when the bank spells «на карту/счёт *NNNN». Several
+  push formats omit it — those rely on keyword or account routing.
+- Rows ingested before a schema addition don't backfill (e.g. a transaction stored before the
+  `currency` column stays RUB).
+- An internal transfer whose two legs arrive more than 10 min apart can't be paired.
+- Sberbank `parsePush()` anchors on «В запасе:» — other balance labels need coverage.
+
+---
+
+# Next Steps
 - Polish: localization review, dark-mode visual QA
-- feature/app-icon already in main (no action needed)
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
-- Consider: encrypt backup with user PIN (currently key is device-scoped, no extra auth)
-- Consider: signed **release** APK channel (keystore in GitHub Secrets) for Play-Store-grade builds
-- Await additional Sberbank push format variants — current `parsePush()` anchors on «В запасе:»; other balance labels need coverage
+- Consider: encrypt the backup with a user PIN (the key is device-scoped, no extra auth today)
+- Consider: signed **release** APK channel (keystore in GitHub Secrets)
+- Await more Sberbank push format variants
 
-## Planned — Account Types & Card UI (NOT yet implemented)
-Full design spec: `docs/CONTEXT.md` → "Roadmap — Planned Features (Account Types & Card UI)".
-Four items, all captured as planned work:
-1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`, and `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry` (`List<BankSpec>`); adding a bank = one entry. (МКБ + Цифра shipped missing from the picker for exactly this reason.)
-2. **Branded card UI** — replace flat colour+letter with per-bank gradient/logo `CardSkin` (user to supply references; trademark caveat for Play Store).
-3. **Brokerage/investment accounts** (БКС, Альфа-Инвестиции) — `AccountKind.INVESTMENT`, single ₽ valuation, separate "Инвестиции" subtotal, excluded from cash net worth, top-ups routed as TRANSFER.
-4. **Credit cards** — `AccountKind.CREDIT`, excluded from "Доступно" net worth, shown as separate debt line; purchases count as spend but repayments are TRANSFERs (never expenses — else double-count).
-- **Foundation for items 3–4:** add `AccountEntity.kind: AccountKind` (DB migration v6→v7) + net-worth split by kind. Suggested order: foundation → credit → investment → registry/UI refactor.
+## Planned — Account Types & Card UI (NOT implemented)
+Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
+1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across
+   `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`,
+   `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry`.
+2. **Branded card UI** — per-bank gradient/logo `CardSkin` (trademark caveat for stores).
+3. **Brokerage accounts** — `AccountKind.INVESTMENT`, separate subtotal, excluded from cash net worth.
+4. **Credit cards** — `AccountKind.CREDIT`, shown as debt; repayments are TRANSFERs, never expenses.
+- Foundation for 3–4: `AccountEntity.kind` + net-worth split by kind. Order: foundation → credit
+  → investment → registry/UI refactor.
 
-## Key File Locations
+---
+
+# Key File Locations
 | Layer | Path |
 |---|---|
 | Theme | `app/src/main/kotlin/com/financeos/hub/ui/theme/` |
@@ -1154,37 +284,8 @@ Four items, all captured as planned work:
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 
-## Design Reference
-- Full behavioral analytics spec: `docs/CONTEXT.md` → section "Behavioral Analytics Vision"
-- Color tokens: `FosColors.kt`
-- Typography: `FosType.kt`
-
-## Test & debug pass over the whole improvement cycle (batches 1–5)
-
-**How it was verified:** the project cannot be built in the dev container (no Android SDK), so the
-real compiler is CI — `android.yml` runs `test` + `assembleDebug` + `lintDebug` on any PR targeting
-`dev`/`main`. Opening a **draft PR to `dev`** (#66) runs that gate WITHOUT touching the release
-pipeline (which only fires on push to `main`). First run: 1 compile error. After the fix: **green**.
-
-### Compile
-| Issue | Fix |
-|---|---|
-| `GoalArt.kt` — `filterQuality` not a parameter of the painter-based `Image` overload in Compose BOM 2024.06 | Dropped it; art is generated at 1024×320 so upscaling (and the smoothing it would cause) is negligible |
-
-### Bugs found by review, not by the compiler
-| Severity | Area | Fix |
-|---|---|---|
-| HIGH | **All 5 money fields** | `value = groupAmountInput(state)` desynchronised the caret: `BasicTextField(value: String)` re-applies its retained selection to the supplied text, so once a separator appeared typing `12345` produced **`12354`**. Replaced with a real `AmountVisualTransformation` (+ exact `OffsetMapping`); state stays raw, display is grouped. |
-| HIGH | Money input sanitising | A second separator made the value unparseable → the field showed `1,23` while **0 ₽** was saved (no error state in AddAccountSheet/contribute). A third decimal was hidden by the display yet still counted. New `FosFormatter.sanitizeAmountInput` allows one separator, ≤2 decimals, strips leading zeros. |
-| HIGH | `MainActivity` | The new `lockChecked` gate renders nothing until the preference is read — if that read threw, the app would show a **black screen with no way in**, exactly the lock-out the change exists to prevent. Both reads now fail open to "biometrics off" (also the stored default). |
-| HIGH | `BudgetViewModel` | `combine` emits several times per screen open and each emission launched its own coroutine; the counter read has three suspension points before the write, so two coroutines both read `count = 0` and both fired — blowing past the 2/day cap. Serialised behind a `Mutex`. |
-| HIGH | `TransferRouter` | The `findTransferCounterpart` guard can never fire for the FIRST leg (the counterpart hasn't arrived yet), so a two-push transfer whose legs are >5 min apart credited the destination **twice**. When the second leg pairs, its own delta application is now reversed — but only when the first leg's counterparty really resolves to this account and this row carried no authoritative «Остаток». |
-| MEDIUM | `TransactionsViewModel.deleteTransaction` | The counterparty credit had no reversal, so deleting a transfer restored the source but left the destination inflated. Now reversed for **unpaired** transfers (a paired one still has its second row representing that side). |
-| MEDIUM | `AnalyticsViewModel` | The pie buckets uncategorised expenses under the synthetic key `cat_other`, but those rows have `category_id = NULL` — so the «Другое» drill-down (often the biggest slice) was always empty. Now matches NULL too. |
-| LOW | `BudgetViewModel` | The in-session key was recorded even when the daily cap suppressed the alert, so that budget looked "already alerted" and could be skipped for good. Recorded only after an alert is actually sent. |
-| LOW | `AnalyticsViewModel` / `GoalsViewModel` | `stateIn` inside a function leaked one sharing coroutine per drill-down/history open. Both are now cached per id. |
-| LOW | `Pie3D` | Extrusion used a fixed 2px step ≈ 460 arcs per frame on a 3x screen. Bounded to ~12 layers. |
-
-**Verified correct, no change:** DB migration v9→v10 (17 cats / 17 colours, `INSERT OR IGNORE`,
-registered, version bumped); `AnalyticsPeriod.ALL`; `parseAmountInput` NBSP handling; the MoM
-sign/colour semantics (simulated); the pie hit-test↔draw-order agreement (simulated).
+# Design Reference
+- Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`
+- User-facing overview: `README.md`
+- Goal art generation prompts: `docs/GOAL_ART_PROMPTS.md`
+- Colour tokens: `FosColors.kt` · Typography: `FosType.kt`
