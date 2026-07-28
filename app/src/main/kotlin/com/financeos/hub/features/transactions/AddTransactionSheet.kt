@@ -10,11 +10,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
@@ -141,6 +144,15 @@ fun AddTransactionSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // The sheet content is taller than the screen (three type chips, amount, date,
+                // one or TWO vertical account pickers, two text fields, category chips, Save).
+                // Without verticalScroll everything below the fold is simply unreachable — the
+                // user could neither expand a bank nor press «Сохранить».
+                // imePadding is required because the app is edge-to-edge: with
+                // enableEdgeToEdge() the window is not resized by adjustResize, so the keyboard
+                // would otherwise cover the field being typed into.
+                .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = FosDimens.ScreenPadding)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
