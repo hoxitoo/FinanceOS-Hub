@@ -3,6 +3,7 @@ package com.financeos.hub.features.goals
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,7 +36,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.GoalEntity
+import com.financeos.hub.ui.components.GoalArtBackdrop
 import com.financeos.hub.ui.components.GoalRing
+import com.financeos.hub.ui.components.goalArtFor
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -143,7 +146,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 
     // Contribute dialog
     contributeTarget?.let { goal ->
-        val kopecks = contributeText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+        val kopecks = FosFormatter.parseAmountInput(contributeText) ?: 0L
         AlertDialog(
             onDismissRequest = { contributeTarget = null },
             containerColor   = FosColors.Surface,
@@ -162,8 +165,10 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                         color = FosColors.TextSecondary,
                     )
                     androidx.compose.material3.OutlinedTextField(
-                        value           = contributeText,
-                        onValueChange   = { contributeText = it },
+                        value           = FosFormatter.groupAmountInput(contributeText),
+                        onValueChange   = { input ->
+                            contributeText = input.filter { it.isDigit() || it == ',' || it == '.' }
+                        },
                         label           = { Text("Сумма, ₽", style = FosType.Label) },
                         singleLine      = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -239,13 +244,21 @@ private fun GoalCard(
     val ratio = if (goal.targetKopecks > 0)
         goal.savedKopecks.toFloat() / goal.targetKopecks else 0f
     val complete = ratio >= 1f
+    val artKind  = remember(goal.emoji, goal.name) { goalArtFor(goal) }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(FosDimens.RadiusCard))
             .background(FosColors.Surface)
-            .clickable { onEdit() }
+            .clickable { onEdit() },
+    ) {
+        // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).
+        GoalArtBackdrop(kind = artKind, modifier = Modifier.matchParentSize())
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
             .padding(FosDimens.CardPadding),
         horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
         verticalAlignment     = Alignment.CenterVertically,
@@ -314,5 +327,6 @@ private fun GoalCard(
                 Text("×", style = FosType.BodySemi, color = FosColors.Negative)
             }
         }
+    }
     }
 }

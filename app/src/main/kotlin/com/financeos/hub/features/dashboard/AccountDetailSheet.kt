@@ -229,7 +229,9 @@ private fun AccountRow(
                 .fillMaxWidth()
                 .clickable {
                     showEdit = true
-                    editText = (account.balanceKopecks / 100).toString()
+                    // amountInput keeps the kopecks — plain `/ 100` used to drop them, so opening
+                    // the editor on 1 417,59 ₽ and saving silently rounded the balance down.
+                    editText = FosFormatter.amountInput(account.balanceKopecks)
                 },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically,
@@ -317,8 +319,7 @@ private fun AccountRow(
     }
 
     if (showEdit) {
-        val kopecks = editText.replace(",", ".").toDoubleOrNull()
-            ?.let { (it * 100).toLong() } ?: account.balanceKopecks
+        val kopecks = FosFormatter.parseAmountInput(editText) ?: account.balanceKopecks
         AlertDialog(
             onDismissRequest = { showEdit = false },
             containerColor   = FosColors.Surface,
@@ -327,8 +328,11 @@ private fun AccountRow(
             },
             text    = {
                 OutlinedTextField(
-                    value           = editText,
-                    onValueChange   = { editText = it },
+                    // Keep the raw text in state, show it grouped ("1 417,59") while typing.
+                    value           = FosFormatter.groupAmountInput(editText),
+                    onValueChange   = { input ->
+                        editText = input.filter { it.isDigit() || it == ',' || it == '.' || it == '-' }
+                    },
                     label           = {
                         Text(
                             "Баланс, ${FosFormatter.currencySymbol(account.currency)}",

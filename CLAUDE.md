@@ -676,6 +676,38 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Batch 2 of the long improvement cycle (working branch only — NOT merged to main)
+
+### 1. Pixel-art backdrop on goal cards (`ui/components/GoalArt.kt`)
+`GoalArtKind` (vacation/home/car/tech/education/health/gift/purchase/savings) is derived from the
+goal's **emoji first, then name keywords** — so existing goals get art with **no DB migration** and no
+extra step in the create flow. `GoalArtBackdrop` resolves `goal_art_<kind>` via
+`resources.getIdentifier` at runtime: the app builds and looks finished **without** any artwork, and
+each drawable starts showing the moment it is dropped into `res/drawable` (same graceful-degradation
+approach as the optional `.tflite` models). Until then a themed diagonal gradient stands in.
+Drawn with `FilterQuality.None` (crisp pixels) at alpha .38 under a horizontal scrim so the card's
+text/amounts keep contrast. **Generation prompts: `docs/GOAL_ART_PROMPTS.md`** (Nano Banana, 1024×320,
+subject in the RIGHT half because the left third is covered by the scrim).
+
+### 2. Money inputs: kopecks preserved + thousands grouped
+- **Kopecks were destroyed on balance edit:** the field prefilled with `account.balanceKopecks / 100`
+  (integer division), so opening the editor on 1 417,59 ₽ and saving silently wrote 1 417,00 ₽.
+- **Float truncation:** every money field parsed with `(value * 100).toLong()`; `1417.59 * 100` is
+  `141758.999…` in binary floating point → `toLong()` truncated a kopeck away on each edit.
+- New `FosFormatter` helpers: `amountInput(kopecks)` (kopecks-preserving raw string),
+  `groupAmountInput(raw)` (groups the integer part while typing, keeps the decimals → `1 000`),
+  `parseAmountInput(raw)` (strips NBSP/spaces, **rounds** instead of truncating).
+- Applied to **all five** money fields: account balance edit, add-account balance, add-transaction
+  amount, goal contribution, budget limit. Display formatting (`amount`/`compact`) already grouped —
+  only the INPUT fields showed a run-on `1000`.
+
+### 3. «Откуда» / «Куда» — two-step account picker
+Replaced the single long horizontal strip of every card (which forced a scroll hunt) with
+`AccountPicker`: a row per **bank** (brand-coloured badge via `bankBrand`), tap to expand that bank's
+accounts showing **name + ••last4 + current balance**. Selected bank auto-expands; picking collapses
+back to a compact summary showing the chosen card. Labels are now «Откуда» / «Куда» (for INCOME the
+source label reads «Куда»). `SourceOption` gained `bank`, `balanceKopecks`, `currency`.
+
 ## Batch 1 of the long improvement cycle (this session, working branch only — NOT merged to main)
 
 **Release note:** this cycle is pushed to `claude/project-setup-design-sndr3y` only, so the APK

@@ -51,7 +51,7 @@ fun AddAccountSheet(
     var cardMaskText     by remember { mutableStateOf("") }
     var balanceText      by remember { mutableStateOf("") }
 
-    val balanceKopecks = balanceText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+    val balanceKopecks = FosFormatter.parseAmountInput(balanceText) ?: 0L
     val canSave        = name.isNotBlank()
     val currencySymbol = FosFormatter.currencySymbol(selectedCurrency)
 
@@ -122,8 +122,10 @@ fun AddAccountSheet(
 
             // Initial balance
             OutlinedTextField(
-                value           = balanceText,
-                onValueChange   = { balanceText = it },
+                value           = FosFormatter.groupAmountInput(balanceText),
+                onValueChange   = { input ->
+                    balanceText = input.filter { it.isDigit() || it == ',' || it == '.' || it == '-' }
+                },
                 label           = { Text("Текущий баланс, $currencySymbol", style = FosType.Label) },
                 singleLine      = true,
                 keyboardOptions = KeyboardOptions(

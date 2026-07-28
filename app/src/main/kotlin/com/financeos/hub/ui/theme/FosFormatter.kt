@@ -116,6 +116,48 @@ object FosFormatter {
         return formatInteger(clean.toLong())
     }
 
+    /**
+     * Kopecks → the raw string an amount INPUT should start from: `141759` → `"1417,59"`,
+     * `141700` → `"1417"`. Integer division alone (`kopecks / 100`) silently dropped the kopecks,
+     * so editing a balance of 1 417,59 ₽ used to reset it to 1 417 ₽ the moment the field opened.
+     */
+    fun amountInput(kopecks: Long): String {
+        val rubles = Math.abs(kopecks) / 100L
+        val cents  = Math.abs(kopecks % 100L)
+        val sign   = if (kopecks < 0) "-" else ""
+        return if (cents == 0L) "$sign$rubles"
+               else "$sign$rubles,${cents.toString().padStart(2, '0')}"
+    }
+
+    /**
+     * Groups the integer part of a money INPUT for display while the user types, keeping any
+     * decimal part intact: `"1417,59"` → `"1 417,59"`. Unlike [groupDigits] this tolerates a
+     * decimal separator, so amount fields show thousands spaced instead of a run-on `1000`.
+     */
+    fun groupAmountInput(raw: String): String {
+        if (raw.isBlank()) return ""
+        val negative = raw.trimStart().startsWith("-")
+        val sepIndex = raw.indexOfFirst { it == ',' || it == '.' }
+        val intRaw   = (if (sepIndex >= 0) raw.substring(0, sepIndex) else raw).filter { it.isDigit() }
+        val decRaw   = if (sepIndex >= 0) raw.substring(sepIndex + 1).filter { it.isDigit() }.take(2) else null
+
+        val intPart = if (intRaw.isEmpty()) "" else formatInteger(intRaw.trimStart('0').ifEmpty { "0" }.toLong())
+        val sign    = if (negative) "-" else ""
+        return when {
+            decRaw == null -> "$sign$intPart"
+            else           -> "$sign$intPart,$decRaw"
+        }
+    }
+
+    /** Parses a (possibly grouped) money input back to kopecks. Rounds, never truncates. */
+    fun parseAmountInput(raw: String): Long? {
+        val cleaned = raw.replace(NBSP, "").replace(" ", "").replace(',', '.')
+        val value   = cleaned.toDoubleOrNull() ?: return null
+        // Math.round, not toLong(): 1417.59 * 100 is 141758.999… in binary floating point, which
+        // toLong() would truncate to 141758 — losing a kopeck on every edit.
+        return Math.round(value * 100.0)
+    }
+
     private fun formatInteger(n: Long): String {
         if (n < 1000L) return n.toString()
         val s = n.toString()
