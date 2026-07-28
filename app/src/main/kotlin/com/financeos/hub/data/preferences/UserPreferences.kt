@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,6 +26,15 @@ class UserPreferences @Inject constructor(
         val LAST_IMPORT_AT            = stringPreferencesKey("last_import_at")
         val NOTIFICATIONS_ENABLED     = booleanPreferencesKey("notifications_enabled")
         val BUDGET_ALERT_THRESHOLD    = stringPreferencesKey("budget_alert_threshold") // "80" default
+        // Budget-alert throttling. These MUST be persisted: the tracker used to live in the
+        // BudgetViewModel, which is recreated on every navigation to the Budget screen — so each
+        // visit re-fired the same alert (the reported "приходит 10 раз").
+        /** Epoch-day the counter below belongs to; a new day resets it. */
+        val BUDGET_ALERT_DAY          = stringPreferencesKey("budget_alert_day")
+        /** How many budget alerts were already shown on [BUDGET_ALERT_DAY]. Hard cap: 2/day. */
+        val BUDGET_ALERT_COUNT        = stringPreferencesKey("budget_alert_count")
+        /** CSV of "<budgetId>:<YYYY-MM>" already alerted, so one budget alerts once per month. */
+        val BUDGET_ALERTED_KEYS       = stringPreferencesKey("budget_alerted_keys")
         val ML_CLASSIFICATION_ENABLED  = booleanPreferencesKey("ml_classification_enabled")
         val PUSH_LISTENER_ENABLED      = booleanPreferencesKey("push_listener_enabled")
         val SMS_REALTIME_ENABLED       = booleanPreferencesKey("sms_realtime_enabled")
@@ -117,6 +127,32 @@ class UserPreferences @Inject constructor(
 
     suspend fun setBudgetAlertThreshold(pct: Int) {
         context.dataStore.edit { it[BUDGET_ALERT_THRESHOLD] = pct.toString() }
+    }
+
+    /** Persisted budget-alert throttle state: (epochDay, alertsSentToday, alertedKeys). */
+    data class BudgetAlertState(
+        val epochDay   : Long,
+        val countToday : Int,
+        val alertedKeys: Set<String>,
+    )
+
+    suspend fun budgetAlertState(): BudgetAlertState {
+        val prefs = context.dataStore.data.first()
+        return BudgetAlertState(
+            epochDay    = prefs[BUDGET_ALERT_DAY]?.toLongOrNull() ?: 0L,
+            countToday  = prefs[BUDGET_ALERT_COUNT]?.toIntOrNull() ?: 0,
+            alertedKeys = prefs[BUDGET_ALERTED_KEYS]
+                ?.split('|')?.filter { it.isNotBlank() }?.toSet() ?: emptySet(),
+        )
+    }
+
+    suspend fun saveBudgetAlertState(state: BudgetAlertState) {
+        context.dataStore.edit {
+            it[BUDGET_ALERT_DAY]    = state.epochDay.toString()
+            it[BUDGET_ALERT_COUNT]  = state.countToday.toString()
+            // Keep the list bounded — only the current month's keys matter.
+            it[BUDGET_ALERTED_KEYS] = state.alertedKeys.take(50).joinToString("|")
+        }
     }
 
     suspend fun setMlClassificationEnabled(enabled: Boolean) {

@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -134,6 +134,16 @@ abstract class FosDatabase : RoomDatabase() {
             }
         }
 
+        // Adds the «Букмекер» expense category and the new marketplace / bookmaker merchant rules
+        // to EXISTING installs. Both helpers are INSERT OR IGNORE, so re-running them only adds the
+        // new ids and never touches a user's own categories, renames or rules.
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultCategories(db)
+                insertDefaultMerchantRules(db)
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -161,12 +171,17 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("cat_salary",     "Зарплата",         "💼"),
                 Triple("cat_income",     "Прочие доходы",    "💰"),
                 Triple("cat_cashback",   "Кэшбэк",           "💸"),
+                // Appended LAST on purpose: sort_order is the list index, and existing installs
+                // keep their stored order (INSERT OR IGNORE), so adding in the middle would only
+                // reshuffle new installs for no benefit.
+                Triple("cat_betting",    "Букмекер",         "🎰"),
             )
             val colors = listOf(
                 "#FFB84D", "#4DFFA0", "#4D9FFF", "#FF6B6B", "#C084FC",
                 "#F472B6", "#34D399", "#A78BFA", "#60A5FA", "#FB923C",
                 "#E879F9", "#2DD4BF", "#94A3B8",
                 "#4DFFA0", "#22D3A6", "#38BDF8",
+                "#F87171",   // cat_betting
             )
             cats.forEachIndexed { i, (id, name, emoji) ->
                 db.execSQL(
@@ -284,6 +299,59 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r138", "зачисление",        "cat_income"),
                 Triple("r139", "пополнение",        "cat_income"),
                 Triple("r140", "проценты на остаток","cat_income"),
+
+                // ── Маркетплейсы (топ РФ). Банки шлют мерчанта и латиницей, и кириллицей,
+                // поэтому обе формы. Латинские "ozon"/"wildberries" уже есть выше (r070–r071).
+                Triple("r150", "озон",              "cat_shopping"),
+                Triple("r151", "ozon.ru",           "cat_shopping"),
+                Triple("r152", "вайлдберриз",       "cat_shopping"),
+                Triple("r153", "вайлдберрис",       "cat_shopping"),
+                Triple("r154", "wb.ru",             "cat_shopping"),
+                Triple("r155", "яндекс маркет",     "cat_shopping"),
+                Triple("r156", "yandex market",     "cat_shopping"),
+                Triple("r157", "ya.market",         "cat_shopping"),
+                Triple("r158", "мегамаркет",        "cat_shopping"),
+                Triple("r159", "megamarket",        "cat_shopping"),
+                Triple("r160", "сбермегамаркет",    "cat_shopping"),
+                Triple("r161", "aliexpress",        "cat_shopping"),
+                Triple("r162", "алиэкспресс",       "cat_shopping"),
+                Triple("r163", "авито",             "cat_shopping"),
+                Triple("r164", "ламода",            "cat_shopping"),
+                Triple("r165", "детский мир",       "cat_shopping"),
+                Triple("r166", "detmir",            "cat_shopping"),
+                Triple("r167", "мвидео",            "cat_shopping"),
+                Triple("r168", "м.видео",           "cat_shopping"),
+                Triple("r169", "mvideo",            "cat_shopping"),
+                Triple("r170", "эльдорадо",         "cat_shopping"),
+                Triple("r171", "eldorado",          "cat_shopping"),
+                Triple("r172", "днс",               "cat_shopping"),
+                Triple("r173", "dns-shop",          "cat_shopping"),
+                Triple("r174", "ситилинк",          "cat_shopping"),
+                Triple("r175", "citilink",          "cat_shopping"),
+
+                // ── Букмекеры / ставки → cat_betting
+                Triple("r180", "фонбет",            "cat_betting"),
+                Triple("r181", "fonbet",            "cat_betting"),
+                Triple("r182", "winline",           "cat_betting"),
+                Triple("r183", "винлайн",           "cat_betting"),
+                Triple("r184", "1xbet",             "cat_betting"),
+                Triple("r185", "1хставка",          "cat_betting"),
+                Triple("r186", "лига ставок",       "cat_betting"),
+                Triple("r187", "ligastavok",        "cat_betting"),
+                Triple("r188", "betboom",           "cat_betting"),
+                Triple("r189", "бетбум",            "cat_betting"),
+                Triple("r190", "betcity",           "cat_betting"),
+                Triple("r191", "бетсити",           "cat_betting"),
+                Triple("r192", "марафон",           "cat_betting"),
+                Triple("r193", "marathonbet",       "cat_betting"),
+                Triple("r194", "олимпбет",          "cat_betting"),
+                Triple("r195", "olimpbet",          "cat_betting"),
+                Triple("r196", "париматч",          "cat_betting"),
+                Triple("r197", "parimatch",         "cat_betting"),
+                Triple("r198", "тенниси",           "cat_betting"),
+                Triple("r199", "pari.ru",           "cat_betting"),
+                Triple("r200", "букмекер",          "cat_betting"),
+                Triple("r201", "ставка на спорт",   "cat_betting"),
             )
             rules.forEach { (id, pattern, catId) ->
                 db.execSQL(

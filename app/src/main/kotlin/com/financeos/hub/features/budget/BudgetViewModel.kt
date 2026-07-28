@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.ZoneId
@@ -52,7 +53,9 @@ class BudgetViewModel @Inject constructor(
 
     private val zone = ZoneId.systemDefault()
 
-    // Track which budgets already had an alert sent this session to avoid spam
+    // In-session guard only (keys are "<budgetId>:<YYYY-MM>"). The AUTHORITATIVE record is
+    // persisted in UserPreferences — this ViewModel dies on every navigation away from the
+    // Budget screen, so an in-memory set alone re-fired the alert on each visit.
     private val alertedBudgets = mutableSetOf<String>()
 
     // Emits Unit at startup and once again at each calendar midnight so the query window
@@ -114,22 +117,55 @@ class BudgetViewModel @Inject constructor(
         viewModelScope.launch { budgetRepo.deactivate(id) }
     }
 
+    /**
+     * Fires budget alerts, throttled on THREE levels — opening the Budget screen used to re-fire
+     * every over-threshold envelope, because the tracker was in-memory and this ViewModel is
+     * recreated on each navigation to the screen (the reported "приходит 10 раз"):
+     *  1. once per budget per month (persisted key `<budgetId>:<YYYY-MM>`),
+     *  2. at most [MAX_ALERTS_PER_DAY] notifications per calendar day,
+     *  3. an in-memory guard so repeated flow emissions in one session don't even read DataStore.
+     */
     private fun checkAndFireAlerts(envelopes: List<BudgetEnvelope>) {
         viewModelScope.launch {
-            val notificationsOn = userPreferences.notificationsEnabled.first()
-            if (!notificationsOn) return@launch
-
+            if (!userPreferences.notificationsEnabled.first()) return@launch
             val threshold = userPreferences.budgetAlertThreshold.first()
 
-            envelopes.forEach { envelope ->
-                if (envelope.spentPercent >= threshold && envelope.budgetId !in alertedBudgets) {
-                    alertedBudgets += envelope.budgetId
-                    notificationHelper.sendBudgetAlert(
-                        categoryName = envelope.categoryName,
-                        spentPercent = envelope.spentPercent,
-                    )
-                }
+            val month   = YearMonth.now().toString()
+            val overs   = envelopes.filter { it.spentPercent >= threshold }
+            // Cheap in-session guard: nothing new crossed the threshold since the last check.
+            if (overs.isEmpty() || overs.all { "${it.budgetId}:$month" in alertedBudgets }) return@launch
+
+            val today = LocalDate.now().toEpochDay()
+            val saved = userPreferences.budgetAlertState()
+            // A new day resets both the counter and the per-budget keys.
+            var count = if (saved.epochDay == today) saved.countToday else 0
+            val keys  = if (saved.epochDay == today) saved.alertedKeys.toMutableSet()
+                        else saved.alertedKeys.filter { it.endsWith(":$month") }.toMutableSet()
+
+            var changed = false
+            for (envelope in overs) {
+                val key = "${envelope.budgetId}:$month"
+                alertedBudgets += key                      // remember in-session either way
+                if (key in keys) continue                  // already alerted this budget this month
+                if (count >= MAX_ALERTS_PER_DAY) break     // daily cap reached
+                notificationHelper.sendBudgetAlert(
+                    categoryName = envelope.categoryName,
+                    spentPercent = envelope.spentPercent,
+                )
+                keys += key
+                count++
+                changed = true
+            }
+            if (changed) {
+                userPreferences.saveBudgetAlertState(
+                    UserPreferences.BudgetAlertState(today, count, keys)
+                )
             }
         }
+    }
+
+    private companion object {
+        /** Never show more than this many budget notifications in one calendar day. */
+        const val MAX_ALERTS_PER_DAY = 2
     }
 }

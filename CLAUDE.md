@@ -676,6 +676,38 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Batch 3 of the long improvement cycle (working branch only — NOT merged to main)
+
+### 1. Budget alert spam — throttled and persisted
+**Root cause:** `alertedBudgets` was an in-memory set on `BudgetViewModel`, which is recreated on
+every navigation to the Budget screen — so each visit re-fired the alert for every over-threshold
+envelope ("может придти 10 раз"). `checkAndFireAlerts` also runs inside the `combine` transform, i.e.
+on every flow emission.
+**Fix — three layers of throttling:**
+1. **Persisted per-budget key** `<budgetId>:<YYYY-MM>` in DataStore → one alert per budget per month,
+   surviving ViewModel death and app restart.
+2. **Hard cap `MAX_ALERTS_PER_DAY = 2`** with a persisted epoch-day counter (new day → reset).
+3. In-session guard so repeated emissions don't even read DataStore.
+New `UserPreferences.BudgetAlertState` + `budgetAlertState()` / `saveBudgetAlertState()`
+(`BUDGET_ALERT_DAY`, `BUDGET_ALERT_COUNT`, `BUDGET_ALERTED_KEYS`; keys list bounded to 50).
+
+### 2. «Букмекер» expense category
+`cat_betting` (🎰) added — betting only existed as an INCOME *preset label*, never as an expense
+category. Appended LAST in the seed list on purpose: `sort_order` is the list index and existing
+installs keep their stored order via `INSERT OR IGNORE`, so inserting mid-list would only reshuffle
+new installs. One colour appended to keep `colors[i]` in range (17 cats / 17 colours).
+
+### 3. Marketplace + bookmaker auto-categorisation
+- **Marketplaces → `cat_shopping`** (r150–r175): озон/ozon.ru, вайлдберриз/вайлдберрис/wb.ru,
+  Яндекс Маркет, Мегамаркет/СберМегаМаркет, AliExpress/алиэкспресс, авито, ламода, Детский мир,
+  МВидео, Эльдорадо, ДНС, Ситилинк. Latin `ozon`/`wildberries` already existed (r070–r071) — banks
+  send merchants in **both** alphabets, hence the Cyrillic twins.
+- **Bookmakers → `cat_betting`** (r180–r201): фонбет/fonbet, winline, 1xbet, лига ставок, betboom,
+  betcity, marathonbet, олимпбет, париматч, тенниси, plus generic «букмекер».
+- **DB v9→v10** `MIGRATION_9_10` re-runs both seed helpers so existing installs get the new category
+  and rules without touching user data.
+- Note: only NEW transactions are classified — already-stored rows keep their category.
+
 ## Batch 2 of the long improvement cycle (working branch only — NOT merged to main)
 
 ### 1. Pixel-art backdrop on goal cards (`ui/components/GoalArt.kt`)
