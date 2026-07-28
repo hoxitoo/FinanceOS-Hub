@@ -32,10 +32,10 @@ import com.financeos.hub.core.analytics.HeatmapData
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.DonutSlice
 import com.financeos.hub.ui.components.FatigueBars
-import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.MoMComparison
 import com.financeos.hub.ui.components.SectionHeader
 import com.financeos.hub.ui.components.SegmentedDonut
+import com.financeos.hub.ui.components.SpendTimeline
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -71,33 +71,30 @@ fun TrendsTab(state: AnalyticsState) {
     ) {
         Spacer(Modifier.height(FosDimens.ItemGap))
 
-        // ── 1. Daily expense line chart ───────────────────────────────────────
-        Section(title = "РАСХОДЫ ПО ДНЯМ") {
+        // ── 1. Daily expense timeline ─────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
+            SectionHeader(
+                title     = "РАСХОДЫ ПО ДНЯМ",
+                infoTitle = "Расходы по дням",
+                infoBody  = "Каждый столбик — сколько вы потратили за один день. Дни без трат " +
+                    "показаны пустыми: раньше они просто выпадали из графика, и соседние " +
+                    "покупки с разницей в неделю рисовались рядом, как будто они были подряд.\n\n" +
+                    "Серая линия — ваш средний день за период, подпись справа сверху — самый " +
+                    "дорогой. Ярким выделен пик.\n\n" +
+                    "Нажмите на столбик (или проведите пальцем вдоль графика), чтобы увидеть " +
+                    "дату и точную сумму.\n\n" +
+                    "На длинных периодах дни объединяются: до 45 дней — по дням, дальше — " +
+                    "по неделям, а на очень больших промежутках — по месяцам. Иначе столбики " +
+                    "становятся тоньше волоса и график превращается в шум.",
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp)
                     .clip(RoundedCornerShape(FosDimens.RadiusCard))
                     .background(FosColors.Surface)
                     .padding(FosDimens.CardPadding),
             ) {
-                if (state.dailyExpenses.isEmpty()) {
-                    Text("Нет данных за выбранный период", style = FosType.Body, color = FosColors.TextMuted)
-                } else {
-                    LineChart(
-                        data  = state.dailyExpenses.map { it.second.toFloat() },
-                        color = FosColors.Negative,
-                    )
-                }
-            }
-            if (state.dailyExpenses.size >= 2) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(FosFormatter.dayLabel(state.dailyExpenses.first().first), style = FosType.Micro, color = FosColors.TextMuted)
-                    Text(FosFormatter.dayLabel(state.dailyExpenses.last().first),  style = FosType.Micro, color = FosColors.TextMuted)
-                }
+                SpendTimeline(daily = state.dailyExpenses)
             }
         }
 
@@ -419,13 +416,5 @@ private fun LegendDot(text: String, color: Color) {
         )
         Spacer(Modifier.size(4.dp))
         Text(text, style = FosType.Micro, color = FosColors.TextMuted, maxLines = 1)
-    }
-}
-
-@Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
-        Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
-        content()
     }
 }
