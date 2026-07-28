@@ -56,8 +56,14 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         pendingDeepRoute = FosRoute.sanitizeDeepLink(intent.getStringExtra(NotificationHelper.EXTRA_ROUTE))
         // Read the lock preference ONCE, before anything is shown. Only lock when it is actually on.
+        // FAIL OPEN on error: if this read throws (corrupt/unreadable DataStore) and we left
+        // lockChecked = false, the UI branch below would render nothing forever — a black screen with
+        // no way in, which is exactly the lock-out this whole change exists to prevent. The stored
+        // default is "biometrics off", so treating an unreadable preference as off is also the
+        // truthful fallback.
         lifecycleScope.launch {
-            biometricEnabledCache = userPreferences.biometricEnabled.first()
+            biometricEnabledCache = runCatching { userPreferences.biometricEnabled.first() }
+                .getOrDefault(false)
             isLocked    = biometricEnabledCache
             lockChecked = true
             if (isLocked) triggerAuth()
@@ -93,7 +99,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
-            biometricEnabledCache = userPreferences.biometricEnabled.first()
+            biometricEnabledCache = runCatching { userPreferences.biometricEnabled.first() }
+                .getOrDefault(false)
             lockChecked = true
             if (!biometricEnabledCache) {
                 // Turning the setting off must release the lock immediately — never leave a user

@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -96,12 +95,14 @@ fun GoalArtBackdrop(
 
     Box(modifier) {
         if (resId != 0) {
+            // NOTE: no filterQuality here — the painter-based Image overload in this Compose
+            // version (BOM 2024.06) does not accept it. Pixel art therefore gets bilinear
+            // smoothing when upscaled, so generate the art at least as large as the card
+            // (docs/GOAL_ART_PROMPTS.md asks for 1024×320, which is wider than any phone card).
             Image(
                 painter            = painterResource(resId),
                 contentDescription = null,
                 contentScale       = ContentScale.Crop,
-                // Nearest-neighbour keeps pixel art crisp instead of blurring it on upscale.
-                filterQuality      = FilterQuality.None,
                 alpha              = 0.38f,
                 modifier           = Modifier.fillMaxSize(),
             )

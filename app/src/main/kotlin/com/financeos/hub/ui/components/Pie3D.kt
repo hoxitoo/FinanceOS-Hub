@@ -97,6 +97,10 @@ fun Pie3D(
             }
 
             // ── 1. Extruded side: same wedges, drawn from the bottom up in a darker shade.
+            // The step is derived from the depth so the number of layers stays bounded (~12) on any
+            // density — a fixed 2px step meant ~27 layers × 17 slices ≈ 460 arcs per frame on a 3x
+            // screen, which janks during the explode animation.
+            val step  = (depth / MAX_LAYERS).coerceAtLeast(1.5f)
             var layer = depth
             while (layer > 0f) {
                 var angle = 0f
@@ -117,7 +121,7 @@ fun Pie3D(
                     }
                     angle += sweep
                 }
-                layer -= 2f
+                layer -= step
             }
 
             // ── 2. Top face.
@@ -157,4 +161,5 @@ fun Pie3D(
 private const val PERSPECTIVE = 0.52f   // vertical squash — how "tilted" the disc looks
 private const val RADIUS      = 0.82f   // share of half-width used by the pie
 private const val CENTER_Y    = 0.44f   // pie sits slightly above centre to leave room for depth
+private const val MAX_LAYERS  = 12f     // upper bound on extrusion passes per frame
 private const val DEPTH       = 0.09f   // extrusion height as a share of the canvas
