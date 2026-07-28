@@ -676,6 +676,32 @@ push/SMS for that card (which applies the «Остаток» even if deduped), o
 All future ingests are fully covered. The card↔account linking logic itself was correct — the defect
 was purely in how/when the balance was applied.
 
+## Batch 5 — Categories tab: interactive 3D pie + drill-down (working branch only)
+
+### `ui/components/Pie3D.kt`
+Pseudo-3D pie built from two cheap tricks instead of a renderer: the disc is squashed vertically
+(`PERSPECTIVE = .52`) so it reads as tilted, and the same wedges are redrawn a few pixels lower in a
+darkened shade to fake the extruded side. Tapping a wedge selects it (animated "explode" outward via
+`animateFloatAsState`); tapping it again or the background clears. **Hit-testing un-squashes the touch
+point back into circle space** (`nx = (x−cx)/rx`, `ny = (y−cy)/ry`) before measuring the angle, so it
+stays accurate under the perspective; angles start at 0° = 3 o'clock and run clockwise, matching the
+draw order exactly (verified by simulation).
+
+### CategoriesTab rebuilt
+- **3D pie** coloured by each category's own stored `color` (palette fallback by position).
+- Tap a slice → emoji + name + amount + share, and a «Показать операции ›» link.
+- **ТОП-3 ТРАТЫ** block under the chart, then the full category list — every row is clickable.
+- `AnalyticsState` gained `categoryColors` / `categoryEmojis`.
+
+### Category drill-down (`CategoryOpsSheet`)
+Tapping a category opens a sheet with **all its operations for the current AND previous month**,
+each with date and amount, plus a month-over-month headline ("На N больше, чем в прошлом месяце").
+`AnalyticsViewModel.categoryOperations(categoryId)` returns `CategoryOps(current, previous)` and
+deliberately **ignores the period chips** — this drill-down answers a fixed month-vs-month question.
+Wrapped in `remember(categoryId)` at the call site (it builds a `stateIn` flow, so calling it from the
+composable body would spawn a collector per recomposition — same trap as `GoalHistorySheet`).
+`CategoriesTab` now takes the ViewModel, so `AnalyticsScreen` passes `vm`.
+
 ## Batch 4 — Trends tab made readable (working branch only — NOT merged to main)
 
 New shared components in `ui/components/AnalyticsCharts.kt`: `InfoBadge` (tappable «?» → plain-language
