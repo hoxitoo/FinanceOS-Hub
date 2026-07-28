@@ -31,8 +31,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.BudgetPeriod
 import com.financeos.hub.core.database.entities.CategoryEntity
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,7 +49,7 @@ fun AddBudgetSheet(
     var categoryId   by remember { mutableStateOf<String?>(null) }
     var period       by remember { mutableStateOf(BudgetPeriod.MONTHLY) }
 
-    val limitKopecks = limitText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+    val limitKopecks = FosFormatter.parseAmountInput(limitText) ?: 0L
     val canSave      = categoryId != null && limitKopecks > 0
 
     ModalBottomSheet(
@@ -116,7 +118,8 @@ fun AddBudgetSheet(
             // Limit
             OutlinedTextField(
                 value           = limitText,
-                onValueChange   = { limitText = it },
+                onValueChange   = { limitText = FosFormatter.sanitizeAmountInput(it) },
+                visualTransformation = AmountVisualTransformation,
                 label           = { Text("Лимит, ₽", style = FosType.Label) },
                 isError         = limitText.isNotBlank() && limitKopecks == 0L,
                 singleLine      = true,

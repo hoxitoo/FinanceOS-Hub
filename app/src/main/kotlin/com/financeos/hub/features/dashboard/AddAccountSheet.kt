@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -51,7 +52,7 @@ fun AddAccountSheet(
     var cardMaskText     by remember { mutableStateOf("") }
     var balanceText      by remember { mutableStateOf("") }
 
-    val balanceKopecks = balanceText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+    val balanceKopecks = FosFormatter.parseAmountInput(balanceText) ?: 0L
     val canSave        = name.isNotBlank()
     val currencySymbol = FosFormatter.currencySymbol(selectedCurrency)
 
@@ -123,7 +124,8 @@ fun AddAccountSheet(
             // Initial balance
             OutlinedTextField(
                 value           = balanceText,
-                onValueChange   = { balanceText = it },
+                onValueChange   = { balanceText = FosFormatter.sanitizeAmountInput(it, allowNegative = true) },
+                visualTransformation = AmountVisualTransformation,
                 label           = { Text("Текущий баланс, $currencySymbol", style = FosType.Label) },
                 singleLine      = true,
                 keyboardOptions = KeyboardOptions(

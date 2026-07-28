@@ -127,7 +127,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
         ) { page ->
             when (page) {
                 0 -> OverviewTab(state)
-                1 -> CategoriesTab(state)
+                1 -> CategoriesTab(state, vm)
                 2 -> TrendsTab(state)
                 3 -> InsightsTab(state)
             }

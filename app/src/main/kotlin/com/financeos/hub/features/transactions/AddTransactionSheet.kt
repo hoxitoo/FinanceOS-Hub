@@ -1,8 +1,12 @@
 package com.financeos.hub.features.transactions
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,7 +36,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -40,10 +47,12 @@ import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.bankBrand
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -68,9 +77,12 @@ private val INCOME_SOURCES = listOf(
  * which physical card it left from.
  */
 private data class SourceOption(
-    val accountId: String,
-    val accountName: String,
-    val mask: String?,
+    val accountId     : String,
+    val accountName   : String,
+    val bank          : String,
+    val mask          : String?,
+    val balanceKopecks: Long,
+    val currency      : String,
 ) {
     val key: String get() = "${accountId}_${mask ?: "_"}"
 }
@@ -100,7 +112,7 @@ fun AddTransactionSheet(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    val amountError = amountText.isNotBlank() && amountText.replace(",", ".").toDoubleOrNull() == null
+    val amountError = amountText.isNotBlank() && FosFormatter.parseAmountInput(amountText) == null
     // One chip per card: the account's primary card plus every secondary card from the `cards`
     // table (deduped), so a second card like ••2548 on the «текущий» account is selectable too.
     // An account with no card at all still gets a single chip.
@@ -109,8 +121,10 @@ fun AddTransactionSheet(
             val masks = (listOfNotNull(acc.cardMask) +
                 cards.filter { it.accountId == acc.id }.map { it.cardMask })
                 .distinct()
-            if (masks.isEmpty()) listOf(SourceOption(acc.id, acc.name, null))
-            else masks.map { m -> SourceOption(acc.id, acc.name, m) }
+            val mk = { m: String? ->
+                SourceOption(acc.id, acc.name, acc.bank, m, acc.balanceKopecks, acc.currency)
+            }
+            if (masks.isEmpty()) listOf(mk(null)) else masks.map(mk)
         }
     }
     val selectedOption  = sourceOptions.firstOrNull { it.key == sourceKey }
@@ -164,8 +178,10 @@ fun AddTransactionSheet(
 
             // Amount — currency symbol follows the selected account
             OutlinedTextField(
+                // State stays raw; AmountVisualTransformation renders it grouped ("1 000").
                 value         = amountText,
-                onValueChange = { amountText = it },
+                onValueChange = { amountText = FosFormatter.sanitizeAmountInput(it) },
+                visualTransformation = AmountVisualTransformation,
                 label         = { Text("Сумма, $currencySymbol", style = FosType.Label) },
                 isError       = amountError,
                 singleLine    = true,
@@ -192,56 +208,28 @@ fun AddTransactionSheet(
                 ),
             )
 
-            // Account / card picker — where the money landed / left from. One chip per card
-            // (primary + secondary), so any card on a multi-card account can be chosen.
+            // «Откуда» — pick the bank first, then its account. Scrolling one long chip strip to
+            // find a card was the slowest part of logging an operation by hand.
             if (sourceOptions.isNotEmpty()) {
-                Text(
-                    if (txType == TransactionType.INCOME) "Куда зачислено" else "С какого счёта / карты",
-                    style = FosType.SectionCap,
-                    color = FosColors.TextMuted,
+                AccountPicker(
+                    title       = if (txType == TransactionType.INCOME) "Куда" else "Откуда",
+                    options     = sourceOptions,
+                    selectedKey = sourceKey,
+                    accent      = FosColors.Info,
+                    onSelect    = { sourceKey = it },
                 )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(sourceOptions, key = { it.key }) { opt ->
-                        val selected = sourceKey == opt.key
-                        val mask     = opt.mask?.let { " ••$it" } ?: ""
-                        FilterChip(
-                            selected = selected,
-                            onClick  = { sourceKey = if (selected) null else opt.key },
-                            label    = { Text("${opt.accountName}$mask", style = FosType.Micro) },
-                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
-                                selectedLabelColor     = FosColors.Info,
-                                containerColor         = FosColors.Surface2,
-                                labelColor             = FosColors.TextSecondary,
-                            ),
-                        )
-                    }
-                }
             }
 
-            // Destination account — only for a TRANSFER. Choosing it credits that account so an
-            // internal перевод keeps net worth unchanged (source −сумма, destination +сумма).
+            // «Куда» — destination of a TRANSFER. Choosing it credits that account so an internal
+            // перевод keeps net worth unchanged (source −сумма, destination +сумма).
             if (txType == TransactionType.TRANSFER && sourceOptions.isNotEmpty()) {
-                Text("На какой счёт (зачисление)", style = FosType.SectionCap, color = FosColors.TextMuted)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(sourceOptions, key = { "dest_${it.key}" }) { opt ->
-                        val selected = destKey == opt.key
-                        val mask     = opt.mask?.let { " ••$it" } ?: ""
-                        FilterChip(
-                            selected = selected,
-                            onClick  = { destKey = if (selected) null else opt.key },
-                            label    = { Text("${opt.accountName}$mask", style = FosType.Micro) },
-                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FosColors.Positive.copy(alpha = 0.15f),
-                                selectedLabelColor     = FosColors.Positive,
-                                containerColor         = FosColors.Surface2,
-                                labelColor             = FosColors.TextSecondary,
-                            ),
-                        )
-                    }
-                }
+                AccountPicker(
+                    title       = "Куда",
+                    options     = sourceOptions,
+                    selectedKey = destKey,
+                    accent      = FosColors.Positive,
+                    onSelect    = { destKey = it },
+                )
             }
 
             // Merchant / payee
@@ -315,7 +303,7 @@ fun AddTransactionSheet(
             Spacer(Modifier.height(4.dp))
 
             // Save button
-            val kopecks = amountText.replace(",", ".").toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0L
+            val kopecks = FosFormatter.parseAmountInput(amountText) ?: 0L
             Button(
                 onClick  = {
                     if (kopecks > 0) {
@@ -394,6 +382,118 @@ private val NoFutureDates = object : SelectableDates {
         return utcTimeMillis <= todayUtc
     }
     override fun isSelectableYear(year: Int): Boolean = year <= LocalDate.now().year
+}
+
+/**
+ * Two-step money-source picker: banks first, then that bank's accounts (mask + balance).
+ *
+ * Replaces the single horizontal strip of every card, which forced a long scroll to find the right
+ * one — the slowest step when logging a transfer the bank never pushed. The selected bank expands
+ * automatically, and picking an account collapses the list back to a compact summary.
+ */
+@Composable
+private fun AccountPicker(
+    title      : String,
+    options    : List<SourceOption>,
+    selectedKey: String?,
+    accent     : Color,
+    onSelect   : (String?) -> Unit,
+) {
+    val selected = options.firstOrNull { it.key == selectedKey }
+    val banks    = remember(options) { options.groupBy { it.bank }.toList() }
+    // Start expanded on the selected bank; null = nothing expanded.
+    var expandedBank by remember(selectedKey) { mutableStateOf(selected?.bank) }
+
+    Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        banks.forEach { (bank, bankOptions) ->
+            val brand      = bankBrand(bank)
+            val isExpanded = expandedBank == bank
+            val hasPick    = bankOptions.any { it.key == selectedKey }
+
+            // Bank row — tap to reveal its accounts.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                    .background(if (hasPick) accent.copy(alpha = 0.10f) else FosColors.Surface2)
+                    .clickable { expandedBank = if (isExpanded) null else bank }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                // Brand badge: first letter of the bank on its brand colour.
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(brand.bg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        bank.trim().take(1).uppercase(),
+                        style = FosType.SmallBold,
+                        color = brand.onBg,
+                    )
+                }
+                Text(
+                    bank,
+                    style    = FosType.Body,
+                    color    = FosColors.TextPrimary,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                // Collapsed + chosen → show which account is picked, so the choice stays visible.
+                if (hasPick && !isExpanded && selected != null) {
+                    Text(
+                        selected.mask?.let { "••$it" } ?: selected.accountName,
+                        style = FosType.Micro,
+                        color = accent,
+                    )
+                }
+                Text(if (isExpanded) "▲" else "▼", style = FosType.Micro, color = FosColors.TextMuted)
+            }
+
+            if (isExpanded) {
+                bankOptions.forEach { opt ->
+                    val isPicked = opt.key == selectedKey
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp)
+                            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                            .background(if (isPicked) accent.copy(alpha = 0.16f) else FosColors.Surface)
+                            .clickable { onSelect(if (isPicked) null else opt.key) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                opt.accountName,
+                                style    = FosType.Body,
+                                color    = if (isPicked) accent else FosColors.TextPrimary,
+                                maxLines = 1,
+                            )
+                            opt.mask?.let {
+                                Text("••$it", style = FosType.Micro, color = FosColors.TextSecondary)
+                            }
+                        }
+                        // Balance makes "which account do I actually have money on?" obvious.
+                        Text(
+                            FosFormatter.compact(
+                                opt.balanceKopecks,
+                                FosFormatter.currencySymbol(opt.currency),
+                            ),
+                            style = FosType.SmallBold,
+                            color = if (opt.balanceKopecks >= 0) FosColors.TextSecondary else FosColors.Negative,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

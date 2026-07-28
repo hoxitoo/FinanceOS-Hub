@@ -24,6 +24,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
@@ -43,6 +44,9 @@ data class AnalyticsState(
     val transactions     : List<TransactionEntity>         = emptyList(),
     val categoryExpenses : Map<String, Long>               = emptyMap(),
     val categoryNames    : Map<String, String>             = emptyMap(),
+    /** id → hex colour / emoji, so the pie can colour each slice like the rest of the app. */
+    val categoryColors   : Map<String, String>             = emptyMap(),
+    val categoryEmojis   : Map<String, String>             = emptyMap(),
     val dailyExpenses    : List<Pair<Long, Long>>          = emptyList(),
     // Score & insights
     val score            : ScoreCalculator.ScoreBreakdown? = null,
@@ -72,6 +76,54 @@ class AnalyticsViewModel @Inject constructor(
 
     private val _period = kotlinx.coroutines.flow.MutableStateFlow(AnalyticsPeriod.MONTH)
     fun setPeriod(period: AnalyticsPeriod) { _period.value = period }
+
+    /** Expenses of one category, split into the current and the previous calendar month. */
+    data class CategoryOps(
+        val current  : List<TransactionEntity> = emptyList(),
+        val previous : List<TransactionEntity> = emptyList(),
+    ) {
+        val currentTotal : Long get() = current.sumOf  { kotlin.math.abs(it.amountKopecks) }
+        val previousTotal: Long get() = previous.sumOf { kotlin.math.abs(it.amountKopecks) }
+    }
+
+    /**
+     * Operations of [categoryId] for this month and last month. Deliberately IGNORES the period
+     * chips: the drill-down answers "что я тут накупил и как это против прошлого месяца", which is
+     * a fixed month-vs-month question.
+     */
+    // One shared flow per category. Without this cache every open of a drill-down created another
+    // stateIn coroutine in viewModelScope that never completes, leaking one per open.
+    private val categoryOpsCache = mutableMapOf<String, kotlinx.coroutines.flow.StateFlow<CategoryOps>>()
+
+    fun categoryOperations(categoryId: String) = categoryOpsCache.getOrPut(categoryId) {
+        txRepo.observeAll()
+            .map { all ->
+                val month = YearMonth.now()
+                val (cf, ct) = monthBounds(month)
+                val (pf, pt) = monthBounds(month.minusMonths(1))
+                fun pick(from: Long, to: Long) = all.filter {
+                    // "cat_other" is the synthetic bucket the pie uses for uncategorised expenses,
+                    // whose category_id is actually NULL — matching on the string alone made the
+                    // «Другое» drill-down (often the biggest slice) always come up empty.
+                    val matches = if (categoryId == UNCATEGORISED) {
+                        it.categoryId == null || it.categoryId == UNCATEGORISED
+                    } else {
+                        it.categoryId == categoryId
+                    }
+                    matches && it.type == TransactionType.EXPENSE && it.timestamp in from..to
+                }.sortedByDescending { it.timestamp }
+                CategoryOps(current = pick(cf, ct), previous = pick(pf, pt))
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CategoryOps())
+    }
+
+    private companion object { const val UNCATEGORISED = "cat_other" }
+
+    private fun monthBounds(m: YearMonth): Pair<Long, Long> {
+        val from = m.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val to   = m.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+        return from to to
+    }
 
     // Window for the selected period, recomputed on each emission (so crossing a month boundary
     // never keeps showing a stale window). MONTH = current calendar month; the longer periods end
@@ -143,6 +195,8 @@ class AnalyticsViewModel @Inject constructor(
                     transactions      = monthTx,
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,
+                    categoryColors    = categories.associate { it.id to it.color },
+                    categoryEmojis    = categories.associate { it.id to it.emoji },
                     dailyExpenses     = daily,
                     score             = scoreD.await(),
                     insights          = insightsD.await()    ?: emptyList(),

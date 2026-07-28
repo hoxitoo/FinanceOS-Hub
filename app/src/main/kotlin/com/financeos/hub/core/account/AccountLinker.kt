@@ -95,6 +95,17 @@ class AccountLinker @Inject constructor(
     }
 
     /**
+     * Nudges [accountId]'s balance by [delta] (may be negative). Used to move the OTHER leg of an
+     * internal transfer: the bank books the push on one account only, so without this the money
+     * leaves the source and never arrives anywhere — it simply vanishes from net worth.
+     */
+    suspend fun adjustBalance(accountId: String, delta: Long) {
+        if (delta == 0L) return
+        val acc = accountDao.getById(accountId) ?: return
+        accountDao.updateBalance(accountId, acc.balanceKopecks + delta)
+    }
+
+    /**
      * Applies a bank-authoritative "Остаток" to the account that owns [cardMask], independent of any
      * transaction row. This is the safety net for the dedup-drop path: a bank commonly delivers the
      * SAME event more than once (a collapsed notification re-posted as expanded, or an SMS twin of a

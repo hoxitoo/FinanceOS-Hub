@@ -22,6 +22,8 @@ class TransactionRepository @Inject constructor(
         return dao.observeByPeriod(from, to)
     }
 
+    fun observeByGoal(goalId: String): Flow<List<TransactionEntity>> = dao.observeByGoal(goalId)
+
     fun observeByPeriod(from: Long, to: Long): Flow<List<TransactionEntity>> =
         dao.observeByPeriod(from, to)
 

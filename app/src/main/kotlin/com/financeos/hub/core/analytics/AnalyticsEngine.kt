@@ -163,21 +163,41 @@ class AnalyticsEngine @Inject constructor(
         val bars = mutableListOf<WaterfallBar>()
         val incomeDelta = curIncome - prevIncome
         if (abs(incomeDelta) > 0)
-            bars += WaterfallBar("Доходы", incomeDelta)
+            bars += WaterfallBar(
+                label          = "Доходы",
+                delta          = incomeDelta,
+                prevKopecks    = prevIncome,
+                currentKopecks = curIncome,
+                isIncome       = true,
+            )
 
         allCats
             .sortedByDescending { abs((curCatMap[it] ?: 0L) - (prevCatMap[it] ?: 0L)) }
             .take(5)
             .forEach { catId ->
-                val delta = (prevCatMap[catId] ?: 0L) - (curCatMap[catId] ?: 0L) // positive = spent less
+                val prev = prevCatMap[catId] ?: 0L
+                val cur  = curCatMap[catId] ?: 0L
+                val delta = prev - cur   // positive = spent less
                 if (abs(delta) > 10_00L) { // threshold 10₽
-                    bars += WaterfallBar(catNames[catId] ?: "Другое", delta)
+                    bars += WaterfallBar(
+                        label          = catNames[catId] ?: "Другое",
+                        delta          = delta,
+                        prevKopecks    = prev,
+                        currentKopecks = cur,
+                    )
                 }
             }
 
-        val totalDelta = (curIncome - curTxs.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }) -
-                         (prevIncome - prevTxs.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) })
-        bars += WaterfallBar("Итог", totalDelta, isTotal = true)
+        val curExpense  = curTxs.filter  { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
+        val prevExpense = prevTxs.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) }
+        val totalDelta  = (curIncome - curExpense) - (prevIncome - prevExpense)
+        bars += WaterfallBar(
+            label          = "Итог",
+            delta          = totalDelta,
+            isTotal        = true,
+            prevKopecks    = prevExpense,
+            currentKopecks = curExpense,
+        )
         return bars
     }
 

@@ -32,7 +32,19 @@ class GoalsViewModel @Inject constructor(
     private val transferRouteRepo: TransferRouteRepository,
     private val accountRepo: AccountRepository,
     private val cardRepo: CardRepository,
+    private val txRepo: com.financeos.hub.data.repositories.TransactionRepository,
 ) : ViewModel() {
+
+    // One shared flow per goal — see AnalyticsViewModel.categoryOperations: creating a stateIn
+    // inside a function leaks a coroutine per call site invocation.
+    private val historyCache =
+        mutableMapOf<String, kotlinx.coroutines.flow.StateFlow<List<com.financeos.hub.core.database.entities.TransactionEntity>>>()
+
+    /** Operations routed to [goalId], newest first — shown in the goal's history sheet. */
+    fun historyFor(goalId: String) = historyCache.getOrPut(goalId) {
+        txRepo.observeByGoal(goalId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     val state = combine(
         goalRepo.observeActive(),
