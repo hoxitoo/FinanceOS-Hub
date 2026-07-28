@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -88,6 +91,12 @@ fun TransactionDetailSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Sheet content can exceed the screen; without verticalScroll everything
+                // below the fold — including «Сохранить» — is unreachable. imePadding is
+                // required because the app is edge-to-edge, so adjustResize does not shrink
+                // the window and the keyboard would cover the focused field.
+                .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = FosDimens.ScreenPadding)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
