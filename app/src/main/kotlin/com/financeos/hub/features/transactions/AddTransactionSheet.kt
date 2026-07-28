@@ -47,6 +47,7 @@ import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -177,11 +178,10 @@ fun AddTransactionSheet(
 
             // Amount — currency symbol follows the selected account
             OutlinedTextField(
-                // Raw digits live in state; the field renders them grouped ("1 000") as you type.
-                value         = FosFormatter.groupAmountInput(amountText),
-                onValueChange = { input ->
-                    amountText = input.filter { it.isDigit() || it == ',' || it == '.' }
-                },
+                // State stays raw; AmountVisualTransformation renders it grouped ("1 000").
+                value         = amountText,
+                onValueChange = { amountText = FosFormatter.sanitizeAmountInput(it) },
+                visualTransformation = AmountVisualTransformation,
                 label         = { Text("Сумма, $currencySymbol", style = FosType.Label) },
                 isError       = amountError,
                 singleLine    = true,

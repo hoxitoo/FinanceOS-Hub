@@ -70,6 +70,7 @@ class TransactionsViewModel @Inject constructor(
     private val pdfImporter : PdfImporter,
     private val classifier  : CategoryClassifier,
     private val transferRouter: TransferRouter,
+    private val accountLinker : com.financeos.hub.core.account.AccountLinker,
     savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
 
@@ -198,6 +199,21 @@ class TransactionsViewModel @Inject constructor(
                         updatedAt      = System.currentTimeMillis(),
                     ))
                 }
+            }
+            // An UNPAIRED transfer also credited its counterparty account at insert
+            // (TransferRouter moves the other leg, because the bank books an internal transfer on
+            // one account only). Undo that too, or the destination keeps the money forever while
+            // the source is restored. Paired transfers are excluded on purpose: there the second
+            // leg is its own row and still represents that side of the move.
+            if (tx != null && tx.type == TransactionType.TRANSFER && tx.transferPairId == null) {
+                tx.counterpartyMask
+                    ?.let { accountLinker.resolveAccountId(it) }
+                    ?.takeIf { it != tx.accountId }
+                    ?.let { destId ->
+                        val magnitude = kotlin.math.abs(tx.amountKopecks)
+                        val credited  = if (tx.amountKopecks < 0) magnitude else -magnitude
+                        accountLinker.adjustBalance(destId, -credited)
+                    }
             }
             // A transfer that funded a savings goal must un-fund it on delete, else the goal
             // stays permanently inflated by money no longer backed by a transaction.

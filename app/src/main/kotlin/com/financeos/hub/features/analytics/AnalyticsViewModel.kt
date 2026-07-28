@@ -91,19 +91,33 @@ class AnalyticsViewModel @Inject constructor(
      * chips: the drill-down answers "что я тут накупил и как это против прошлого месяца", which is
      * a fixed month-vs-month question.
      */
-    fun categoryOperations(categoryId: String) = txRepo.observeAll()
-        .map { all ->
-            val month = YearMonth.now()
-            val (cf, ct) = monthBounds(month)
-            val (pf, pt) = monthBounds(month.minusMonths(1))
-            fun pick(from: Long, to: Long) = all.filter {
-                it.categoryId == categoryId &&
-                    it.type == TransactionType.EXPENSE &&
-                    it.timestamp in from..to
-            }.sortedByDescending { it.timestamp }
-            CategoryOps(current = pick(cf, ct), previous = pick(pf, pt))
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CategoryOps())
+    // One shared flow per category. Without this cache every open of a drill-down created another
+    // stateIn coroutine in viewModelScope that never completes, leaking one per open.
+    private val categoryOpsCache = mutableMapOf<String, kotlinx.coroutines.flow.StateFlow<CategoryOps>>()
+
+    fun categoryOperations(categoryId: String) = categoryOpsCache.getOrPut(categoryId) {
+        txRepo.observeAll()
+            .map { all ->
+                val month = YearMonth.now()
+                val (cf, ct) = monthBounds(month)
+                val (pf, pt) = monthBounds(month.minusMonths(1))
+                fun pick(from: Long, to: Long) = all.filter {
+                    // "cat_other" is the synthetic bucket the pie uses for uncategorised expenses,
+                    // whose category_id is actually NULL — matching on the string alone made the
+                    // «Другое» drill-down (often the biggest slice) always come up empty.
+                    val matches = if (categoryId == UNCATEGORISED) {
+                        it.categoryId == null || it.categoryId == UNCATEGORISED
+                    } else {
+                        it.categoryId == categoryId
+                    }
+                    matches && it.type == TransactionType.EXPENSE && it.timestamp in from..to
+                }.sortedByDescending { it.timestamp }
+                CategoryOps(current = pick(cf, ct), previous = pick(pf, pt))
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CategoryOps())
+    }
+
+    private companion object { const val UNCATEGORISED = "cat_other" }
 
     private fun monthBounds(m: YearMonth): Pair<Long, Long> {
         val from = m.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()

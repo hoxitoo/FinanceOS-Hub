@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -122,10 +123,9 @@ fun AddAccountSheet(
 
             // Initial balance
             OutlinedTextField(
-                value           = FosFormatter.groupAmountInput(balanceText),
-                onValueChange   = { input ->
-                    balanceText = input.filter { it.isDigit() || it == ',' || it == '.' || it == '-' }
-                },
+                value           = balanceText,
+                onValueChange   = { balanceText = FosFormatter.sanitizeAmountInput(it, allowNegative = true) },
+                visualTransformation = AmountVisualTransformation,
                 label           = { Text("Текущий баланс, $currencySymbol", style = FosType.Label) },
                 singleLine      = true,
                 keyboardOptions = KeyboardOptions(

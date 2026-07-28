@@ -1158,3 +1158,33 @@ Four items, all captured as planned work:
 - Full behavioral analytics spec: `docs/CONTEXT.md` → section "Behavioral Analytics Vision"
 - Color tokens: `FosColors.kt`
 - Typography: `FosType.kt`
+
+## Test & debug pass over the whole improvement cycle (batches 1–5)
+
+**How it was verified:** the project cannot be built in the dev container (no Android SDK), so the
+real compiler is CI — `android.yml` runs `test` + `assembleDebug` + `lintDebug` on any PR targeting
+`dev`/`main`. Opening a **draft PR to `dev`** (#66) runs that gate WITHOUT touching the release
+pipeline (which only fires on push to `main`). First run: 1 compile error. After the fix: **green**.
+
+### Compile
+| Issue | Fix |
+|---|---|
+| `GoalArt.kt` — `filterQuality` not a parameter of the painter-based `Image` overload in Compose BOM 2024.06 | Dropped it; art is generated at 1024×320 so upscaling (and the smoothing it would cause) is negligible |
+
+### Bugs found by review, not by the compiler
+| Severity | Area | Fix |
+|---|---|---|
+| HIGH | **All 5 money fields** | `value = groupAmountInput(state)` desynchronised the caret: `BasicTextField(value: String)` re-applies its retained selection to the supplied text, so once a separator appeared typing `12345` produced **`12354`**. Replaced with a real `AmountVisualTransformation` (+ exact `OffsetMapping`); state stays raw, display is grouped. |
+| HIGH | Money input sanitising | A second separator made the value unparseable → the field showed `1,23` while **0 ₽** was saved (no error state in AddAccountSheet/contribute). A third decimal was hidden by the display yet still counted. New `FosFormatter.sanitizeAmountInput` allows one separator, ≤2 decimals, strips leading zeros. |
+| HIGH | `MainActivity` | The new `lockChecked` gate renders nothing until the preference is read — if that read threw, the app would show a **black screen with no way in**, exactly the lock-out the change exists to prevent. Both reads now fail open to "biometrics off" (also the stored default). |
+| HIGH | `BudgetViewModel` | `combine` emits several times per screen open and each emission launched its own coroutine; the counter read has three suspension points before the write, so two coroutines both read `count = 0` and both fired — blowing past the 2/day cap. Serialised behind a `Mutex`. |
+| HIGH | `TransferRouter` | The `findTransferCounterpart` guard can never fire for the FIRST leg (the counterpart hasn't arrived yet), so a two-push transfer whose legs are >5 min apart credited the destination **twice**. When the second leg pairs, its own delta application is now reversed — but only when the first leg's counterparty really resolves to this account and this row carried no authoritative «Остаток». |
+| MEDIUM | `TransactionsViewModel.deleteTransaction` | The counterparty credit had no reversal, so deleting a transfer restored the source but left the destination inflated. Now reversed for **unpaired** transfers (a paired one still has its second row representing that side). |
+| MEDIUM | `AnalyticsViewModel` | The pie buckets uncategorised expenses under the synthetic key `cat_other`, but those rows have `category_id = NULL` — so the «Другое» drill-down (often the biggest slice) was always empty. Now matches NULL too. |
+| LOW | `BudgetViewModel` | The in-session key was recorded even when the daily cap suppressed the alert, so that budget looked "already alerted" and could be skipped for good. Recorded only after an alert is actually sent. |
+| LOW | `AnalyticsViewModel` / `GoalsViewModel` | `stateIn` inside a function leaked one sharing coroutine per drill-down/history open. Both are now cached per id. |
+| LOW | `Pie3D` | Extrusion used a fixed 2px step ≈ 460 arcs per frame on a 3x screen. Bounded to ~12 layers. |
+
+**Verified correct, no change:** DB migration v9→v10 (17 cats / 17 colours, `INSERT OR IGNORE`,
+registered, version bumped); `AnalyticsPeriod.ALL`; `parseAmountInput` NBSP handling; the MoM
+sign/colour semantics (simulated); the pie hit-test↔draw-order agreement (simulated).

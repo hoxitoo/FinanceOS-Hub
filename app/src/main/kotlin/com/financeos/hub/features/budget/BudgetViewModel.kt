@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -57,6 +58,12 @@ class BudgetViewModel @Inject constructor(
     // persisted in UserPreferences — this ViewModel dies on every navigation away from the
     // Budget screen, so an in-memory set alone re-fired the alert on each visit.
     private val alertedBudgets = mutableSetOf<String>()
+
+    // Serialises the whole read→send→persist sequence. `combine` emits several times per screen
+    // open (budgets, expenses and categories arrive separately), each emission launches its own
+    // coroutine, and the counter read has three suspension points before the write — so without
+    // this two coroutines both saw count = 0 and both fired, blowing past the daily cap.
+    private val alertMutex = kotlinx.coroutines.sync.Mutex()
 
     // Emits Unit at startup and once again at each calendar midnight so the query window
     // always covers the current month, even when the app is left open overnight.
@@ -127,13 +134,14 @@ class BudgetViewModel @Inject constructor(
      */
     private fun checkAndFireAlerts(envelopes: List<BudgetEnvelope>) {
         viewModelScope.launch {
-            if (!userPreferences.notificationsEnabled.first()) return@launch
+          alertMutex.withLock {
+            if (!userPreferences.notificationsEnabled.first()) return@withLock
             val threshold = userPreferences.budgetAlertThreshold.first()
 
             val month   = YearMonth.now().toString()
             val overs   = envelopes.filter { it.spentPercent >= threshold }
             // Cheap in-session guard: nothing new crossed the threshold since the last check.
-            if (overs.isEmpty() || overs.all { "${it.budgetId}:$month" in alertedBudgets }) return@launch
+            if (overs.isEmpty() || overs.all { "${it.budgetId}:$month" in alertedBudgets }) return@withLock
 
             val today = LocalDate.now().toEpochDay()
             val saved = userPreferences.budgetAlertState()
@@ -145,14 +153,14 @@ class BudgetViewModel @Inject constructor(
             var changed = false
             for (envelope in overs) {
                 val key = "${envelope.budgetId}:$month"
-                alertedBudgets += key                      // remember in-session either way
-                if (key in keys) continue                  // already alerted this budget this month
-                if (count >= MAX_ALERTS_PER_DAY) break     // daily cap reached
+                if (key in keys) { alertedBudgets += key; continue }   // already alerted this month
+                if (count >= MAX_ALERTS_PER_DAY) break                 // daily cap — try again later
                 notificationHelper.sendBudgetAlert(
                     categoryName = envelope.categoryName,
                     spentPercent = envelope.spentPercent,
                 )
                 keys += key
+                alertedBudgets += key    // only after it was actually sent
                 count++
                 changed = true
             }
@@ -161,6 +169,7 @@ class BudgetViewModel @Inject constructor(
                     UserPreferences.BudgetAlertState(today, count, keys)
                 )
             }
+          }
         }
     }
 

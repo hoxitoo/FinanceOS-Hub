@@ -130,6 +130,41 @@ object FosFormatter {
     }
 
     /**
+     * Normalises what an amount field stores: digits, at most ONE decimal separator, at most two
+     * decimals, an optional leading `-`, and no leading zeros.
+     *
+     * Sanitising in `onValueChange` (rather than only when formatting for display) is what keeps the
+     * stored text and the displayed text the same characters — see [AmountVisualTransformation],
+     * whose caret mapping depends on that. It also closes two silent-data bugs: a second separator
+     * used to make the value unparseable (saving 0 ₽ while the field still showed a number), and a
+     * third decimal was hidden by the display yet still counted when saving.
+     */
+    fun sanitizeAmountInput(raw: String, allowNegative: Boolean = false): String {
+        val negative = allowNegative && raw.trimStart().startsWith("-")
+        val sb = StringBuilder()
+        var sepSeen = false
+        var decimals = 0
+        for (ch in raw) {
+            when {
+                ch.isDigit() && !sepSeen -> sb.append(ch)
+                ch.isDigit()             -> if (decimals < 2) { sb.append(ch); decimals++ }
+                (ch == ',' || ch == '.') && !sepSeen && sb.isNotEmpty() -> {
+                    sepSeen = true; sb.append(',')
+                }
+                else -> Unit   // drop everything else, including a stray '-' mid-string
+            }
+        }
+        var out = sb.toString()
+        // Strip leading zeros ("007" → "7") but keep a lone "0" and "0,50".
+        val sepIdx = out.indexOf(',')
+        val intPart = if (sepIdx >= 0) out.substring(0, sepIdx) else out
+        val rest    = if (sepIdx >= 0) out.substring(sepIdx) else ""
+        val trimmed = intPart.trimStart('0').ifEmpty { if (intPart.isEmpty()) "" else "0" }
+        out = trimmed + rest
+        return if (negative && out.isNotEmpty()) "-$out" else out
+    }
+
+    /**
      * Groups the integer part of a money INPUT for display while the user types, keeping any
      * decimal part intact: `"1417,59"` → `"1 417,59"`. Unlike [groupDigits] this tolerates a
      * decimal separator, so amount fields show thousands spaced instead of a run-on `1000`.

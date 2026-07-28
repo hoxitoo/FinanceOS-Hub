@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.BudgetPeriod
 import com.financeos.hub.core.database.entities.CategoryEntity
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -116,10 +117,9 @@ fun AddBudgetSheet(
 
             // Limit
             OutlinedTextField(
-                value           = FosFormatter.groupAmountInput(limitText),
-                onValueChange   = { input ->
-                    limitText = input.filter { it.isDigit() || it == ',' || it == '.' }
-                },
+                value           = limitText,
+                onValueChange   = { limitText = FosFormatter.sanitizeAmountInput(it) },
+                visualTransformation = AmountVisualTransformation,
                 label           = { Text("Лимит, ₽", style = FosType.Label) },
                 isError         = limitText.isNotBlank() && limitKopecks == 0L,
                 singleLine      = true,

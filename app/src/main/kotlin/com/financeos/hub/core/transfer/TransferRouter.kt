@@ -128,6 +128,20 @@ class TransferRouter @Inject constructor(
                 val pairId = UUID.randomUUID().toString()
                 transactionDao.markAsPairedTransfer(tx.id, pairId)
                 transactionDao.markAsPairedTransfer(counterpart.id, pairId)
+
+                // Both legs of the same transfer arrived as separate rows. The FIRST leg already
+                // moved BOTH sides (its own account via syncBalance, the counterparty via
+                // adjustBalance above), so this leg's own balance application is a duplicate —
+                // the destination would end up credited twice. Undo it, but only when:
+                //  • the first leg really did credit THIS account (its counterparty resolves here),
+                //    otherwise nothing was double-applied, and
+                //  • this row moved the balance as a DELTA (balanceKopecks == null). A row carrying
+                //    a bank «Остаток» set an absolute snapshot, which must not be nudged.
+                val firstLegCreditedUs = counterpart.counterpartyMask
+                    ?.let { accountLinker.resolveAccountId(it) } == tx.accountId
+                if (firstLegCreditedUs && tx.accountId != null && tx.balanceKopecks == null) {
+                    accountLinker.adjustBalance(tx.accountId, -tx.amountKopecks)
+                }
             }
         }
     }

@@ -39,6 +39,7 @@ import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.ui.components.GoalArtBackdrop
 import com.financeos.hub.ui.components.GoalRing
 import com.financeos.hub.ui.components.goalArtFor
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -165,10 +166,9 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                         color = FosColors.TextSecondary,
                     )
                     androidx.compose.material3.OutlinedTextField(
-                        value           = FosFormatter.groupAmountInput(contributeText),
-                        onValueChange   = { input ->
-                            contributeText = input.filter { it.isDigit() || it == ',' || it == '.' }
-                        },
+                        value           = contributeText,
+                        onValueChange   = { contributeText = FosFormatter.sanitizeAmountInput(it) },
+                        visualTransformation = AmountVisualTransformation,
                         label           = { Text("Сумма, ₽", style = FosType.Label) },
                         singleLine      = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(

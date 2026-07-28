@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.SwipeToRevealDelete
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -328,11 +329,10 @@ private fun AccountRow(
             },
             text    = {
                 OutlinedTextField(
-                    // Keep the raw text in state, show it grouped ("1 417,59") while typing.
-                    value           = FosFormatter.groupAmountInput(editText),
-                    onValueChange   = { input ->
-                        editText = input.filter { it.isDigit() || it == ',' || it == '.' || it == '-' }
-                    },
+                    // State stays raw; the transformation groups it ("1 417,59") for display.
+                    value           = editText,
+                    onValueChange   = { editText = FosFormatter.sanitizeAmountInput(it, allowNegative = true) },
+                    visualTransformation = AmountVisualTransformation,
                     label           = {
                         Text(
                             "Баланс, ${FosFormatter.currencySymbol(account.currency)}",
