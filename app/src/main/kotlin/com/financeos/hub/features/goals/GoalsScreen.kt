@@ -256,77 +256,77 @@ private fun GoalCard(
         // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).
         GoalArtBackdrop(kind = artKind, modifier = Modifier.matchParentSize())
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(FosDimens.CardPadding),
-        horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
-        verticalAlignment     = Alignment.CenterVertically,
-    ) {
-        GoalRing(
-            progress = ratio,
-            modifier = Modifier.size(64.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(FosDimens.CardPadding),
+            horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            GoalRing(
+                progress = ratio,
+                modifier = Modifier.size(64.dp),
+            )
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "${goal.emoji} ${goal.name}",
-                style = FosType.BodySemi,
-                color = if (complete) FosColors.Positive else FosColors.TextPrimary,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "${FosFormatter.compact(goal.savedKopecks)} из ${FosFormatter.compact(goal.targetKopecks)}",
-                style = FosType.Micro,
-                color = FosColors.TextSecondary,
-            )
-            goal.deadlineAt?.let {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "до ${FosFormatter.dayLabel(it)}",
+                    "${goal.emoji} ${goal.name}",
+                    style = FosType.BodySemi,
+                    color = if (complete) FosColors.Positive else FosColors.TextPrimary,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${FosFormatter.compact(goal.savedKopecks)} из ${FosFormatter.compact(goal.targetKopecks)}",
                     style = FosType.Micro,
-                    color = FosColors.TextMuted,
+                    color = FosColors.TextSecondary,
+                )
+                goal.deadlineAt?.let {
+                    Text(
+                        "до ${FosFormatter.dayLabel(it)}",
+                        style = FosType.Micro,
+                        color = FosColors.TextMuted,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                // Tap to see every operation that funded (or drew from) this goal, with dates.
+                Text(
+                    "История ›",
+                    style    = FosType.Micro,
+                    color    = FosColors.Info,
+                    modifier = Modifier.clickable { onHistory() },
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            // Tap to see every operation that funded (or drew from) this goal, with dates.
-            Text(
-                "История ›",
-                style    = FosType.Micro,
-                color    = FosColors.Info,
-                modifier = Modifier.clickable { onHistory() },
-            )
-        }
 
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                if (complete) "✓" else "${(ratio * 100).toInt()}%",
-                style = FosType.SmallBold,
-                color = if (complete) FosColors.Positive else FosColors.TextSecondary,
-            )
-            if (!complete) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    if (complete) "✓" else "${(ratio * 100).toInt()}%",
+                    style = FosType.SmallBold,
+                    color = if (complete) FosColors.Positive else FosColors.TextSecondary,
+                )
+                if (!complete) {
+                    TextButton(
+                        onClick      = onAddContribution,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text("+", style = FosType.BodySemi, color = FosColors.Info)
+                    }
+                }
                 TextButton(
-                    onClick      = onAddContribution,
+                    onClick        = onLink,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                 ) {
-                    Text("+", style = FosType.BodySemi, color = FosColors.Info)
+                    Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
+                }
+                TextButton(
+                    onClick        = onDelete,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text("×", style = FosType.BodySemi, color = FosColors.Negative)
                 }
             }
-            TextButton(
-                onClick        = onLink,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
-            }
-            TextButton(
-                onClick        = onDelete,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text("×", style = FosType.BodySemi, color = FosColors.Negative)
-            }
         }
-    }
     }
 }
