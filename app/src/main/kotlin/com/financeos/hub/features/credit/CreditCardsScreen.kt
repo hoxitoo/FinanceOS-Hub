@@ -190,7 +190,7 @@ private fun CreditTotals(state: CreditScreenState) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    "Использовано ${FosFormatter.percent(used)}",
+                    "Использовано ${FosFormatter.percent(used.toDouble())}",
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )
@@ -288,7 +288,7 @@ private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
             TermRow("Свободный лимит", FosFormatter.amount(free))
         }
         card.utilization?.let { used ->
-            TermRow("Использовано", FosFormatter.percent(used))
+            TermRow("Использовано", FosFormatter.percent(used.toDouble()))
         }
         if (card.spentSinceStatement > 0) {
             TermRow(
