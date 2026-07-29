@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v10
+- **DB schema:** Room v11
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -41,6 +41,7 @@ app/
 │   ├── classifier/   (DictionaryClassifier, CategoryDefaults)
 │   ├── sms/          (SmsReader, SmsReceiver, PushNotificationListener)
 │   ├── account/      (AccountLinker)
+│   ├── credit/       (CreditMath — debt, free limit, statement/due cycle, min payment)
 │   ├── transfer/     (TransferRouter)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
@@ -55,7 +56,7 @@ app/
 │   └── preferences/  (UserPreferences via DataStore)
 ├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
 ├── features/         (dashboard, transactions, analytics, budget, goals,
-│                      subscriptions, categories, onboarding, settings)
+│                      subscriptions, categories, credit, onboarding, settings)
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
 └── ui/
@@ -164,7 +165,22 @@ merchant needs a merchant rule (or offline retraining + a new `.tflite`).
 "off" on failure, and the lock screen always offers device-PIN. A tester once had to reinstall
 and lost all history.
 
-### 12. Parser hygiene
+### 12. A credit account's balance is a NEGATIVE debt, and its «Доступно» is not a balance
+`AccountEntity.kind` splits money you own (`CASH`) from money you owe (`CREDIT`). On a credit card
+`balanceKopecks` is zero-or-negative and its magnitude is the debt, so every existing delta path
+stays correct with no sign special-case; the free limit is `creditLimitKopecks + balanceKopecks`.
+
+The trap is the bank's own figure: a credit-card push reports «Доступно» (limit − debt), NOT
+«Остаток». Writing it into `balance_kopecks` would book the free limit as money you own — one push
+on a 450k card adds 400k to net worth. So `syncBalance`, `applyAuthoritativeBalance` and
+`snapToAuthoritativeIfNewer` all **skip the authoritative snapshot for CREDIT accounts** and move
+them by transaction delta only. Revisit when the parser can tell the two labels apart.
+
+Net worth, the widget and the score's cushion pillar are all **CASH-only** (`sumCashBalances`);
+the cushion additionally subtracts `sumCreditDebt()`. With no credit cards every one of these is
+byte-identical to the pre-v11 behaviour.
+
+### 13. Parser hygiene
 - `PromoFilter` runs in `ParserEngine.parse()` **before** any bank parser — marketing pushes
   ("лимит 163 000 ₽") were being booked as real transfers.
 - Transfer keywords are stem-anchored with a Cyrillic lookahead so «переводами» ≠ «Перевод».
@@ -186,6 +202,8 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] SMS is **opt-in** (`sms_realtime_enabled`, default false)
 - [x] `DictionaryClassifier` (143 rules), `CategoryDefaults.forType` income fallback
 - [x] `AccountLinker` (card→account, authoritative balance, orphan re-link, recency guard)
+- [x] `AccountKind` (CASH / CREDIT / INVESTMENT) + credit terms on `AccountEntity`; net worth,
+      widget and score cushion are CASH-only
 - [x] `TransferRouter` (goal routing by account/card/keyword, counterparty leg, internal pairing)
 - [x] All 7 repositories, `UserPreferences` (DataStore, ~20 keys)
 
@@ -196,6 +214,9 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
 - [x] Budget (envelopes, CRUD, throttled alerts), Goals (art backdrops, history, 🔗 routing)
 - [x] Subscriptions, Categories CRUD, Settings, Onboarding
+- [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
+      + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, таймлайн грейса,
+      ставка, утилизация, история операций, лист редактирования условий)
 
 ## Analytics
 - [x] `ScoreCalculator` (4 pillars, 0–100) + `ScoreDonut` multi-colour rendering
@@ -260,16 +281,24 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - Consider: signed **release** APK channel (keystore in GitHub Secrets)
 - Await more Sberbank push format variants
 
+## Credit cards — remaining work
+Заходы 1–2 (фундамент + плитка/экран) сделаны. Осталось:
+3. **Погашение** — кнопка «Погасить», перевод вместо расхода, спаривание двух пушей (списание с
+   дебетовой + зачисление на кредитку), распознавание автоплатежа. Самый рискованный кусок:
+   именно здесь возникает двойной учёт.
+4. **Проценты** — переплата сейчас и по минимальному платежу. Требует **реальных пушей Сбера по
+   кредитке** (покупка, погашение, выписка, напоминание) — без них парсер угадывает. Переплата
+   будет ЯВНО помеченной оценкой: банк считает ежедневно по своим правилам грейса, повторить
+   точно без договора нельзя.
+
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across
    `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`,
    `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry`.
 2. **Branded card UI** — per-bank gradient/logo `CardSkin` (trademark caveat for stores).
-3. **Brokerage accounts** — `AccountKind.INVESTMENT`, separate subtotal, excluded from cash net worth.
-4. **Credit cards** — `AccountKind.CREDIT`, shown as debt; repayments are TRANSFERs, never expenses.
-- Foundation for 3–4: `AccountEntity.kind` + net-worth split by kind. Order: foundation → credit
-  → investment → registry/UI refactor.
+3. **Brokerage accounts** — `AccountKind.INVESTMENT` (column exists, nothing consumes it yet):
+   separate subtotal, excluded from cash net worth.
 
 ---
 

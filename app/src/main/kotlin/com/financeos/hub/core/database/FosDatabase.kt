@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -141,6 +141,25 @@ abstract class FosDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 insertDefaultCategories(db)
                 insertDefaultMerchantRules(db)
+            }
+        }
+
+        /**
+         * Account kinds + credit-card terms.
+         *
+         * `kind` is NOT NULL DEFAULT 'CASH' so every pre-existing account keeps behaving exactly as
+         * before: it counts toward net worth and toward the cushion pillar of the health score. The
+         * credit term columns are all nullable — nothing knows a card's limit or rate until the user
+         * types them in, and inventing a default would produce a confident wrong grace period.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'CASH'")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN credit_limit_kopecks INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN apr_bp INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN statement_day INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN due_days INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN min_payment_bp INTEGER")
             }
         }
 

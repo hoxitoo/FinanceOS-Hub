@@ -40,6 +40,20 @@ interface AccountDao {
     @Query("UPDATE accounts SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
 
-    @Query("SELECT COALESCE(SUM(balance_kopecks), 0) FROM accounts WHERE is_active = 1")
-    suspend fun sumAllBalances(): Long
+    /**
+     * Own money only. CREDIT accounts hold the BANK's money (a negative debt), so summing every
+     * account would let a credit line move net worth — the spend on a credit card would read as
+     * your balance falling, and a big repayment as it rising. INVESTMENT is excluded too: it is
+     * not cash you can reach today, and the cushion pillar of the health score treats this as
+     * spendable reserve.
+     */
+    @Query("SELECT COALESCE(SUM(balance_kopecks), 0) FROM accounts WHERE is_active = 1 AND kind = 'CASH'")
+    suspend fun sumCashBalances(): Long
+
+    /** Total outstanding credit-card debt as a POSITIVE number (0 when nothing is owed). */
+    @Query("""
+        SELECT COALESCE(SUM(CASE WHEN balance_kopecks < 0 THEN -balance_kopecks ELSE 0 END), 0)
+        FROM accounts WHERE is_active = 1 AND kind = 'CREDIT'
+    """)
+    suspend fun sumCreditDebt(): Long
 }

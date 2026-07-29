@@ -31,6 +31,7 @@ import androidx.navigation.compose.rememberNavController
 import com.financeos.hub.features.analytics.AnalyticsScreen
 import com.financeos.hub.features.budget.BudgetScreen
 import com.financeos.hub.features.categories.CategoriesScreen
+import com.financeos.hub.features.credit.CreditCardsScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
 import com.financeos.hub.features.subscriptions.SubscriptionsScreen
 import com.financeos.hub.features.goals.GoalsScreen
@@ -107,9 +108,10 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                 })
             }
             composable(FosRoute.Dashboard.route)    {
-                DashboardScreen(onSettingsClick = {
-                    navController.navigate(FosRoute.Settings.route)
-                })
+                DashboardScreen(
+                    onSettingsClick = { navController.navigate(FosRoute.Settings.route) },
+                    onCreditClick   = { navController.navigate(FosRoute.CreditCards.route) },
+                )
             }
             composable(
                 route     = FosRoute.Transactions.routeWithArgs,
@@ -133,6 +135,9 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                     onBack            = { navController.popBackStack() },
                     onCategoriesClick = { navController.navigate(FosRoute.Categories.route) },
                 )
+            }
+            composable(FosRoute.CreditCards.route) {
+                CreditCardsScreen(onBack = { navController.popBackStack() })
             }
             composable(FosRoute.Categories.route) {
                 CategoriesScreen(onBack = { navController.popBackStack() })

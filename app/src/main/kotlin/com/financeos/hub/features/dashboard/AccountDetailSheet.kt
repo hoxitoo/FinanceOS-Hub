@@ -58,7 +58,7 @@ fun AccountDetailSheet(
     cards        : List<CardEntity>,
     sheetState   : SheetState,
     onDismiss    : () -> Unit,
-    onAddAccount : (name: String, bank: String, cardMask: String?, balanceKopecks: Long, currency: String) -> Unit,
+    onAddAccount : (AccountDraft) -> Unit,
     onAddCard    : (card: CardEntity) -> Unit,
     onDeleteCard : (cardId: String) -> Unit,
     onEditBalance: (account: AccountEntity, newKopecks: Long) -> Unit,
@@ -194,8 +194,8 @@ fun AccountDetailSheet(
             sheetState  = addSheetState,
             initialBank = bank,
             onDismiss   = { showAddAccount = false },
-            onSave      = { name, b, mask, kopecks, currency ->
-                onAddAccount(name, b, mask, kopecks, currency)
+            onSave      = { draft ->
+                onAddAccount(draft)
                 showAddAccount = false
             },
         )

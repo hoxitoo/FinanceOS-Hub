@@ -12,6 +12,7 @@ import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.BudgetEntity
 import com.financeos.hub.core.database.entities.BudgetPeriod
 import com.financeos.hub.core.database.entities.CardEntity
@@ -148,6 +149,12 @@ class BackupManager @Inject constructor(
         putNullable("cardMask", cardMask)
         put("balanceKopecks", balanceKopecks); put("currency", currency)
         put("isActive", isActive); put("createdAt", createdAt); put("updatedAt", updatedAt)
+        put("kind", kind.name)
+        putNullable("creditLimitKopecks", creditLimitKopecks)
+        putNullable("aprBp", aprBp)
+        putNullable("statementDay", statementDay)
+        putNullable("dueDays", dueDays)
+        putNullable("minPaymentBp", minPaymentBp)
     }
 
     private fun CardEntity.toJson() = JSONObject().apply {
@@ -202,6 +209,16 @@ class BackupManager @Inject constructor(
         isActive = optBoolean("isActive", true),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
         updatedAt = optLong("updatedAt", System.currentTimeMillis()),
+        // Absent in every backup written before v11 — an old .fose restores as all-CASH, which is
+        // exactly what those accounts were. An unrecognised value degrades to CASH rather than
+        // aborting the whole restore.
+        kind = runCatching { AccountKind.valueOf(optString("kind", "CASH")) }
+            .getOrDefault(AccountKind.CASH),
+        creditLimitKopecks = optLongOrNull("creditLimitKopecks"),
+        aprBp              = optIntOrNull("aprBp"),
+        statementDay       = optIntOrNull("statementDay"),
+        dueDays            = optIntOrNull("dueDays"),
+        minPaymentBp       = optIntOrNull("minPaymentBp"),
     )
 
     private fun JSONObject.toCard() = CardEntity(
@@ -296,3 +313,6 @@ private fun JSONObject.optStringOrNull(key: String): String? =
 
 private fun JSONObject.optLongOrNull(key: String): Long? =
     if (has(key) && !isNull(key)) getLong(key) else null
+
+private fun JSONObject.optIntOrNull(key: String): Int? =
+    if (has(key) && !isNull(key)) getInt(key) else null

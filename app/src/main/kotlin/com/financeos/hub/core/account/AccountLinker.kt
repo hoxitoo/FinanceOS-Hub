@@ -3,6 +3,7 @@ package com.financeos.hub.core.account
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.TransactionDao
+import com.financeos.hub.core.database.entities.AccountKind
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -85,12 +86,17 @@ class AccountLinker @Inject constructor(
      * No-op when [accountId] is null.
      */
     suspend fun syncBalance(accountId: String?, ostatokKopecks: Long?, signedDelta: Long) {
-        val id = accountId ?: return
-        if (ostatokKopecks != null && ostatokKopecks >= 0L) {
-            accountDao.updateBalance(id, ostatokKopecks)
-        } else {
-            val acc = accountDao.getById(id) ?: return
+        val id  = accountId ?: return
+        val acc = accountDao.getById(id) ?: return
+        // A credit card's reported figure is «Доступно» (limit minus debt), not «Остаток». Writing
+        // it into balance_kopecks would store the free limit as money you own — one push on a
+        // 450k card would book a 400k "balance". Until the parser can tell the two labels apart,
+        // a credit account moves ONLY by the transaction delta, which is unambiguous: a purchase
+        // deepens the debt, a repayment reduces it.
+        if (acc.kind == AccountKind.CREDIT || ostatokKopecks == null || ostatokKopecks < 0L) {
             accountDao.updateBalance(id, acc.balanceKopecks + signedDelta)
+        } else {
+            accountDao.updateBalance(id, ostatokKopecks)
         }
     }
 
@@ -118,6 +124,8 @@ class AccountLinker @Inject constructor(
     suspend fun applyAuthoritativeBalance(cardMask: String?, ostatokKopecks: Long?) {
         if (ostatokKopecks == null || ostatokKopecks < 0L) return
         val accountId = resolveAccountByCardMask(cardMask) ?: return
+        // See syncBalance: on a credit card this figure is the free limit, not a balance.
+        if (accountDao.getById(accountId)?.kind == AccountKind.CREDIT) return
         accountDao.updateBalance(accountId, ostatokKopecks)
     }
 
@@ -144,6 +152,9 @@ class AccountLinker @Inject constructor(
     private suspend fun snapToAuthoritativeIfNewer(accountId: String) {
         val snap = transactionDao.latestBalanceSnapshotForAccount(accountId) ?: return
         val acc  = accountDao.getById(accountId) ?: return
+        // See syncBalance: the stored snapshot on a credit card is «Доступно», so snapping to it
+        // would replace the debt with the free limit.
+        if (acc.kind == AccountKind.CREDIT) return
         if (snap.timestamp > acc.updatedAt) accountDao.updateBalance(accountId, snap.balanceKopecks)
     }
 
