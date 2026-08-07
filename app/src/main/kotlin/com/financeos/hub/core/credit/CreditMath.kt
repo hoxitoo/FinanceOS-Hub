@@ -137,16 +137,29 @@ fun creditCycle(statementDay: Int?, dueDays: Int?, today: LocalDate): CreditCycl
     fun closeIn(ym: YearMonth): LocalDate = ym.atDay(minOf(day, ym.lengthOfMonth()))
 
     val thisMonth = YearMonth.from(today)
-    // The statement that governs the money owed right now is the last one that has already
-    // closed. If this month's close is still ahead of us, we are inside the window opened by
-    // last month's.
-    val statement = closeIn(thisMonth).let { if (it.isAfter(today)) closeIn(thisMonth.minusMonths(1)) else it }
+    // Walk back to the last statement that has already closed, then forward past any whose
+    // deadline is also behind us.
+    //
+    // That second step is the whole point. Anchoring purely on the last CLOSED statement means
+    // that for the stretch between a deadline and the next close — nine days a month with the
+    // common 30th/20-day terms — the card is permanently "overdue", in red, accruing invented
+    // interest, for a user who paid on time. The app never sees the payment confirmation, so it
+    // cannot tell a settled bill from a missed one; the only honest reading of a passed deadline
+    // is that this window is over and the next bill is the one to watch.
+    //
+    // A genuinely missed payment is not lost: the bank's own reminder push carries a real past
+    // deadline, and [duePayment] prefers it over anything inferred here. The bank knows; we don't.
+    var statement = closeIn(thisMonth).let { if (it.isAfter(today)) closeIn(thisMonth.minusMonths(1)) else it }
+    if (statement.plusDays(days.toLong()).isBefore(today)) {
+        statement = closeIn(YearMonth.from(statement).plusMonths(1))
+    }
 
+    val due = statement.plusDays(days.toLong())
     return CreditCycle(
         statementDate     = statement,
-        dueDate           = statement.plusDays(days.toLong()),
+        dueDate           = due,
         nextStatementDate = closeIn(YearMonth.from(statement).plusMonths(1)),
-        daysUntilDue      = ChronoUnit.DAYS.between(today, statement.plusDays(days.toLong())).toInt(),
+        daysUntilDue      = ChronoUnit.DAYS.between(today, due).toInt(),
     )
 }
 

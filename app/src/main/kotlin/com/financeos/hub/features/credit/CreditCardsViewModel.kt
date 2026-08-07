@@ -112,14 +112,28 @@ class CreditCardsViewModel @Inject constructor(
             // belongs to the next bill. This is an inference from the transaction log, not a figure
             // the bank told us — a manual balance edit in between will throw it off, which is why
             // the screen labels it as the statement amount rather than "the bank says".
-            val spentSince = cycle?.let { c ->
+            //
+            // Spending and repayments are kept APART. Netting them made the amount due immune to
+            // being paid: a repayment raised the balance and the rolled-back sum by the same
+            // figure, so after settling the bill in full the card still asked for it — and the
+            // repayment sheet prefilled that stale figure, inviting the user to pay twice.
+            val sinceStatement = cycle?.let { c ->
                 val cutoff = c.statementDate.plusDays(1)
                     .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                accountTx.filter { it.timestamp >= cutoff }.sumOf { it.amountKopecks }
-            } ?: 0L
+                accountTx.filter { it.timestamp >= cutoff }
+            }.orEmpty()
+            val purchasesSince  = -sinceStatement.filter { it.amountKopecks < 0 }.sumOf { it.amountKopecks }
+            val repaymentsSince =  sinceStatement.filter { it.amountKopecks > 0 }.sumOf { it.amountKopecks }
+
             // balanceAtStatement = now − everything since; debt is its negation, floored at 0.
+            val signedSince   = repaymentsSince - purchasesSince
             val statementDebt = if (cycle == null) account.debtKopecks
-            else (-(account.balanceKopecks - spentSince)).coerceAtLeast(0L)
+            else (-(account.balanceKopecks - signedSince)).coerceAtLeast(0L)
+            // What is actually left to pay of that statement, after money already sent to it.
+            // Capped by the live debt so an over-payment can never leave a phantom balance owing.
+            val stillDue = (statementDebt - repaymentsSince)
+                .coerceAtLeast(0L)
+                .coerceAtMost(account.debtKopecks)
 
             val due = duePayment(
                 reportedAmountKopecks = account.duePaymentKopecks,
@@ -127,7 +141,7 @@ class CreditCardsViewModel @Inject constructor(
                     Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
                 },
                 cycle                 = cycle,
-                statementDebtKopecks  = statementDebt,
+                statementDebtKopecks  = stillDue,
                 today                 = today,
             )
 
@@ -135,12 +149,12 @@ class CreditCardsViewModel @Inject constructor(
                 account             = account,
                 cards               = cardList.filter { it.accountId == account.id },
                 cycle               = cycle,
-                statementDebt       = statementDebt,
+                statementDebt       = stillDue,
                 duePayment          = due,
-                // Only outflow counts as "spent since" — a repayment in the same window is not
-                // new spending and would otherwise show as a negative amount of shopping.
-                spentSinceStatement = (-spentSince).coerceAtLeast(0L),
-                minPayment          = minPaymentKopecks(statementDebt, account.minPaymentBp),
+                // Purchases only — «Потрачено после выписки» means shopping, and netting a
+                // repayment against it would understate (or hide) what rolls into the next bill.
+                spentSinceStatement = purchasesSince,
+                minPayment          = minPaymentKopecks(stillDue, account.minPaymentBp),
                 // Only what the deadline has already passed by earns interest; inside the
                 // interest-free period the answer is a genuine, exact zero.
                 interestSoFar       = accruedInterest(
@@ -182,36 +196,59 @@ class CreditCardsViewModel @Inject constructor(
      * covers were already booked when they happened, so recording the repayment as spending would
      * count the same money twice and wreck every expense chart.
      *
-     * The row is booked ON THE CARD as an incoming transfer (+amount, so the negative debt moves
-     * toward zero) rather than on the source, for two reasons: it shows up in the card's own
-     * history where the user looks for it, and the sign convention needs no special case — the
-     * same `balance + amount` that credits a debit account cancels a credit card's debt.
+     * TWO rows are written, one per account, linked by a shared `transferPairId`. A single row
+     * would move both balances while only one of them could ever be undone: deleting it reverses
+     * the account it sits on and leaves the other permanently wrong. With a row on each side, each
+     * deletion reverses its own leg, and the repayment shows up in both accounts' histories —
+     * which is also exactly the shape a bank-side repayment arrives in, as two pushes.
      */
     fun repay(
-        card           : AccountEntity,
+        cardId         : String,
         sourceAccountId: String,
         amountKopecks  : Long,
         note           : String? = null,
     ) {
         val amount = kotlin.math.abs(amountKopecks)
-        if (amount <= 0L) return
+        if (amount <= 0L || cardId == sourceAccountId) return
         viewModelScope.launch {
-            val now    = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            // Both accounts are re-read here rather than taken from the captured UI state. That
+            // state can be seconds stale — a push may have moved the balance, or CreditNoticeApplier
+            // written a payment demand — and writing back a stale copy would silently revert it.
+            val card   = accountRepo.getById(cardId) ?: return@launch
             val source = accountRepo.getById(sourceAccountId) ?: return@launch
+            val pairId = UUID.randomUUID().toString()
 
             txRepo.insert(
                 TransactionEntity(
-                    id            = UUID.randomUUID().toString(),
-                    smsId         = null,           // entered by hand, not ingested from a message
-                    accountId     = card.id,
-                    categoryId    = null,           // a transfer is not spending, so no category
-                    type          = TransactionType.TRANSFER,
-                    source        = TransactionSource.MANUAL,
-                    amountKopecks = amount,         // incoming on the card → debt shrinks
-                    merchant      = "Погашение",
-                    description   = note?.ifBlank { null } ?: "с «${source.name}»",
-                    timestamp     = now,
-                    currency      = card.currency,
+                    id             = UUID.randomUUID().toString(),
+                    smsId          = null,          // entered by hand, not ingested from a message
+                    accountId      = source.id,
+                    categoryId     = null,          // a transfer is not spending, so no category
+                    type           = TransactionType.TRANSFER,
+                    source         = TransactionSource.MANUAL,
+                    amountKopecks  = -amount,       // leaving the source
+                    merchant       = "Погашение кредитки",
+                    description    = note?.ifBlank { null } ?: "на «${card.name}»",
+                    timestamp      = now,
+                    transferPairId = pairId,
+                    currency       = source.currency,
+                )
+            )
+            txRepo.insert(
+                TransactionEntity(
+                    id             = UUID.randomUUID().toString(),
+                    smsId          = null,
+                    accountId      = card.id,
+                    categoryId     = null,
+                    type           = TransactionType.TRANSFER,
+                    source         = TransactionSource.MANUAL,
+                    amountKopecks  = amount,        // arriving on the card → debt shrinks
+                    merchant       = "Погашение",
+                    description    = note?.ifBlank { null } ?: "с «${source.name}»",
+                    timestamp      = now,
+                    transferPairId = pairId,
+                    currency       = card.currency,
                 )
             )
 

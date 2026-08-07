@@ -220,13 +220,34 @@ class CreditMathTest {
     }
 
     @Test
-    fun `before this month's close we are still inside last month's window`() {
-        // On 25 June the 30 June close has not happened yet — the live bill is 30 May's.
+    fun `once a deadline passes the cycle moves on instead of crying overdue`() {
+        // On 25 June the 30 May statement was due on 19 June — that window is closed. Anchoring on
+        // it would paint the card red and accrue invented interest for the nine days until the next
+        // close, EVERY month, for a user who paid on time. The app never sees the payment, so the
+        // only honest reading is: that bill is behind us, the next one closes 30 June.
         val cycle = creditCycle(30, 20, LocalDate.of(2025, 6, 25))!!
-        assertEquals(LocalDate.of(2025, 5, 30), cycle.statementDate)
-        assertEquals(LocalDate.of(2025, 6, 19), cycle.dueDate)
-        assertEquals(-6, cycle.daysUntilDue)
-        assertTrue(cycle.isOverdue)
+        assertEquals(LocalDate.of(2025, 6, 30), cycle.statementDate)
+        assertEquals(LocalDate.of(2025, 7, 20), cycle.dueDate)
+        assertEquals(25, cycle.daysUntilDue)
+        assertFalse(cycle.isOverdue)
+    }
+
+    @Test
+    fun `the inferred cycle is never overdue — only the bank can say that`() {
+        // Every day of a year, with the sheet's own Сбер defaults. A real missed payment still
+        // surfaces, but through the bank's reminder push, which carries a genuine past deadline.
+        var day = LocalDate.of(2025, 1, 1)
+        while (day.isBefore(LocalDate.of(2026, 1, 1))) {
+            val cycle = creditCycle(30, 20, day)!!
+            assertFalse("false overdue on $day", cycle.isOverdue)
+            day = day.plusDays(1)
+        }
+    }
+
+    @Test
+    fun `a window not yet begun reads as untouched, not complete`() {
+        // 25 June sits before the 30 June close, so no time of that payment window has elapsed.
+        assertEquals(0f, creditCycle(30, 20, LocalDate.of(2025, 6, 25))!!.windowProgress, 0.001f)
     }
 
     @Test
@@ -252,10 +273,21 @@ class CreditMathTest {
 
     @Test
     fun `a January close rolls the year over`() {
+        // 10 Jan: the 15 Dec statement was due 4 Jan and is behind us, so the live window is
+        // January's — which is what makes this a year-boundary case at all.
         val cycle = creditCycle(15, 20, LocalDate.of(2026, 1, 10))!!
+        assertEquals(LocalDate.of(2026, 1, 15), cycle.statementDate)
+        assertEquals(LocalDate.of(2026, 2, 4), cycle.dueDate)
+        assertEquals(LocalDate.of(2026, 2, 15), cycle.nextStatementDate)
+    }
+
+    @Test
+    fun `a December close still points into the new year`() {
+        // 20 Dec is inside the window opened by the 15 Dec close, due 4 Jan.
+        val cycle = creditCycle(15, 20, LocalDate.of(2025, 12, 20))!!
         assertEquals(LocalDate.of(2025, 12, 15), cycle.statementDate)
         assertEquals(LocalDate.of(2026, 1, 4), cycle.dueDate)
-        assertEquals(LocalDate.of(2026, 1, 15), cycle.nextStatementDate)
+        assertEquals(15, cycle.daysUntilDue)
     }
 
     @Test

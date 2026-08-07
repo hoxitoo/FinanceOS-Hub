@@ -158,7 +158,7 @@ fun CreditCardsScreen(
                 payFrom    = state.payFrom,
                 sheetState = repaySheetState,
                 onDismiss  = { repaying = null },
-                onConfirm  = { sourceId, amount -> vm.repay(card.account, sourceId, amount) },
+                onConfirm  = { sourceId, amount -> vm.repay(card.account.id, sourceId, amount) },
             )
         }
     }
@@ -458,14 +458,20 @@ private fun UtilizationBar(used: Float) {
 @Composable
 private fun InterestBlock(card: CreditCardState) {
     val interest = card.interestSoFar ?: return
-    val overdue  = (card.duePayment?.daysUntilDue ?: 0) < 0
+    // Without a known deadline there is no interest-free period to be inside, so «Переплата сейчас
+    // 0 ₽ — вы в беспроцентном периоде» would be a confident falsehood on a card that may be months
+    // late. The minimum-payment outlook does not depend on a date, so it still stands.
+    val due      = card.duePayment
+    val overdue  = (due?.daysUntilDue ?: 0) < 0
 
-    TermRow(
-        label = "Переплата сейчас",
-        value = if (interest > 0) "≈ ${FosFormatter.amount(interest)}" else FosFormatter.amount(0L),
-        hint  = if (overdue) "срок прошёл, проценты идут" else "вы в беспроцентном периоде",
-        valueColor = if (interest > 0) FosColors.Negative else FosColors.TextPrimary,
-    )
+    if (due != null) {
+        TermRow(
+            label = "Переплата сейчас",
+            value = if (interest > 0) "≈ ${FosFormatter.amount(interest)}" else FosFormatter.amount(0L),
+            hint  = if (overdue) "срок прошёл, проценты идут" else "вы в беспроцентном периоде",
+            valueColor = if (interest > 0) FosColors.Negative else FosColors.TextPrimary,
+        )
+    }
 
     when (val outlook = card.minimumOutlook) {
         is MinimumPaymentOutlook.PaysOff -> if (outlook.months > 0) {
@@ -510,7 +516,9 @@ private fun TermRow(
     ) {
         Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
         Column(horizontalAlignment = Alignment.End) {
-            Text(value, style = FosType.Label, color = valueColor)
+            // SmallBold carries fontFeatureSettings = "tnum"; Label does not, and these
+            // values are money (Critical Design Rule #3).
+            Text(value, style = FosType.SmallBold, color = valueColor)
             if (hint != null) Text(hint, style = FosType.Micro, color = FosColors.TextMuted)
         }
     }
