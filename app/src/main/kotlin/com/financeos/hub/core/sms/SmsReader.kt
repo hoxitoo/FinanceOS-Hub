@@ -3,6 +3,7 @@ package com.financeos.hub.core.sms
 import android.content.Context
 import android.provider.Telephony
 import com.financeos.hub.core.account.AccountLinker
+import com.financeos.hub.core.credit.asRepaymentIfCredit
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
@@ -74,18 +75,20 @@ class SmsReader @Inject constructor(
                     // arrived within ±5 minutes (same bank event delivered via push before SMS).
                     val window = 5 * 60 * 1000L
                     if (parsed != null && parsed.smsId !in knownIds &&
-                        !transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, parsed.timestamp - window, parsed.timestamp + window)) {
-                        val categoryId = classifier.classify(parsed.merchant, null)
-                            ?: CategoryDefaults.forType(parsed.type)
+                        !transactionDao.existsSimilarSmsOrPush(parsed.signedKopecks(), parsed.timestamp - window, parsed.timestamp + window)) {
                         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
+                        // Money arriving ON a credit card is a repayment, not income.
+                        val effective  = asRepaymentIfCredit(parsed, accountLinker.kindOf(accountId))
+                        val categoryId = classifier.classify(effective.merchant, null)
+                            ?: CategoryDefaults.forType(effective.type)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),
                             accountId     = accountId,
                             categoryId    = categoryId,
-                            type          = parsed.type,
+                            type          = effective.type,
                             source        = TransactionSource.SMS,
-                            amountKopecks = parsed.signedKopecks(),
-                            merchant      = parsed.merchant,
+                            amountKopecks = effective.signedKopecks(),
+                            merchant      = effective.merchant,
                             description   = null,
                             timestamp     = parsed.timestamp,
                             smsId         = parsed.smsId,

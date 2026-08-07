@@ -2,6 +2,8 @@ package com.financeos.hub.core.credit
 
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
+import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.ParsedTransaction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -109,6 +111,45 @@ class CreditMathTest {
     fun `a debit account's figure passes through untouched`() {
         val debit = card(limit = null).copy(kind = AccountKind.CASH)
         assertEquals(411_301_00L, balanceFromReportedFigure(debit, 411_301_00L))
+    }
+
+    // ── Repayment classification ──────────────────────────────────────────────
+
+    private fun income(amount: Long) = ParsedTransaction(
+        type = TransactionType.INCOME, amountKopecks = amount, merchant = null,
+        cardMask = "6703", balanceKopecks = null, timestamp = 0L,
+        bankId = "sberbank", rawSms = "", smsId = "s1",
+    )
+
+    @Test
+    fun `money arriving on a credit card is a repayment, not income`() {
+        // Left as INCOME this is 50 000 ₽ "earned", inflating the income chart and the savings
+        // pillar — while the matching outflow was already booked on the debit card.
+        val r = asRepaymentIfCredit(income(50_000_00L), AccountKind.CREDIT)
+        assertEquals(TransactionType.TRANSFER, r.type)
+        assertFalse("the money is arriving, not leaving", r.outgoing)
+    }
+
+    @Test
+    fun `reclassifying a repayment does not change the amount that hits the balance`() {
+        // The whole point: only the classification moves. INCOME and an incoming TRANSFER both
+        // sign to +amount, so the debt shrinks by exactly the same figure as before.
+        val original = income(50_000_00L)
+        val r = asRepaymentIfCredit(original, AccountKind.CREDIT)
+        assertEquals(original.signedKopecks(), r.signedKopecks())
+        assertEquals(50_000_00L, r.signedKopecks())
+    }
+
+    @Test
+    fun `income on a normal account is left alone`() {
+        assertEquals(TransactionType.INCOME, asRepaymentIfCredit(income(80_000_00L), AccountKind.CASH).type)
+        assertEquals(TransactionType.INCOME, asRepaymentIfCredit(income(80_000_00L), null).type)
+    }
+
+    @Test
+    fun `spending on a credit card stays an expense`() {
+        val purchase = income(18_699_00L).copy(type = TransactionType.EXPENSE)
+        assertEquals(TransactionType.EXPENSE, asRepaymentIfCredit(purchase, AccountKind.CREDIT).type)
     }
 
     // ── Which payment to show ─────────────────────────────────────────────────

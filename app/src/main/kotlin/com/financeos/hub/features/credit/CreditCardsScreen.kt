@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -50,10 +52,11 @@ private val DUE_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMMM", Locale("ru")
  * Everything about the user's credit cards, one level below the dashboard tile: what is owed, by
  * when, at what rate, and what has been spent on the cards.
  *
- * Deliberately absent: a «Погасить» button and any interest/переплата figure. Repayment needs the
- * transfer plumbing that books it against the card instead of as an expense, and an overpayment
- * estimate needs an interest model — both are separate pieces of work, and a button that silently
- * does nothing is worse than no button.
+ * «Погасить» records a repayment as a TRANSFER off one of your own accounts — never an expense,
+ * which would count the same money twice.
+ *
+ * Deliberately still absent: any interest / переплата figure. That needs an interest model, and a
+ * bank accrues daily under grace rules this app cannot see.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +67,8 @@ fun CreditCardsScreen(
     val state by vm.state.collectAsState()
     var editing by remember { mutableStateOf<AccountEntity?>(null) }
     val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var repaying by remember { mutableStateOf<String?>(null) }
+    val repaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
         modifier            = Modifier
@@ -120,7 +125,11 @@ fun CreditCardsScreen(
                     )
                 }
                 item(key = "card_${card.account.id}") {
-                    CreditCardBlock(card = card, onEditTerms = { editing = card.account })
+                    CreditCardBlock(
+                        card        = card,
+                        onEditTerms = { editing = card.account },
+                        onRepay     = { repaying = card.account.id },
+                    )
                 }
             }
         }
@@ -136,6 +145,20 @@ fun CreditCardsScreen(
         }
 
         item { Spacer(Modifier.height(80.dp)) }
+    }
+
+    // Look the card up by id rather than capturing it: the sheet must follow the live state, so
+    // the debt it shows updates the moment a repayment lands.
+    repaying?.let { id ->
+        state.cards.firstOrNull { it.account.id == id }?.let { card ->
+            RepaySheet(
+                card       = card,
+                payFrom    = state.payFrom,
+                sheetState = repaySheetState,
+                onDismiss  = { repaying = null },
+                onConfirm  = { sourceId, amount -> vm.repay(card.account, sourceId, amount) },
+            )
+        }
     }
 
     editing?.let { account ->
@@ -206,7 +229,11 @@ private fun CreditTotals(state: CreditScreenState) {
 }
 
 @Composable
-private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
+private fun CreditCardBlock(
+    card       : CreditCardState,
+    onEditTerms: () -> Unit,
+    onRepay    : () -> Unit,
+) {
     val urgency = dueUrgency(card.duePayment?.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
 
@@ -314,7 +341,22 @@ private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(10.dp))
+        // Only offered when there is something to pay off — a settled card showing «Погасить»
+        // invites a repayment that would push the balance into a meaningless positive.
+        if (card.debt > 0) {
+            Button(
+                onClick  = onRepay,
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(FosDimens.RadiusCardSmall),
+                colors   = ButtonDefaults.buttonColors(
+                    containerColor = FosColors.Positive,
+                    contentColor   = FosColors.Background,
+                ),
+            ) {
+                Text("Погасить", style = FosType.BodySemi)
+            }
+        }
         TextButton(
             onClick        = onEditTerms,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),

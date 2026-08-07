@@ -103,6 +103,10 @@ class AccountLinker @Inject constructor(
         }
     }
 
+    /** The kind of [accountId], or null when it is unset or no longer exists. */
+    suspend fun kindOf(accountId: String?): AccountKind? =
+        accountId?.let { accountDao.getById(it)?.kind }
+
     /**
      * Resolves the ONE active credit card belonging to [bankId], or null when there are none or
      * several. Used by messages that identify the card only by bank — a payment reminder carries

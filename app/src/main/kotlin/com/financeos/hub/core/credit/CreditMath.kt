@@ -2,6 +2,8 @@ package com.financeos.hub.core.credit
 
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
+import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.ParsedTransaction
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
@@ -66,6 +68,30 @@ fun balanceFromReportedFigure(account: AccountEntity, reportedKopecks: Long): Lo
     if (limit <= 0L || reportedKopecks > limit) return null
     return reportedKopecks - limit
 }
+
+/**
+ * Reclassifies money ARRIVING on a credit card as a repayment rather than income.
+ *
+ * You do not earn money onto a credit card — an incoming amount is almost always you paying the
+ * card off. Left as INCOME, a 50 000 ₽ repayment would be counted as 50 000 ₽ earned, inflating
+ * the income chart and the savings-rate pillar of the health score, while the matching outflow was
+ * already booked on the debit card. That is the double-count this whole area is prone to.
+ *
+ * The signed amount is UNCHANGED: [ParsedTransaction.signedKopecks] returns `+amount` for INCOME
+ * and, for an incoming TRANSFER, `+amount` too. So the balance maths is untouched — only the
+ * classification moves, and it moves into the machinery that already knows how to pair the two
+ * legs of an internal transfer.
+ *
+ * The exceptions — cashback and purchase refunds also land on a credit card — are deliberately
+ * swept in. Both are small and neither is income either; misfiling a 200 ₽ cashback as a transfer
+ * costs far less than misfiling a 50 000 ₽ repayment as income, and the user can retype any row.
+ */
+fun asRepaymentIfCredit(parsed: ParsedTransaction, accountKind: AccountKind?): ParsedTransaction =
+    if (accountKind == AccountKind.CREDIT && parsed.type == TransactionType.INCOME) {
+        parsed.copy(type = TransactionType.TRANSFER, outgoing = false)
+    } else {
+        parsed
+    }
 
 // ── Billing cycle ─────────────────────────────────────────────────────────────
 

@@ -15,6 +15,8 @@ import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
+import com.financeos.hub.core.database.entities.TransactionSource
+import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.CardRepository
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -27,6 +29,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 
 /** One credit card, with everything the screen needs already computed. */
@@ -57,6 +60,8 @@ data class CreditScreenState(
     val totalLimit  : Long                  = 0L,
     val totalFree   : Long                  = 0L,
     val history     : List<TransactionEntity> = emptyList(),
+    /** Accounts a repayment can be made from — your own money, never another credit line. */
+    val payFrom     : List<AccountEntity>     = emptyList(),
     private val categories: Map<String, String> = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categories[it] } ?: "Другое"
@@ -70,7 +75,7 @@ data class CreditScreenState(
 @HiltViewModel
 class CreditCardsViewModel @Inject constructor(
     private val accountRepo: AccountRepository,
-    txRepo                 : TransactionRepository,
+    private val txRepo     : TransactionRepository,
     cardRepo               : CardRepository,
     categoryRepo           : CategoryRepository,
 ) : ViewModel() {
@@ -142,9 +147,63 @@ class CreditCardsViewModel @Inject constructor(
             totalLimit = totalLimit,
             totalFree  = (totalLimit - totalDebt).coerceAtLeast(0L),
             history    = txList.filter { it.accountId in creditIds }.take(50),
+            payFrom    = accountList.filter { it.kind == AccountKind.CASH },
             categories = catList.associate { it.id to it.name },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CreditScreenState())
+
+    /**
+     * Books a repayment: money leaves [sourceAccountId] and lands on the credit card, cancelling
+     * that much debt.
+     *
+     * A TRANSFER, never an EXPENSE. Paying a card off does not consume anything — the purchases it
+     * covers were already booked when they happened, so recording the repayment as spending would
+     * count the same money twice and wreck every expense chart.
+     *
+     * The row is booked ON THE CARD as an incoming transfer (+amount, so the negative debt moves
+     * toward zero) rather than on the source, for two reasons: it shows up in the card's own
+     * history where the user looks for it, and the sign convention needs no special case — the
+     * same `balance + amount` that credits a debit account cancels a credit card's debt.
+     */
+    fun repay(
+        card           : AccountEntity,
+        sourceAccountId: String,
+        amountKopecks  : Long,
+        note           : String? = null,
+    ) {
+        val amount = kotlin.math.abs(amountKopecks)
+        if (amount <= 0L) return
+        viewModelScope.launch {
+            val now    = System.currentTimeMillis()
+            val source = accountRepo.getById(sourceAccountId) ?: return@launch
+
+            txRepo.insert(
+                TransactionEntity(
+                    id            = UUID.randomUUID().toString(),
+                    accountId     = card.id,
+                    categoryId    = null,           // a transfer is not spending, so no category
+                    type          = TransactionType.TRANSFER,
+                    source        = TransactionSource.MANUAL,
+                    amountKopecks = amount,         // incoming on the card → debt shrinks
+                    merchant      = "Погашение",
+                    description   = note?.ifBlank { null } ?: "с «${source.name}»",
+                    timestamp     = now,
+                    currency      = card.currency,
+                )
+            )
+
+            // Both legs, so net worth is unchanged: the cash really left the source account, and
+            // the card really owes that much less.
+            accountRepo.upsert(card.copy(
+                balanceKopecks = card.balanceKopecks + amount,
+                updatedAt      = now,
+            ))
+            accountRepo.upsert(source.copy(
+                balanceKopecks = source.balanceKopecks - amount,
+                updatedAt      = now,
+            ))
+        }
+    }
 
     /**
      * Saves the card's terms AND its debt in ONE write.

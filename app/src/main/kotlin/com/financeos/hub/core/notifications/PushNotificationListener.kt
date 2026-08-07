@@ -7,6 +7,7 @@ import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.credit.CreditNoticeApplier
+import com.financeos.hub.core.credit.asRepaymentIfCredit
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
@@ -90,10 +91,10 @@ class PushNotificationListener : NotificationListenerService() {
     }
 
     private suspend fun processPush(sender: String, body: String, ts: Long) {
-        val parsed = parserEngine.parse(sender, body, ts)
-        if (parsed == null) {
-        // Not a transaction — but it may be a credit-card payment reminder, which carries the
-        // bank's own obligatory payment and deadline. Nothing is inserted; it only updates the card.
+        val rawParsed = parserEngine.parse(sender, body, ts)
+        if (rawParsed == null) {
+            // Not a transaction — but it may be a credit-card payment reminder, which carries the
+            // bank's own obligatory payment and deadline. Nothing is inserted; only the card updates.
             parserEngine.parseCreditNotice(sender, body)?.let { creditNoticeApplier.apply(it) }
             return
         }
@@ -101,7 +102,7 @@ class PushNotificationListener : NotificationListenerService() {
         if (transactionDao.existsBySmsId(pushId)) {
             // Exact re-post of a notification we already stored — still apply its balance, because
             // the first delivery may have lacked the "Остаток" line this copy carries.
-            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+            accountLinker.applyAuthoritativeBalance(rawParsed.cardMask, rawParsed.balanceKopecks)
             return
         }
         // Cross-channel dedup: skip if an SMS/PUSH transaction with the same amount already arrived
@@ -110,14 +111,17 @@ class PushNotificationListener : NotificationListenerService() {
         // "Остаток" + card mask the first copy lacked), so apply its balance before bailing — otherwise
         // the figure is lost forever and the account freezes at the last fully-delivered value.
         val window = 5 * 60 * 1000L
-        if (transactionDao.existsSimilarSmsOrPush(parsed.amountKopecks, ts - window, ts + window)) {
-            accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
+        if (transactionDao.existsSimilarSmsOrPush(rawParsed.signedKopecks(), ts - window, ts + window)) {
+            accountLinker.applyAuthoritativeBalance(rawParsed.cardMask, rawParsed.balanceKopecks)
             return
         }
 
+        val accountId  = accountLinker.resolveAccountId(rawParsed.cardMask, rawParsed.bankId)
+        // Money arriving ON a credit card is a repayment, not income — see asRepaymentIfCredit.
+        // Done after the account is resolved, because only the account knows it is a credit card.
+        val parsed = asRepaymentIfCredit(rawParsed, accountLinker.kindOf(accountId))
         val categoryId = classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
-        val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),
             accountId     = accountId,
