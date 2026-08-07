@@ -180,6 +180,7 @@ class CreditCardsViewModel @Inject constructor(
             txRepo.insert(
                 TransactionEntity(
                     id            = UUID.randomUUID().toString(),
+                    smsId         = null,           // entered by hand, not ingested from a message
                     accountId     = card.id,
                     categoryId    = null,           // a transfer is not spending, so no category
                     type          = TransactionType.TRANSFER,
