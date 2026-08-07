@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.credit.MinimumPaymentOutlook
 import com.financeos.hub.core.credit.PaymentSource
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.ui.components.TransactionRow
@@ -55,8 +56,9 @@ private val DUE_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMMM", Locale("ru")
  * «Погасить» records a repayment as a TRANSFER off one of your own accounts — never an expense,
  * which would count the same money twice.
  *
- * Deliberately still absent: any interest / переплата figure. That needs an interest model, and a
- * bank accrues daily under grace rules this app cannot see.
+ * The overpayment figures are ESTIMATES and are labelled as such on screen: a bank accrues daily
+ * under tariff rules this app cannot see, so they will not match its app to the kopeck. The one
+ * exact figure is the zero — inside the interest-free period, paid on time, the cost really is nil.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -317,7 +319,9 @@ private fun CreditCardBlock(
             }
             if (card.cycle != null) {
                 Spacer(Modifier.height(12.dp))
-                GraceTimeline(card)
+                Text("Беспроцентный период", style = FosType.Micro, color = FosColors.TextSecondary)
+                Spacer(Modifier.height(4.dp))
+                InterestFreeTimeline(card)
             }
         }
 
@@ -340,6 +344,8 @@ private fun CreditCardBlock(
                 hint = "войдёт в следующую выписку",
             )
         }
+
+        InterestBlock(card)
 
         Spacer(Modifier.height(10.dp))
         // Only offered when there is something to pay off — a settled card showing «Погасить»
@@ -371,11 +377,12 @@ private fun CreditCardBlock(
 }
 
 /**
- * Where we are between the statement close and the payment deadline. The filled part is time
- * already spent, so a nearly-full bar means the deadline is nearly here.
+ * Where we are between the statement close and the payment deadline — the stretch during which the
+ * debt costs nothing if it gets paid. The filled part is time already spent, so a nearly-full bar
+ * means the deadline is nearly here.
  */
 @Composable
-private fun GraceTimeline(card: CreditCardState) {
+private fun InterestFreeTimeline(card: CreditCardState) {
     val cycle   = card.cycle ?: return
     val urgency = dueUrgency(cycle.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
@@ -437,8 +444,65 @@ private fun UtilizationBar(used: Float) {
     }
 }
 
+/**
+ * What the debt costs. Two figures with very different standing, so they are never blurred:
+ *
+ *  - «Переплата сейчас» is EXACT at zero — inside the interest-free period, paid on time, the card
+ *    costs nothing, and that is a fact rather than a guess. Once the deadline passes it becomes an
+ *    estimate like everything else.
+ *  - «Если платить только минимум» is unavoidably an estimate, and says so. It is also the number
+ *    that makes a credit card's real price visible, which is why it is worth showing at all.
+ *
+ * Hidden entirely without a rate: an interest figure invented from no rate would be pure fiction.
+ */
 @Composable
-private fun TermRow(label: String, value: String, hint: String? = null) {
+private fun InterestBlock(card: CreditCardState) {
+    val interest = card.interestSoFar ?: return
+    val overdue  = (card.duePayment?.daysUntilDue ?: 0) < 0
+
+    TermRow(
+        label = "Переплата сейчас",
+        value = if (interest > 0) "≈ ${FosFormatter.amount(interest)}" else FosFormatter.amount(0L),
+        hint  = if (overdue) "срок прошёл, проценты идут" else "вы в беспроцентном периоде",
+        valueColor = if (interest > 0) FosColors.Negative else FosColors.TextPrimary,
+    )
+
+    when (val outlook = card.minimumOutlook) {
+        is MinimumPaymentOutlook.PaysOff -> if (outlook.months > 0) {
+            TermRow(
+                label = "Если платить только минимум",
+                value = "≈ ${FosFormatter.amount(outlook.totalInterestKopecks)}",
+                hint  = "за ${pluralMonths(outlook.months)} · оценка",
+                valueColor = FosColors.Warning,
+            )
+        }
+        MinimumPaymentOutlook.NeverPaysOff -> TermRow(
+            label = "Если платить только минимум",
+            value = "долг не уменьшится",
+            hint  = "минимальный платёж не покрывает проценты",
+            valueColor = FosColors.Negative,
+        )
+        null -> Unit   // no rate or no minimum % entered — say nothing rather than guess
+    }
+}
+
+/** «1 месяц» / «3 месяца» / «14 месяцев». */
+private fun pluralMonths(n: Int): String {
+    val word = when {
+        n % 10 == 1 && n % 100 != 11         -> "месяц"
+        n % 10 in 2..4 && n % 100 !in 12..14 -> "месяца"
+        else                                 -> "месяцев"
+    }
+    return "$n $word"
+}
+
+@Composable
+private fun TermRow(
+    label     : String,
+    value     : String,
+    hint      : String? = null,
+    valueColor: androidx.compose.ui.graphics.Color = FosColors.TextPrimary,
+) {
     Row(
         modifier              = Modifier.fillMaxWidth().padding(top = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -446,7 +510,7 @@ private fun TermRow(label: String, value: String, hint: String? = null) {
     ) {
         Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
         Column(horizontalAlignment = Alignment.End) {
-            Text(value, style = FosType.Label, color = FosColors.TextPrimary)
+            Text(value, style = FosType.Label, color = valueColor)
             if (hint != null) Text(hint, style = FosType.Micro, color = FosColors.TextMuted)
         }
     }

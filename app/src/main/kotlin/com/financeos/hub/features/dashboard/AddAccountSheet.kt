@@ -46,7 +46,7 @@ private val CURRENCIES = listOf("RUB" to "₽ Рубль", "USD" to "$ Долл�
 /**
  * Typical days-to-pay after the statement closes, by bank. A hint only — it prefills the field so
  * the common case is one tap, and the user overwrites it from their own contract. Deliberately not
- * silently applied: a wrong grace period produces a confident wrong due date, which is worse than
+ * silently applied: a wrong interest-free period produces a confident wrong due date, which is worse than
  * an empty one.
  */
 private fun defaultDueDays(bank: String): String = when {

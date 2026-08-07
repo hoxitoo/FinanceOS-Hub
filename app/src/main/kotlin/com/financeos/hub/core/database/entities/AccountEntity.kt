@@ -38,9 +38,9 @@ data class AccountEntity(
     val kind: AccountKind = AccountKind.CASH,
 
     // ── CREDIT-only terms ─────────────────────────────────────────────────────
-    // All nullable: they are unknown until the user enters them, and no bank message carries
-    // them. Null means "not configured" — the UI then omits the grace timeline / minimum payment
-    // instead of inventing a number.
+    // All nullable: they are unknown until the user enters them, and no bank message carries them.
+    // Null means "not configured" — the UI then omits the interest-free period and the minimum
+    // payment instead of inventing a number.
     /** Total credit line, kopecks. Free limit = this + balanceKopecks. */
     @ColumnInfo(name = "credit_limit_kopecks") val creditLimitKopecks: Long? = null,
     /** Annual rate in BASIS POINTS — 29.8% → 2980. Integer so no float drift creeps into money. */

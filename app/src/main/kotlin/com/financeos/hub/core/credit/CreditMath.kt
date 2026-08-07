@@ -9,13 +9,13 @@ import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 
 /**
- * Pure credit-card arithmetic: debt, free limit, statement/due dates, minimum payment.
+ * Pure credit-card arithmetic: debt, free limit, statement/due dates, minimum payment, interest.
  *
- * Deliberately contains NO interest maths. A bank accrues daily on the carried balance under
- * per-tariff rules (what enters the grace period at all, how a cash withdrawal voids it, how a
- * minimum payment is allocated), and none of that is derivable from the data this app holds.
- * Anything resembling "переплата" is a later, explicitly-labelled estimate — not a fact we can
- * assert here.
+ * The interest figures are ESTIMATES and every caller must present them as such. A bank accrues
+ * daily under its own tariff — what enters the interest-free period at all, how a cash withdrawal
+ * voids it, how a payment is split between interest, fees and principal — and none of that is
+ * derivable from what this app can see. The single exact figure is the zero: paid in full inside
+ * the interest-free period, the card really costs nothing.
  *
  * Everything is a pure function of its arguments (`today` is injected, never read from the clock)
  * so the cycle boundaries are unit-testable.
@@ -209,6 +209,93 @@ fun duePayment(
         )
     }
     return null
+}
+
+// ── Interest ──────────────────────────────────────────────────────────────────
+
+/**
+ * ESTIMATED interest, never a statement of fact.
+ *
+ * Every figure below is a simple daily/monthly accrual on the outstanding balance. A real bank
+ * applies its own tariff: which purchases enter the interest-free period at all, how a cash
+ * withdrawal voids it for the whole cycle, how a payment is split between interest, fees and
+ * principal, whether the interest-free period restarts. None of that is derivable from what this
+ * app can see, so these numbers will not match the bank to the kopeck and the UI must say so.
+ *
+ * What IS exact is the zero case: while the card is inside its interest-free period and gets paid
+ * in full by the deadline, the overpayment really is nothing.
+ */
+
+/** Cap on the simulation below — a guard against a non-amortising loop, not a real horizon. */
+private const val MAX_PLAN_MONTHS = 600
+
+/**
+ * Floor under the minimum payment, kopecks (300 ₽ — Сбер's figure for its credit cards).
+ *
+ * Not cosmetic: a minimum that is ONLY a percentage of the balance never reaches zero, because
+ * each payment shrinks with the balance it is computed from. Without a floor the simulation just
+ * decays forever and hits [MAX_PLAN_MONTHS], reporting "never pays off" for a card that plainly
+ * does. Real cards all carry such a floor; this one is an assumption, and the UI calls the whole
+ * figure an estimate for exactly reasons like this.
+ */
+private const val MIN_PAYMENT_FLOOR_KOPECKS = 300_00L
+
+/**
+ * Interest accrued on [debtKopecks] over [days] at [aprBp], on a simple 365-day-year basis.
+ * Null when the rate was never entered; 0 when nothing is owed or no time has passed.
+ */
+fun accruedInterest(debtKopecks: Long, aprBp: Int?, days: Int): Long? {
+    val apr = aprBp?.takeIf { it > 0 } ?: return null
+    if (debtKopecks <= 0L || days <= 0) return 0L
+    val daily = apr / 10_000.0 / 365.0
+    return Math.round(debtKopecks * daily * days)
+}
+
+/** What paying only the minimum every month leads to. */
+sealed interface MinimumPaymentOutlook {
+    /** The debt clears after [months], having cost [totalInterestKopecks] in interest. */
+    data class PaysOff(val months: Int, val totalInterestKopecks: Long) : MinimumPaymentOutlook
+
+    /**
+     * The minimum payment does not even cover the monthly interest, so the debt never shrinks.
+     * There is no total to quote — that is the point, and the UI says it in words.
+     */
+    object NeverPaysOff : MinimumPaymentOutlook
+}
+
+/**
+ * Simulates clearing [debtKopecks] by paying ONLY the minimum, month after month, and nothing more
+ * onto the card. Returns null when the rate or the minimum percentage was never entered.
+ *
+ * This is the number that makes a credit card's real cost visible: at 29,8% with a 5% minimum, a
+ * debt takes years and costs a large fraction of itself. Deliberately pessimistic in one respect —
+ * it assumes no further spending — and optimistic in another: it ignores fees and insurance.
+ */
+fun minimumPaymentOutlook(debtKopecks: Long, aprBp: Int?, minPaymentBp: Int?): MinimumPaymentOutlook? {
+    val apr   = aprBp?.takeIf { it > 0 } ?: return null
+    val minBp = minPaymentBp?.takeIf { it > 0 } ?: return null
+    if (debtKopecks <= 0L) return MinimumPaymentOutlook.PaysOff(months = 0, totalInterestKopecks = 0L)
+
+    val monthlyRate = apr / 10_000.0 / 12.0
+    var balance       = debtKopecks.toDouble()
+    var totalInterest = 0.0
+    var months        = 0
+
+    while (balance > 0.5 && months < MAX_PLAN_MONTHS) {
+        val interest = balance * monthlyRate
+        // A share of the balance, but never below the floor — and the final month settles whatever
+        // is left rather than leaving a sliver that never rounds away.
+        val payment = minOf(
+            maxOf(balance * minBp / 10_000.0, MIN_PAYMENT_FLOOR_KOPECKS.toDouble()),
+            balance + interest,
+        )
+        if (payment <= interest) return MinimumPaymentOutlook.NeverPaysOff
+        balance       = balance + interest - payment
+        totalInterest += interest
+        months++
+    }
+    if (months >= MAX_PLAN_MONTHS) return MinimumPaymentOutlook.NeverPaysOff
+    return MinimumPaymentOutlook.PaysOff(months, Math.round(totalInterest))
 }
 
 /**

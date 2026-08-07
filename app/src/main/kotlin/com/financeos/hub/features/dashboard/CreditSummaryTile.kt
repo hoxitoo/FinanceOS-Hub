@@ -30,8 +30,8 @@ import com.financeos.hub.ui.theme.FosType
 
 /**
  * The whole credit position in one row of the dashboard: free limit, debt, and how close the next
- * payment is. Everything deeper — per-card terms, the grace timeline, repayment — lives behind the
- * tap, so the home screen stays the same height whether you hold one card or five.
+ * payment is. Everything deeper — per-card terms, the interest-free period, repayment — lives
+ * behind the tap, so the home screen stays the same height whether you hold one card or five.
  *
  * The free limit is labelled «Свободный лимит», not «Доступные средства». It is the bank's money,
  * and sitting a few millimetres under your own balance it would otherwise read as cash you have.

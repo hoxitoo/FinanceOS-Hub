@@ -277,6 +277,76 @@ class CreditMathTest {
         assertEquals(1f, dueToday.windowProgress, 0.001f)
     }
 
+    // ── Interest ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `no interest accrues while the deadline has not passed`() {
+        // The exact case: inside the interest-free period the cost really is nothing.
+        assertEquals(0L, accruedInterest(50_000_00L, 2980, days = 0))
+    }
+
+    @Test
+    fun `interest accrues daily once the deadline has passed`() {
+        // 50 000 ₽ at 29,8% for 30 days ≈ 50000 × 0.298 / 365 × 30 = 1224,66 ₽
+        assertEquals(1_224_66L, accruedInterest(50_000_00L, 2980, days = 30))
+    }
+
+    @Test
+    fun `nothing owed costs nothing, and no rate means no figure at all`() {
+        assertEquals(0L, accruedInterest(0L, 2980, days = 90))
+        assertNull(accruedInterest(50_000_00L, null, days = 30))
+        assertNull(accruedInterest(50_000_00L, 0, days = 30))
+    }
+
+    @Test
+    fun `paying only the minimum clears the debt slowly and expensively`() {
+        // 50 000 ₽ at 29,8% with a 5% minimum: 112 months and 45 813,06 ₽ of interest — the card
+        // nearly doubles. Pinned exactly so any change to the model has to be deliberate.
+        assertEquals(
+            MinimumPaymentOutlook.PaysOff(months = 112, totalInterestKopecks = 4_581_306L),
+            minimumPaymentOutlook(50_000_00L, aprBp = 2980, minPaymentBp = 500),
+        )
+    }
+
+    @Test
+    fun `a percentage-only minimum would never reach zero, so a floor is applied`() {
+        // Each payment shrinks with the balance it is computed from, so without the floor the
+        // balance decays forever and a plainly-repayable card reports "never pays off".
+        val outlook = minimumPaymentOutlook(50_000_00L, aprBp = 2980, minPaymentBp = 500)
+                as MinimumPaymentOutlook.PaysOff
+        assertTrue("must terminate well inside the guard cap", outlook.months < 600)
+    }
+
+    @Test
+    fun `a minimum below the interest never clears the debt`() {
+        // 1% a month against ~2.5% of monthly interest: the balance grows every month.
+        assertEquals(
+            MinimumPaymentOutlook.NeverPaysOff,
+            minimumPaymentOutlook(50_000_00L, aprBp = 2980, minPaymentBp = 100),
+        )
+    }
+
+    @Test
+    fun `an already repaid card has nothing to plan`() {
+        assertEquals(
+            MinimumPaymentOutlook.PaysOff(months = 0, totalInterestKopecks = 0L),
+            minimumPaymentOutlook(0L, aprBp = 2980, minPaymentBp = 500),
+        )
+    }
+
+    @Test
+    fun `no outlook without both the rate and the minimum percentage`() {
+        assertNull(minimumPaymentOutlook(50_000_00L, aprBp = null, minPaymentBp = 500))
+        assertNull(minimumPaymentOutlook(50_000_00L, aprBp = 2980, minPaymentBp = null))
+    }
+
+    @Test
+    fun `a zero-rate card costs nothing to carry`() {
+        val outlook = minimumPaymentOutlook(50_000_00L, aprBp = 1, minPaymentBp = 5000)
+        val paysOff = outlook as MinimumPaymentOutlook.PaysOff
+        assertTrue("a near-zero rate should be nearly free", paysOff.totalInterestKopecks < 100_00L)
+    }
+
     // ── Minimum payment ───────────────────────────────────────────────────────
 
     @Test

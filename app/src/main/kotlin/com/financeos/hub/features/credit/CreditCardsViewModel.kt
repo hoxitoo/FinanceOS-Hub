@@ -10,7 +10,10 @@ import com.financeos.hub.core.credit.creditUtilization
 import com.financeos.hub.core.credit.debtKopecks
 import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.freeLimitKopecks
+import com.financeos.hub.core.credit.MinimumPaymentOutlook
+import com.financeos.hub.core.credit.accruedInterest
 import com.financeos.hub.core.credit.minPaymentKopecks
+import com.financeos.hub.core.credit.minimumPaymentOutlook
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
@@ -47,6 +50,13 @@ data class CreditCardState(
     val freeLimit        : Long?,
     val utilization      : Float?,
     val aprPercent       : Double?,
+    /**
+     * Interest already run up, ESTIMATED. 0 while the card is inside its interest-free period —
+     * that zero is exact. Non-zero only once the deadline has passed. Null without a rate.
+     */
+    val interestSoFar    : Long?,
+    /** What paying only the minimum would cost. Null when the rate or the minimum % is unset. */
+    val minimumOutlook   : MinimumPaymentOutlook?,
 ) {
     val debt: Long get() = account.debtKopecks
     /** True when nothing — neither a bank reminder nor entered terms — can date a payment. */
@@ -131,6 +141,18 @@ class CreditCardsViewModel @Inject constructor(
                 // new spending and would otherwise show as a negative amount of shopping.
                 spentSinceStatement = (-spentSince).coerceAtLeast(0L),
                 minPayment          = minPaymentKopecks(statementDebt, account.minPaymentBp),
+                // Only what the deadline has already passed by earns interest; inside the
+                // interest-free period the answer is a genuine, exact zero.
+                interestSoFar       = accruedInterest(
+                    debtKopecks = account.debtKopecks,
+                    aprBp       = account.aprBp,
+                    days        = due?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
+                ),
+                minimumOutlook      = minimumPaymentOutlook(
+                    debtKopecks  = account.debtKopecks,
+                    aprBp        = account.aprBp,
+                    minPaymentBp = account.minPaymentBp,
+                ),
                 freeLimit           = account.freeLimitKopecks,
                 utilization         = account.creditUtilization,
                 aprPercent          = account.aprPercent,

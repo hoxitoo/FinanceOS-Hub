@@ -150,7 +150,7 @@ abstract class FosDatabase : RoomDatabase() {
          * `kind` is NOT NULL DEFAULT 'CASH' so every pre-existing account keeps behaving exactly as
          * before: it counts toward net worth and toward the cushion pillar of the health score. The
          * credit term columns are all nullable — nothing knows a card's limit or rate until the user
-         * types them in, and inventing a default would produce a confident wrong grace period.
+         * types them in, and inventing a default would produce a confident wrong interest-free period.
          */
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
