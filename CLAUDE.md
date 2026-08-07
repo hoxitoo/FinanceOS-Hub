@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v11
+- **DB schema:** Room v12
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -41,7 +41,8 @@ app/
 │   ├── classifier/   (DictionaryClassifier, CategoryDefaults)
 │   ├── sms/          (SmsReader, SmsReceiver, PushNotificationListener)
 │   ├── account/      (AccountLinker)
-│   ├── credit/       (CreditMath — debt, free limit, statement/due cycle, min payment)
+│   ├── credit/       (CreditMath — debt, free limit, cycle, min payment, due payment;
+│   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
@@ -170,11 +171,16 @@ and lost all history.
 `balanceKopecks` is zero-or-negative and its magnitude is the debt, so every existing delta path
 stays correct with no sign special-case; the free limit is `creditLimitKopecks + balanceKopecks`.
 
-The trap is the bank's own figure: a credit-card push reports «Доступно» (limit − debt), NOT
-«Остаток». Writing it into `balance_kopecks` would book the free limit as money you own — one push
-on a 450k card adds 400k to net worth. So `syncBalance`, `applyAuthoritativeBalance` and
-`snapToAuthoritativeIfNewer` all **skip the authoritative snapshot for CREDIT accounts** and move
-them by transaction delta only. Revisit when the parser can tell the two labels apart.
+The trap is the bank's own figure. A **confirmed real Сбер push** reads
+«Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽ Счёт карты МИР •• 6703», and 18 699 + 411 301 = 430 000 —
+the card's limit. So on a credit card «Баланс» is the FREE LIMIT, printed under the very same label a
+debit card uses: **the text can never disambiguate, only `AccountEntity.kind` can.** Stored naively it
+would book 411k as money you own.
+
+`balanceFromReportedFigure(account, reported)` is the single translation point, used by `syncBalance`,
+`applyAuthoritativeBalance` and `snapToAuthoritativeIfNewer`: pass-through for CASH, `reported − limit`
+for CREDIT, and **null** (→ caller falls back to the transaction delta) when the limit is unknown or
+smaller than the reported figure — a stale limit would otherwise invert the debt into money owned.
 
 Net worth, the widget and the score's cushion pillar are all **CASH-only** (`sumCashBalances`);
 the cushion additionally subtracts `sumCreditDebt()`. With no credit cards every one of these is
@@ -204,6 +210,11 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] `AccountLinker` (card→account, authoritative balance, orphan re-link, recency guard)
 - [x] `AccountKind` (CASH / CREDIT / INVESTMENT) + credit terms on `AccountEntity`; net worth,
       widget and score cushion are CASH-only
+- [x] `CreditNoticeParser` — «Платёж по кредитной карте / Внесите платёж X до ДД.ММ.ГГ» разбирается
+      как **факт о карте, не операция**: ничего не вставляется, пишутся сумма и дата платежа.
+      Идёт **до `PromoFilter`** (тот режет пуш на слове «беспроцентным»). Карта определяется по
+      банку и только когда ответ однозначен. В 90-дневном импорте не применяется — старое
+      напоминание затёрло бы текущее.
 - [x] `TransferRouter` (goal routing by account/card/keyword, counterparty leg, internal pairing)
 - [x] All 7 repositories, `UserPreferences` (DataStore, ~20 keys)
 
@@ -283,13 +294,23 @@ Everything below is **implemented and shipped** unless marked otherwise.
 
 ## Credit cards — remaining work
 Заходы 1–2 (фундамент + плитка/экран) сделаны. Осталось:
+Заход 2.5 (парсер по реальным пушам Сбера) сделан: покупка по кредитке и напоминание о платеже
+больше не теряются, «Баланс» кредитки конвертируется в долг, цифра банка показывается вместо
+расчётной с явной пометкой источника. Осталось:
+
 3. **Погашение** — кнопка «Погасить», перевод вместо расхода, спаривание двух пушей (списание с
    дебетовой + зачисление на кредитку), распознавание автоплатежа. Самый рискованный кусок:
-   именно здесь возникает двойной учёт.
-4. **Проценты** — переплата сейчас и по минимальному платежу. Требует **реальных пушей Сбера по
-   кредитке** (покупка, погашение, выписка, напоминание) — без них парсер угадывает. Переплата
-   будет ЯВНО помеченной оценкой: банк считает ежедневно по своим правилам грейса, повторить
-   точно без договора нельзя.
+   именно здесь возникает двойной учёт. **Пуша погашения/зачисления на кредитку у пользователя
+   нет** — спаривание придётся писать вслепую и честно помечать как непроверенное.
+4. **Проценты** — переплата сейчас и по минимальному платежу. Переплата будет ЯВНО помеченной
+   оценкой: банк считает ежедневно по своим правилам грейса, повторить точно без договора нельзя.
+
+### Реальные форматы пушей Сбера (проверено на устройстве)
+| Что | Текст | Как обрабатывается |
+|---|---|---|
+| Покупка по кредитке | `Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽ Счёт карты МИР •• 6703` | `parsePush` → EXPENSE; «Баланс» = свободный лимит |
+| Напоминание о платеже | `Платёж по кредитной карте / Внесите платёж 373,98р до 31.08.26 …беспроцентным периодом.` | `CreditNoticeParser` → не операция, пишет сумму и дату |
+| Погашение / зачисление | — | **формат неизвестен**, ждём
 
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".

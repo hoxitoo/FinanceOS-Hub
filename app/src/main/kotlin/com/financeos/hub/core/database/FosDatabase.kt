@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -160,6 +160,21 @@ abstract class FosDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE accounts ADD COLUMN statement_day INTEGER")
                 db.execSQL("ALTER TABLE accounts ADD COLUMN due_days INTEGER")
                 db.execSQL("ALTER TABLE accounts ADD COLUMN min_payment_bp INTEGER")
+            }
+        }
+
+        /**
+         * The bank's own credit-card payment demand, straight from a reminder push, plus a
+         * merchant rule for DNS (whose purchase push is what exposed the parser gap).
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN due_payment_kopecks INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN due_payment_at INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN due_payment_seen_at INTEGER")
+                // Rules are INSERT OR IGNORE, so re-running the seed only adds what is new.
+                insertDefaultCategories(db)
+                insertDefaultMerchantRules(db)
             }
         }
 
@@ -347,6 +362,9 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r173", "dns-shop",          "cat_shopping"),
                 Triple("r174", "ситилинк",          "cat_shopping"),
                 Triple("r175", "citilink",          "cat_shopping"),
+                // Сбер печатает мерчанта коротко — "Покупка DNS". Правило r173 ("dns-shop")
+                // такую форму не ловит.
+                Triple("r176", "dns",               "cat_shopping"),
 
                 // ── Букмекеры / ставки → cat_betting
                 Triple("r180", "фонбет",            "cat_betting"),

@@ -2,6 +2,7 @@ package com.financeos.hub.core.account
 
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.CardDao
+import com.financeos.hub.core.credit.balanceFromReportedFigure
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.AccountKind
 import javax.inject.Inject
@@ -88,16 +89,31 @@ class AccountLinker @Inject constructor(
     suspend fun syncBalance(accountId: String?, ostatokKopecks: Long?, signedDelta: Long) {
         val id  = accountId ?: return
         val acc = accountDao.getById(id) ?: return
-        // A credit card's reported figure is «Доступно» (limit minus debt), not «Остаток». Writing
-        // it into balance_kopecks would store the free limit as money you own — one push on a
-        // 450k card would book a 400k "balance". Until the parser can tell the two labels apart,
-        // a credit account moves ONLY by the transaction delta, which is unambiguous: a purchase
-        // deepens the debt, a repayment reduces it.
-        if (acc.kind == AccountKind.CREDIT || ostatokKopecks == null || ostatokKopecks < 0L) {
-            accountDao.updateBalance(id, acc.balanceKopecks + signedDelta)
+        // On a credit card the reported figure is the free limit, not money owned — see
+        // [balanceFromReportedFigure], which converts it to a debt when the card's limit is known and refuses
+        // otherwise. A refusal falls through to the transaction delta, which is unambiguous on
+        // any account: a purchase deepens the debt, a repayment reduces it.
+        val snapshot = ostatokKopecks
+            ?.takeIf { it >= 0L }
+            ?.let { balanceFromReportedFigure(acc, it) }
+        if (snapshot != null) {
+            accountDao.updateBalance(id, snapshot)
         } else {
-            accountDao.updateBalance(id, ostatokKopecks)
+            accountDao.updateBalance(id, acc.balanceKopecks + signedDelta)
         }
+    }
+
+    /**
+     * Resolves the ONE active credit card belonging to [bankId], or null when there are none or
+     * several. Used by messages that identify the card only by bank — a payment reminder carries
+     * no card mask — where guessing between two cards would put the demand on the wrong one.
+     */
+    suspend fun resolveCreditAccountForBank(bankId: String): String? {
+        val keywords = BANK_KEYWORDS[bankId.lowercase()] ?: return null
+        val matches = accountDao.getAllActive().filter { acc ->
+            acc.kind == AccountKind.CREDIT && keywords.any { kw -> acc.bank.lowercase().contains(kw) }
+        }
+        return if (matches.size == 1) matches.first().id else null
     }
 
     /**
@@ -124,9 +140,11 @@ class AccountLinker @Inject constructor(
     suspend fun applyAuthoritativeBalance(cardMask: String?, ostatokKopecks: Long?) {
         if (ostatokKopecks == null || ostatokKopecks < 0L) return
         val accountId = resolveAccountByCardMask(cardMask) ?: return
-        // See syncBalance: on a credit card this figure is the free limit, not a balance.
-        if (accountDao.getById(accountId)?.kind == AccountKind.CREDIT) return
-        accountDao.updateBalance(accountId, ostatokKopecks)
+        val acc = accountDao.getById(accountId) ?: return
+        // See [balanceFromReportedFigure]: on a credit card this figure is the free limit, and is only
+        // interpretable once the card's limit is known.
+        val snapshot = balanceFromReportedFigure(acc, ostatokKopecks) ?: return
+        accountDao.updateBalance(accountId, snapshot)
     }
 
     /**
@@ -152,10 +170,10 @@ class AccountLinker @Inject constructor(
     private suspend fun snapToAuthoritativeIfNewer(accountId: String) {
         val snap = transactionDao.latestBalanceSnapshotForAccount(accountId) ?: return
         val acc  = accountDao.getById(accountId) ?: return
-        // See syncBalance: the stored snapshot on a credit card is «Доступно», so snapping to it
-        // would replace the debt with the free limit.
-        if (acc.kind == AccountKind.CREDIT) return
-        if (snap.timestamp > acc.updatedAt) accountDao.updateBalance(accountId, snap.balanceKopecks)
+        // See [balanceFromReportedFigure]: the stored snapshot on a credit card is the free limit, so it has to
+        // be converted to a debt before it can replace the balance.
+        val snapshot = balanceFromReportedFigure(acc, snap.balanceKopecks) ?: return
+        if (snap.timestamp > acc.updatedAt) accountDao.updateBalance(accountId, snapshot)
     }
 
     /**

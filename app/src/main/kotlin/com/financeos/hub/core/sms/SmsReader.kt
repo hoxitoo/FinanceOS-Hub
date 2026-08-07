@@ -65,6 +65,10 @@ class SmsReader @Inject constructor(
 
                 // Guard each row: a single malformed SMS must not abort the whole import.
                 runCatching {
+                    // Credit payment reminders are deliberately NOT applied during the 90-day
+                    // import: the messages arrive in no guaranteed order, so a three-month-old
+                    // «внесите платёж» would overwrite the current demand with a settled one.
+                    // Only live SMS/push (SmsReceiver, PushNotificationListener) file a notice.
                     val parsed = parserEngine.parse(sender, body, ts)
                     // Cross-channel dedup: skip if a PUSH transaction with the same amount already
                     // arrived within ±5 minutes (same bank event delivered via push before SMS).

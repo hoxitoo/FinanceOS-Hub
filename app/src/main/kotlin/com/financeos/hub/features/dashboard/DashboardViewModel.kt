@@ -6,6 +6,7 @@ import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.analytics.AnalyticsEngine
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.debtKopecks
+import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
@@ -26,7 +27,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 
@@ -192,7 +195,17 @@ class DashboardViewModel @Inject constructor(
         // Soonest deadline wins the tile: with several cards the one about to fall due is the only
         // one worth surfacing in a single line. Cards with no terms entered contribute nothing.
         val soonest = cards
-            .mapNotNull { creditCycle(it.statementDay, it.dueDays, today)?.daysUntilDue }
+            .mapNotNull { card ->
+                duePayment(
+                    reportedAmountKopecks = card.duePaymentKopecks,
+                    reportedDueDate       = card.duePaymentAt?.let {
+                        Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
+                    },
+                    cycle                = creditCycle(card.statementDay, card.dueDays, today),
+                    statementDebtKopecks = card.debtKopecks,
+                    today                = today,
+                )?.daysUntilDue
+            }
             .minOrNull()
         return CreditSummary(
             cardCount    = cards.size,

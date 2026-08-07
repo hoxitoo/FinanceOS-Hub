@@ -37,6 +37,23 @@ interface AccountDao {
     @Query("UPDATE accounts SET balance_kopecks = :kopecks, updated_at = :now WHERE id = :id")
     suspend fun updateBalance(id: String, kopecks: Long, now: Long = System.currentTimeMillis())
 
+    /**
+     * Records the bank's own payment demand from a reminder push.
+     *
+     * Deliberately does NOT touch `updated_at`: that column is the recency arbiter for BALANCE
+     * snapshots (`snapToAuthoritativeIfNewer`), and a payment reminder says nothing about the
+     * balance. Bumping it here would make a stale balance look freshly confirmed and block a
+     * legitimate snapshot from landing.
+     */
+    @Query("""
+        UPDATE accounts
+        SET due_payment_kopecks = :amountKopecks,
+            due_payment_at      = :dueAt,
+            due_payment_seen_at = :seenAt
+        WHERE id = :id
+    """)
+    suspend fun setDuePayment(id: String, amountKopecks: Long, dueAt: Long, seenAt: Long)
+
     @Query("UPDATE accounts SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
 

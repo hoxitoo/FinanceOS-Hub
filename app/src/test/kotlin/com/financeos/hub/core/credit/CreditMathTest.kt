@@ -78,6 +78,94 @@ class CreditMathTest {
         assertNull(card(aprBp = 0).aprPercent)
     }
 
+    // ── Reading the bank's reported figure ────────────────────────────────────
+
+    @Test
+    fun `a credit card's reported figure is its free limit, not a balance`() {
+        // The real Сбер push: "Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽" on a 430 000 ₽ card.
+        // Stored naively, 411 301 would read as money owned; converted, it is 18 699 of debt.
+        val c = card(balance = 0L, limit = 430_000_00L)
+        assertEquals(-18_699_00L, balanceFromReportedFigure(c, 411_301_00L))
+    }
+
+    @Test
+    fun `a fully repaid card reports the whole limit as free`() {
+        assertEquals(0L, balanceFromReportedFigure(card(limit = 430_000_00L), 430_000_00L))
+    }
+
+    @Test
+    fun `without a limit the figure is uninterpretable and must be refused`() {
+        // Refusing means the caller falls back to the transaction delta, which is never ambiguous.
+        assertNull(balanceFromReportedFigure(card(limit = null), 411_301_00L))
+    }
+
+    @Test
+    fun `a figure larger than the limit means the limit is wrong, so refuse`() {
+        // Applying it would compute a NEGATIVE debt — i.e. book the card as money owned.
+        assertNull(balanceFromReportedFigure(card(limit = 100_000_00L), 411_301_00L))
+    }
+
+    @Test
+    fun `a debit account's figure passes through untouched`() {
+        val debit = card(limit = null).copy(kind = AccountKind.CASH)
+        assertEquals(411_301_00L, balanceFromReportedFigure(debit, 411_301_00L))
+    }
+
+    // ── Which payment to show ─────────────────────────────────────────────────
+
+    @Test
+    fun `the bank's own demand outranks our inference`() {
+        val cycle = creditCycle(30, 20, LocalDate.of(2026, 8, 20))
+        val due = duePayment(
+            reportedAmountKopecks = 373_98L,
+            reportedDueDate       = LocalDate.of(2026, 8, 31),
+            cycle                 = cycle,
+            statementDebtKopecks  = 18_699_00L,
+            today                 = LocalDate.of(2026, 8, 20),
+        )!!
+        assertEquals(PaymentSource.BANK, due.source)
+        assertEquals(373_98L, due.amountKopecks)
+        assertEquals(LocalDate.of(2026, 8, 31), due.dueDate)
+        assertEquals(11, due.daysUntilDue)
+    }
+
+    @Test
+    fun `without a reminder we fall back to the computed cycle`() {
+        val today = LocalDate.of(2026, 7, 5)
+        val due = duePayment(null, null, creditCycle(30, 20, today), 18_699_00L, today)!!
+        assertEquals(PaymentSource.INFERRED, due.source)
+        assertEquals(18_699_00L, due.amountKopecks)
+        assertEquals(LocalDate.of(2026, 7, 20), due.dueDate)
+    }
+
+    @Test
+    fun `a long-settled reminder stops speaking for the card`() {
+        // The app never sees the payment confirmation, so a months-old demand would otherwise
+        // leave a permanent false "просрочено" on the card.
+        val today = LocalDate.of(2026, 12, 1)
+        val due = duePayment(
+            reportedAmountKopecks = 373_98L,
+            reportedDueDate       = LocalDate.of(2026, 8, 31),
+            cycle                 = creditCycle(30, 20, today),
+            statementDebtKopecks  = 5_000_00L,
+            today                 = today,
+        )!!
+        assertEquals(PaymentSource.INFERRED, due.source)
+    }
+
+    @Test
+    fun `a recently missed payment is still the bank's demand`() {
+        val today = LocalDate.of(2026, 9, 5)
+        val due = duePayment(373_98L, LocalDate.of(2026, 8, 31), null, 0L, today)!!
+        assertEquals(PaymentSource.BANK, due.source)
+        assertEquals(-5, due.daysUntilDue)
+    }
+
+    @Test
+    fun `with neither a reminder nor terms there is nothing to show`() {
+        assertNull(duePayment(null, null, null, 5_000_00L, LocalDate.of(2026, 7, 5)))
+    }
+
     // ── Cycle boundaries ──────────────────────────────────────────────────────
 
     @Test

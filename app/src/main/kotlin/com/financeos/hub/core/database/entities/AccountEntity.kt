@@ -51,4 +51,15 @@ data class AccountEntity(
     @ColumnInfo(name = "due_days") val dueDays: Int? = null,
     /** Minimum payment as basis points of the debt — 5% → 500. */
     @ColumnInfo(name = "min_payment_bp") val minPaymentBp: Int? = null,
+
+    // ── What the BANK itself said about the next payment ──────────────────────
+    // Straight from a «Платёж по кредитной карте» reminder push. This outranks anything computed
+    // from statementDay/dueDays: those are the user's recollection of their contract, this is the
+    // bank's own demand. Null until such a push arrives.
+    /** Obligatory payment the bank asked for, kopecks. */
+    @ColumnInfo(name = "due_payment_kopecks") val duePaymentKopecks: Long? = null,
+    /** Its deadline, epoch millis at the start of that day. */
+    @ColumnInfo(name = "due_payment_at") val duePaymentAt: Long? = null,
+    /** When the reminder arrived — lets the UI ignore a demand that is long past. */
+    @ColumnInfo(name = "due_payment_seen_at") val duePaymentSeenAt: Long? = null,
 )

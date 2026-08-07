@@ -6,6 +6,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
 import com.financeos.hub.core.account.AccountLinker
+import com.financeos.hub.core.credit.CreditNoticeApplier
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
@@ -34,6 +35,7 @@ class PushNotificationListener : NotificationListenerService() {
     @Inject lateinit var userPreferences: UserPreferences
     @Inject lateinit var transferRouter : TransferRouter
     @Inject lateinit var accountLinker  : AccountLinker
+    @Inject lateinit var creditNoticeApplier: CreditNoticeApplier
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("PushListener", "Push processing failed", t)
@@ -88,7 +90,13 @@ class PushNotificationListener : NotificationListenerService() {
     }
 
     private suspend fun processPush(sender: String, body: String, ts: Long) {
-        val parsed = parserEngine.parse(sender, body, ts) ?: return
+        val parsed = parserEngine.parse(sender, body, ts)
+        if (parsed == null) {
+        // Not a transaction — but it may be a credit-card payment reminder, which carries the
+        // bank's own obligatory payment and deadline. Nothing is inserted; it only updates the card.
+            parserEngine.parseCreditNotice(sender, body)?.let { creditNoticeApplier.apply(it) }
+            return
+        }
         val pushId = "push_${sender}_${ts}_${body.hashCode()}"
         if (transactionDao.existsBySmsId(pushId)) {
             // Exact re-post of a notification we already stored — still apply its balance, because

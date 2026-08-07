@@ -3,10 +3,12 @@ package com.financeos.hub.features.credit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.credit.CreditCycle
+import com.financeos.hub.core.credit.DuePayment
 import com.financeos.hub.core.credit.aprPercent
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.creditUtilization
 import com.financeos.hub.core.credit.debtKopecks
+import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.freeLimitKopecks
 import com.financeos.hub.core.credit.minPaymentKopecks
 import com.financeos.hub.core.database.entities.AccountEntity
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -35,14 +38,16 @@ data class CreditCardState(
     val statementDebt    : Long,
     /** Spent since the statement closed. Rolls into the NEXT statement, not the current bill. */
     val spentSinceStatement: Long,
+    /** What to pay and by when — the bank's own demand when it sent one, else our inference. */
+    val duePayment       : DuePayment?,
     val minPayment       : Long?,
     val freeLimit        : Long?,
     val utilization      : Float?,
     val aprPercent       : Double?,
 ) {
     val debt: Long get() = account.debtKopecks
-    /** True when the card has no statement day / days-to-pay entered, so no dates can be shown. */
-    val termsMissing: Boolean get() = cycle == null
+    /** True when nothing — neither a bank reminder nor entered terms — can date a payment. */
+    val termsMissing: Boolean get() = duePayment == null
 }
 
 data class CreditScreenState(
@@ -101,11 +106,22 @@ class CreditCardsViewModel @Inject constructor(
             val statementDebt = if (cycle == null) account.debtKopecks
             else (-(account.balanceKopecks - spentSince)).coerceAtLeast(0L)
 
+            val due = duePayment(
+                reportedAmountKopecks = account.duePaymentKopecks,
+                reportedDueDate       = account.duePaymentAt?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
+                },
+                cycle                 = cycle,
+                statementDebtKopecks  = statementDebt,
+                today                 = today,
+            )
+
             CreditCardState(
                 account             = account,
                 cards               = cardList.filter { it.accountId == account.id },
                 cycle               = cycle,
                 statementDebt       = statementDebt,
+                duePayment          = due,
                 // Only outflow counts as "spent since" — a repayment in the same window is not
                 // new spending and would otherwise show as a negative amount of shopping.
                 spentSinceStatement = (-spentSince).coerceAtLeast(0L),

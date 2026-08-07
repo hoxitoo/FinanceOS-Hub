@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.credit.PaymentSource
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.ui.components.TransactionRow
 import com.financeos.hub.ui.theme.FosColors
@@ -206,7 +207,7 @@ private fun CreditTotals(state: CreditScreenState) {
 
 @Composable
 private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
-    val urgency = dueUrgency(card.cycle?.daysUntilDue)
+    val urgency = dueUrgency(card.duePayment?.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
 
     Column(
@@ -225,9 +226,9 @@ private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
         Text(card.account.name, style = FosType.BodySemi, color = FosColors.TextPrimary)
         Spacer(Modifier.height(10.dp))
 
-        val cycle = card.cycle
-        if (cycle == null) {
-            // No statement day / days-to-pay entered: state that plainly instead of showing a
+        val due = card.duePayment
+        if (due == null) {
+            // Neither a bank reminder nor entered terms: state that plainly instead of showing a
             // made-up deadline. The debt itself is still known and worth showing.
             Text("Долг", style = FosType.Micro, color = FosColors.TextSecondary)
             Text(
@@ -243,18 +244,18 @@ private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
             )
         } else {
             Text(
-                "Внести до ${cycle.dueDate.format(DUE_DATE_FORMAT)}",
+                "Внести до ${due.dueDate.format(DUE_DATE_FORMAT)}",
                 style = FosType.Micro,
                 color = FosColors.TextSecondary,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    FosFormatter.amount(card.statementDebt),
+                    FosFormatter.amount(due.amountKopecks),
                     style = FosType.HeroMinimal,
                     color = FosColors.TextPrimary,
                 )
                 Spacer(Modifier.width(8.dp))
-                dueLabel(cycle.daysUntilDue)?.let { label ->
+                dueLabel(due.daysUntilDue)?.let { label ->
                     Text(
                         text     = label,
                         style    = FosType.Micro,
@@ -266,16 +267,31 @@ private fun CreditCardBlock(card: CreditCardState, onEditTerms: () -> Unit) {
                     )
                 }
             }
-            card.minPayment?.let { min ->
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "минимум ${FosFormatter.amount(min)}",
-                    style = FosType.Micro,
-                    color = FosColors.TextMuted,
-                )
+            // Never let an inferred number pose as the bank's. The two differ in how much they can
+            // be trusted, and the user is the one who has to decide whether to act on it.
+            Spacer(Modifier.height(2.dp))
+            Text(
+                when (due.source) {
+                    PaymentSource.BANK     -> "сумма и дата — из уведомления банка"
+                    PaymentSource.INFERRED -> "расчёт по вашим условиям карты, банк это не подтверждал"
+                },
+                style = FosType.Micro,
+                color = FosColors.TextMuted,
+            )
+            if (due.source == PaymentSource.INFERRED) {
+                card.minPayment?.let { min ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "минимум ${FosFormatter.amount(min)}",
+                        style = FosType.Micro,
+                        color = FosColors.TextMuted,
+                    )
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            GraceTimeline(card)
+            if (card.cycle != null) {
+                Spacer(Modifier.height(12.dp))
+                GraceTimeline(card)
+            }
         }
 
         Spacer(Modifier.height(12.dp))

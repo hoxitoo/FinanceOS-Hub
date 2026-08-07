@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.financeos.hub.core.account.AccountLinker
+import com.financeos.hub.core.credit.CreditNoticeApplier
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.database.daos.TransactionDao
@@ -30,6 +31,7 @@ class SmsReceiver : BroadcastReceiver() {
     @Inject lateinit var classifier: CategoryClassifier
     @Inject lateinit var transferRouter: TransferRouter
     @Inject lateinit var accountLinker: AccountLinker
+    @Inject lateinit var creditNoticeApplier: CreditNoticeApplier
     @Inject lateinit var prefs: UserPreferences
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
@@ -62,7 +64,13 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private suspend fun processSms(sender: String, body: String, ts: Long) {
-        val parsed = parserEngine.parse(sender, body, ts) ?: return
+        val parsed = parserEngine.parse(sender, body, ts)
+        if (parsed == null) {
+        // Not a transaction — but it may be a credit-card payment reminder, which carries the
+        // bank's own obligatory payment and deadline. Nothing is inserted; it only updates the card.
+            parserEngine.parseCreditNotice(sender, body)?.let { creditNoticeApplier.apply(it) }
+            return
+        }
         if (transactionDao.existsBySmsId(parsed.smsId)) {
             accountLinker.applyAuthoritativeBalance(parsed.cardMask, parsed.balanceKopecks)
             return
