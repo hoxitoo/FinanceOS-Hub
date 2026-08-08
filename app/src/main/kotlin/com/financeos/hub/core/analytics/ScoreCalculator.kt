@@ -66,10 +66,17 @@ class ScoreCalculator @Inject constructor() {
         }
     }
 
-    // 25 pts: balance / avgMonthlyExpense; full score at ≥ 3 months cushion
+    /**
+     * 25 pts: cushion = (cash − credit debt) / avgMonthlyExpense; full score at ≥ 3 months.
+     *
+     * Debt is subtracted because a cushion is what would still be there after settling up: 100k in
+     * the account against 50k owed on a card buys one month of runway, not two. [ScoreInput.creditDebt]
+     * defaults to 0, so a user with no credit cards scores exactly as before this was added.
+     */
     private fun calcCushion(input: ScoreInput): Int {
         if (input.avgMonthlyExpense <= 0) return 0
-        val months = input.totalBalance.toDouble() / input.avgMonthlyExpense
+        val netCushion = (input.totalBalance - input.creditDebt).coerceAtLeast(0L)
+        val months = netCushion.toDouble() / input.avgMonthlyExpense
         return min(25, (months / 3.0 * 25).roundToInt()).coerceAtLeast(0)
     }
 }
@@ -79,6 +86,7 @@ data class ScoreInput(
     val monthlyExpense   : Long,
     val mandatoryExpense : Long,              // housing + telecom + health this month
     val avgMonthlyExpense: Long,              // rolling 3-month average
-    val totalBalance     : Long,             // sum of all accounts
+    val totalBalance     : Long,             // sum of CASH accounts (credit lines are not your money)
     val last3MonthsIncome: List<Long>,       // income per month, newest first
+    val creditDebt       : Long = 0L,        // outstanding credit-card debt, positive magnitude
 )

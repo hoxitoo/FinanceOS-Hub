@@ -1,6 +1,7 @@
 package com.financeos.hub.core.database.converters
 
 import androidx.room.TypeConverter
+import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.BudgetPeriod
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
@@ -18,4 +19,10 @@ class FosTypeConverters {
 
     @TypeConverter fun transferMatchTypeToString(v: TransferMatchType): String = v.name
     @TypeConverter fun stringToTransferMatchType(v: String): TransferMatchType = TransferMatchType.valueOf(v)
+
+    @TypeConverter fun accountKindToString(v: AccountKind): String = v.name
+    // Tolerant on read: an unknown value (older/newer build, hand-edited DB) must not crash the
+    // whole account list — degrade to CASH, which is how every pre-v11 row behaved anyway.
+    @TypeConverter fun stringToAccountKind(v: String): AccountKind =
+        runCatching { AccountKind.valueOf(v) }.getOrDefault(AccountKind.CASH)
 }

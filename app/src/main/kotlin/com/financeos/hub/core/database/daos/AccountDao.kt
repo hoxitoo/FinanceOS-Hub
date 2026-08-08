@@ -37,9 +37,40 @@ interface AccountDao {
     @Query("UPDATE accounts SET balance_kopecks = :kopecks, updated_at = :now WHERE id = :id")
     suspend fun updateBalance(id: String, kopecks: Long, now: Long = System.currentTimeMillis())
 
+    /**
+     * Records the bank's own payment demand from a reminder push.
+     *
+     * Deliberately does NOT touch `updated_at`: that column is the recency arbiter for BALANCE
+     * snapshots (`snapToAuthoritativeIfNewer`), and a payment reminder says nothing about the
+     * balance. Bumping it here would make a stale balance look freshly confirmed and block a
+     * legitimate snapshot from landing.
+     */
+    @Query("""
+        UPDATE accounts
+        SET due_payment_kopecks = :amountKopecks,
+            due_payment_at      = :dueAt,
+            due_payment_seen_at = :seenAt
+        WHERE id = :id
+    """)
+    suspend fun setDuePayment(id: String, amountKopecks: Long, dueAt: Long, seenAt: Long)
+
     @Query("UPDATE accounts SET is_active = 0 WHERE id = :id")
     suspend fun deactivate(id: String)
 
-    @Query("SELECT COALESCE(SUM(balance_kopecks), 0) FROM accounts WHERE is_active = 1")
-    suspend fun sumAllBalances(): Long
+    /**
+     * Own money only. CREDIT accounts hold the BANK's money (a negative debt), so summing every
+     * account would let a credit line move net worth — the spend on a credit card would read as
+     * your balance falling, and a big repayment as it rising. INVESTMENT is excluded too: it is
+     * not cash you can reach today, and the cushion pillar of the health score treats this as
+     * spendable reserve.
+     */
+    @Query("SELECT COALESCE(SUM(balance_kopecks), 0) FROM accounts WHERE is_active = 1 AND kind = 'CASH'")
+    suspend fun sumCashBalances(): Long
+
+    /** Total outstanding credit-card debt as a POSITIVE number (0 when nothing is owed). */
+    @Query("""
+        SELECT COALESCE(SUM(CASE WHEN balance_kopecks < 0 THEN -balance_kopecks ELSE 0 END), 0)
+        FROM accounts WHERE is_active = 1 AND kind = 'CREDIT'
+    """)
+    suspend fun sumCreditDebt(): Long
 }

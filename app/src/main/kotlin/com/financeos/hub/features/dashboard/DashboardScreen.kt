@@ -65,6 +65,7 @@ import com.financeos.hub.ui.theme.bankBrand
 @Composable
 fun DashboardScreen(
     onSettingsClick: () -> Unit = {},
+    onCreditClick  : () -> Unit = {},
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -129,6 +130,13 @@ fun DashboardScreen(
         // Hero — variant-based (CALM / CONTRAST / MINIMAL)
         item { HeroBlock(state = state) }
 
+        // Credit cards — one tile directly under the hero, so it lands below the income/expense/
+        // forecast chips in ALL THREE hero variants from a single insertion point. Adding it inside
+        // each hero would mean three edits and one of them eventually forgotten.
+        state.credit?.let { credit ->
+            item { CreditSummaryTile(credit = credit, onClick = onCreditClick) }
+        }
+
         // Accounts section — grouped by bank
         item {
             Row(
@@ -146,14 +154,18 @@ fun DashboardScreen(
             }
         }
         item {
-            if (state.accounts.isEmpty()) {
+            // Credit cards are excluded here — they have their own screen behind the tile above,
+            // and a debt rendered as a bank card in the same carousel as your money invites
+            // reading the limit as cash.
+            val carouselAccounts = state.cashAccounts
+            if (carouselAccounts.isEmpty()) {
                 Text(
                     "Добавьте счёт чтобы отслеживать состояние",
                     style = FosType.Body,
                     color = FosColors.TextMuted,
                 )
             } else {
-                val byBank = state.accounts.groupBy { it.bank }
+                val byBank = carouselAccounts.groupBy { it.bank }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(FosDimens.CardGap)) {
                     items(byBank.entries.toList(), key = { it.key }) { (bank, accounts) ->
                         val bankCards = state.cards.filter { c -> accounts.any { a -> a.id == c.accountId } }
@@ -190,14 +202,14 @@ fun DashboardScreen(
         AddAccountSheet(
             sheetState = addAccountSheetState,
             onDismiss  = { showAddAccountSheet = false },
-            onSave     = { name, bank, cardMask, balanceKopecks, currency ->
-                vm.createAccount(name, bank, cardMask, balanceKopecks, currency)
-            },
+            onSave     = { draft -> vm.createAccount(draft) },
         )
     }
 
     selectedBank?.let { bank ->
-        val bankAccounts = state.accounts.filter { it.bank == bank }
+        // Same filter as the carousel that opened this sheet — otherwise tapping «Сбербанк» would
+        // list the Sber credit card alongside the debit account and sum a debt into the bank total.
+        val bankAccounts = state.cashAccounts.filter { it.bank == bank }
         val bankCards    = state.cards.filter { c -> bankAccounts.any { a -> a.id == c.accountId } }
         AccountDetailSheet(
             bank         = bank,
@@ -205,9 +217,7 @@ fun DashboardScreen(
             cards        = bankCards,
             sheetState   = bankSheetState,
             onDismiss    = { selectedBank = null },
-            onAddAccount = { name, b, mask, kopecks, currency ->
-                vm.createAccount(name, b, mask, kopecks, currency)
-            },
+            onAddAccount = { draft -> vm.createAccount(draft) },
             onAddCard    = { card -> vm.addCard(card) },
             onDeleteCard = { id -> vm.deleteCard(id) },
             onEditBalance = { account, newKopecks ->

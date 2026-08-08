@@ -103,6 +103,20 @@ class GoalsViewModel @Inject constructor(
         viewModelScope.launch { goalRepo.contribute(goal.id, amountKopecks) }
     }
 
+    /**
+     * Takes [amountKopecks] back out of a goal — money spent on it, or set aside by mistake.
+     *
+     * Runs through the very same [GoalRepository.contribute] with a negated amount, so a withdrawal
+     * inherits everything a contribution already gets right: the mutex against concurrent routed
+     * transfers, the floor at zero, and the clearing of `completedAt` when the goal drops back below
+     * its target (without which a card keeps claiming "выполнено" over money that is no longer there).
+     */
+    fun withdrawContribution(goal: GoalEntity, amountKopecks: Long) {
+        val magnitude = kotlin.math.abs(amountKopecks)
+        if (magnitude <= 0L) return
+        viewModelScope.launch { goalRepo.contribute(goal.id, -magnitude) }
+    }
+
     fun updateGoal(
         goal          : GoalEntity,
         name          : String,

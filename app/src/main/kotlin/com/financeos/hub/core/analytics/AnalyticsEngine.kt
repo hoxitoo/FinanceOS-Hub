@@ -334,8 +334,9 @@ class AnalyticsEngine @Inject constructor(
             monthlyExpense    = curExpense,
             mandatoryExpense  = mandatory,
             avgMonthlyExpense = avg3Expense,
-            totalBalance      = accountDao.sumAllBalances(),
+            totalBalance      = accountDao.sumCashBalances(),
             last3MonthsIncome = last3Income,
+            creditDebt        = accountDao.sumCreditDebt(),
         )
     }
 
@@ -371,7 +372,9 @@ class AnalyticsEngine @Inject constructor(
             currentIncome     = curIncome,
             lastMonthExpense  = prevExpense,
             avgMonthlyExpense = avg3Expense,
-            totalBalance      = accountDao.sumAllBalances(),
+            // Cash only: a credit line is the bank's money, and counting it here would let a
+            // large unused limit read as a healthy buffer.
+            totalBalance      = accountDao.sumCashBalances(),
             topCategoryDelta  = topDelta,
             budgetAlerts      = emptyList(),
         )

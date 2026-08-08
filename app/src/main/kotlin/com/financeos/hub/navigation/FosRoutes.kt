@@ -15,12 +15,13 @@ sealed class FosRoute(val route: String) {
     object Settings     : FosRoute("settings")
     object Categories   : FosRoute("categories")
     object Subscriptions: FosRoute("subscriptions")
+    object CreditCards  : FosRoute("credit")
 
     companion object {
         /** Routes that may be opened via an external deep link (notification intent). */
         private val deepLinkable = setOf(
             "dashboard", "transactions", "analytics", "budget",
-            "goals", "settings", "categories", "subscriptions",
+            "goals", "settings", "categories", "subscriptions", "credit",
         )
 
         /**

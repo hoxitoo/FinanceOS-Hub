@@ -12,6 +12,10 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Marketing filter** | `PromoFilter` drops credit-card offers and cashback ads before any parser runs — a "лимит 163 000 ₽" promo is never booked as a transfer |
 | **Smart categorization** | Deterministic dictionary classifier (143 merchant rules incl. transit, marketplaces, bookmakers, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning) |
 | **Account linking** | Card mask from SMS/push (e.g. ··2548) auto-links transactions to the correct account; the bank's «Остаток» is applied as an authoritative snapshot, with a recency guard so a fresher manual edit is never reverted |
+| **Credit cards** | `AccountKind.CREDIT` — the balance is a **debt**, never mixed into net worth. Dashboard tile (free limit + debt + deadline) opens a dedicated screen: payment amount and date, interest-free period bar, rate, utilisation, repayment, per-card history |
+| **Credit push parsing** | On a credit card Сбер prints the **free limit** under the same «Баланс» label a debit card uses — only the account kind can tell them apart, so it is converted to a debt using the card's limit. The «Внесите платёж … до …» reminder is filed as a **fact about the card, not an operation**, and the bank's own figure outranks anything the app infers |
+| **Repayment** | «Погасить» books a **TRANSFER** off one of your accounts, never an expense (the purchases were already counted). Two rows, one per account, so deleting either undoes its own side. Money arriving on a credit card is classified as repayment, not income |
+| **Interest estimate** | «Переплата сейчас» — an exact **zero** inside the interest-free period, an estimate once the deadline passes. «Если платить только минимум» simulates the real cost of carrying a balance. Both are labelled estimates; both are hidden without a rate |
 | **Multi-currency** | RUB / USD / EUR / KGS (сом) per account **and per transaction**; hero shows each currency on its own line |
 | **Manual entry** | Add (bank→account picker, income presets, Расход/Доход/**Перевод**), edit, delete; transfers credit the destination account too |
 | **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
@@ -22,7 +26,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Category drill-down** | Interactive pseudo-3D pie — tap a slice to explode it, then open every operation of that category for this **and** last month |
 | **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER; auto-routed to savings goals by account / card / keyword, or paired between accounts so net worth is unchanged |
 | **Budget envelopes** | Monthly/weekly limits per category, dynamic color bar (green→amber→red), alerts throttled to **once per budget per month, max 2/day** (persisted, survives restart) |
-| **Savings goals** | Goal cards with pixel-art backdrops, contribution dialog, per-goal **history** of routed operations, link by account / card / keyword |
+| **Savings goals** | Goal cards with 9 bundled pixel-art backdrops, **± dialog to add or withdraw**, per-goal **history** of routed operations, link by account / card / keyword |
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
@@ -55,7 +59,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 ## Screens
 
-1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, accounts with volumetric bank cards, clickable recent transactions
+1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), accounts with volumetric bank cards, clickable recent transactions
 2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, "↑ CSV" export, "↓ PDF" import
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
@@ -63,10 +67,11 @@ Offline-first Android finance app that reads bank SMS messages and automatically
    - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
    - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
-5. **Goals** — pixel-art goal cards, contribution dialog, «История ›» of routed operations, 🔗 link transfers by account / card / keyword
-6. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
-7. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
-8. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
+5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword
+6. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
+7. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
+8. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
+9. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
 
 ## Tech Stack
 
@@ -85,11 +90,12 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v10 — 17 categories, 143 merchant rules)
-│   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, AmountParser
+│   ├── database/       # Entities, DAOs, FosDatabase (v12 — 17 categories, 144 merchant rules)
+│   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import), PushNotificationListener
 │   ├── account/        # AccountLinker (card→account resolution, authoritative balance, orphan re-link)
+│   ├── credit/         # CreditMath (debt, free limit, cycle, min payment, interest), CreditNoticeApplier
 │   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
 │   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer, NarrativeEngine
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
@@ -101,7 +107,7 @@ app/
 │   ├── repositories/   # Tx, Account, Card, Category, Budget, Goal, TransferRoute
 │   └── preferences/    # UserPreferences (DataStore)
 ├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule
-├── features/           # dashboard, transactions, analytics, budget, goals, subscriptions, categories, onboarding, settings
+├── features/           # dashboard, transactions, analytics, budget, goals, subscriptions, categories, credit, onboarding, settings
 ├── navigation/         # FosNavHost, FosRoutes, bottom nav
 ├── widget/             # BalanceWidget
 └── ui/

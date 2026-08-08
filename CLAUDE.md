@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v10
+- **DB schema:** Room v12
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -41,6 +41,8 @@ app/
 │   ├── classifier/   (DictionaryClassifier, CategoryDefaults)
 │   ├── sms/          (SmsReader, SmsReceiver, PushNotificationListener)
 │   ├── account/      (AccountLinker)
+│   ├── credit/       (CreditMath — debt, free limit, cycle, min payment, due payment;
+│   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
@@ -55,7 +57,7 @@ app/
 │   └── preferences/  (UserPreferences via DataStore)
 ├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
 ├── features/         (dashboard, transactions, analytics, budget, goals,
-│                      subscriptions, categories, onboarding, settings)
+│                      subscriptions, categories, credit, onboarding, settings)
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
 └── ui/
@@ -164,7 +166,27 @@ merchant needs a merchant rule (or offline retraining + a new `.tflite`).
 "off" on failure, and the lock screen always offers device-PIN. A tester once had to reinstall
 and lost all history.
 
-### 12. Parser hygiene
+### 12. A credit account's balance is a NEGATIVE debt, and its «Доступно» is not a balance
+`AccountEntity.kind` splits money you own (`CASH`) from money you owe (`CREDIT`). On a credit card
+`balanceKopecks` is zero-or-negative and its magnitude is the debt, so every existing delta path
+stays correct with no sign special-case; the free limit is `creditLimitKopecks + balanceKopecks`.
+
+The trap is the bank's own figure. A **confirmed real Сбер push** reads
+«Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽ Счёт карты МИР •• 6703», and 18 699 + 411 301 = 430 000 —
+the card's limit. So on a credit card «Баланс» is the FREE LIMIT, printed under the very same label a
+debit card uses: **the text can never disambiguate, only `AccountEntity.kind` can.** Stored naively it
+would book 411k as money you own.
+
+`balanceFromReportedFigure(account, reported)` is the single translation point, used by `syncBalance`,
+`applyAuthoritativeBalance` and `snapToAuthoritativeIfNewer`: pass-through for CASH, `reported − limit`
+for CREDIT, and **null** (→ caller falls back to the transaction delta) when the limit is unknown or
+smaller than the reported figure — a stale limit would otherwise invert the debt into money owned.
+
+Net worth, the widget and the score's cushion pillar are all **CASH-only** (`sumCashBalances`);
+the cushion additionally subtracts `sumCreditDebt()`. With no credit cards every one of these is
+byte-identical to the pre-v11 behaviour.
+
+### 13. Parser hygiene
 - `PromoFilter` runs in `ParserEngine.parse()` **before** any bank parser — marketing pushes
   ("лимит 163 000 ₽") were being booked as real transfers.
 - Transfer keywords are stem-anchored with a Cyrillic lookahead so «переводами» ≠ «Перевод».
@@ -186,6 +208,13 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] SMS is **opt-in** (`sms_realtime_enabled`, default false)
 - [x] `DictionaryClassifier` (143 rules), `CategoryDefaults.forType` income fallback
 - [x] `AccountLinker` (card→account, authoritative balance, orphan re-link, recency guard)
+- [x] `AccountKind` (CASH / CREDIT / INVESTMENT) + credit terms on `AccountEntity`; net worth,
+      widget and score cushion are CASH-only
+- [x] `CreditNoticeParser` — «Платёж по кредитной карте / Внесите платёж X до ДД.ММ.ГГ» разбирается
+      как **факт о карте, не операция**: ничего не вставляется, пишутся сумма и дата платежа.
+      Идёт **до `PromoFilter`** (тот режет пуш на слове «беспроцентным»). Карта определяется по
+      банку и только когда ответ однозначен. В 90-дневном импорте не применяется — старое
+      напоминание затёрло бы текущее.
 - [x] `TransferRouter` (goal routing by account/card/keyword, counterparty leg, internal pairing)
 - [x] All 7 repositories, `UserPreferences` (DataStore, ~20 keys)
 
@@ -194,8 +223,12 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Transactions (search, filters, swipe-left-to-reveal delete, detail/edit sheet with source
       diagnostics, CSV export, PDF import, manual add incl. **Перевод** with destination account)
 - [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
-- [x] Budget (envelopes, CRUD, throttled alerts), Goals (art backdrops, history, 🔗 routing)
+- [x] Budget (envelopes, CRUD, throttled alerts), Goals (9 bundled art backdrops, history,
+      🔗 routing, ручное пополнение И снятие через ±)
 - [x] Subscriptions, Categories CRUD, Settings, Onboarding
+- [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
+      + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного периода,
+      ставка, утилизация, история операций, лист редактирования условий)
 
 ## Analytics
 - [x] `ScoreCalculator` (4 pillars, 0–100) + `ScoreDonut` multi-colour rendering
@@ -238,6 +271,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Shimmer** | «Анимации» + «Атмосфера» layers (particles, tilt/sheen, breathing hero, bioluminescent ripple, currency reef) |
 | **Cat mode** | Mood-matched mascot + paw particles, mood tiers identical to the score tiers |
 | **Distribution** | Release pipeline, in-app updater, background update notifications, encrypted backups |
+| **Credit cards** | `AccountKind`, схема v10→v12, плитка + экран, разбор реальных пушей Сбера, погашение переводом, оценка процентов |
 | **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
@@ -260,16 +294,59 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - Consider: signed **release** APK channel (keystore in GitHub Secrets)
 - Await more Sberbank push format variants
 
+## Credit cards — remaining work
+Заходы 1–2 (фундамент + плитка/экран) сделаны. Осталось:
+Заход 2.5 (парсер по реальным пушам Сбера) сделан: покупка по кредитке и напоминание о платеже
+больше не теряются, «Баланс» кредитки конвертируется в долг, цифра банка показывается вместо
+расчётной с явной пометкой источника. Осталось:
+
+3. **Погашение** — сделано в объёме, который можно проверить: кнопка «Погасить» (лист с суммой и
+   выбором счёта), проводка ПЕРЕВОДОМ на карту, а не расходом; входящие деньги на кредитку при
+   приёме переклассифицируются из дохода в перевод (`asRepaymentIfCredit`) — иначе погашение
+   считалось бы заработком; дедуп по знаковой сумме, чтобы обе ноги выжили.
+   **Не сделано:** распознавание автоплатежа и явное спаривание двух банковских пушей в одну
+   операцию — **пуша погашения у пользователя нет**, писать вслепую нечего проверять. Сейчас
+   две ноги просто остаются двумя строками с верным итогом.
+4. **Проценты** — сделано. `accruedInterest` (простое начисление за дни просрочки) и
+   `minimumPaymentOutlook` (помесячная симуляция «плачу только минимум»). Обе цифры на экране
+   ЯВНО помечены оценкой. Точна ровно одна: ноль внутри беспроцентного периода.
+   Минимальный платёж моделируется как процент от долга **но не меньше 300 ₽** — без порога
+   симуляция не сходится: платёж уменьшается вместе с остатком и никогда не достигает нуля.
+
+### 14. Кросс-канальный дедуп сравнивает ЗНАКОВУЮ сумму, не модуль
+Две доставки одного события всегда одного знака; две ноги перевода между своими счетами — всегда
+разных. Погашение кредитки — ровно это: −50 000 с дебетовой и +50 000 на кредитку с разницей в
+секунды. Сравнение по модулю молча съедало вторую ногу, и погашение не появлялось в истории карты.
+
+### 15. Расчётный цикл НИКОГДА не показывает просрочку — это может только банк
+Якорение на последней ЗАКРЫТОЙ выписке означало, что между сроком платежа и следующим закрытием
+(девять дней в месяц при типовых 30/20) карта постоянно горела «просрочена» и накручивала
+выдуманные проценты — тому, кто заплатил вовремя. Подтверждения оплаты приложение не видит, поэтому
+после прошедшего срока цикл переходит к СЛЕДУЮЩЕЙ выписке. Реальная просрочка не теряется: её несёт
+пуш-напоминание банка с настоящей прошедшей датой, и `duePayment` предпочитает его расчётному.
+
+### 16. Погашение пишется ДВУМЯ строками с общим `transferPairId`
+Одна строка двигала бы оба баланса, но откатить можно только тот счёт, на котором она лежит: при
+удалении второй счёт остаётся испорченным навсегда. Логика удаления уже рассчитана на это —
+она исключает `transferPairId != null` из отката встречной ноги.
+Остаток по выписке считает покупки и погашения РАЗДЕЛЬНО: при зачёте друг против друга сумма к
+оплате не уменьшалась после платежа, и лист погашения подставлял её снова.
+
+### Реальные форматы пушей Сбера (проверено на устройстве)
+| Что | Текст | Как обрабатывается |
+|---|---|---|
+| Покупка по кредитке | `Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽ Счёт карты МИР •• 6703` | `parsePush` → EXPENSE; «Баланс» = свободный лимит |
+| Напоминание о платеже | `Платёж по кредитной карте / Внесите платёж 373,98р до 31.08.26 …беспроцентным периодом.` | `CreditNoticeParser` → не операция, пишет сумму и дату |
+| Погашение / зачисление | — | **формат неизвестен**, ждём
+
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across
    `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`,
    `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry`.
 2. **Branded card UI** — per-bank gradient/logo `CardSkin` (trademark caveat for stores).
-3. **Brokerage accounts** — `AccountKind.INVESTMENT`, separate subtotal, excluded from cash net worth.
-4. **Credit cards** — `AccountKind.CREDIT`, shown as debt; repayments are TRANSFERs, never expenses.
-- Foundation for 3–4: `AccountEntity.kind` + net-worth split by kind. Order: foundation → credit
-  → investment → registry/UI refactor.
+3. **Brokerage accounts** — `AccountKind.INVESTMENT` (column exists, nothing consumes it yet):
+   separate subtotal, excluded from cash net worth.
 
 ---
 
