@@ -158,6 +158,11 @@ class BackupManager @Inject constructor(
         putNullable("duePaymentKopecks", duePaymentKopecks)
         putNullable("duePaymentAt", duePaymentAt)
         putNullable("duePaymentSeenAt", duePaymentSeenAt)
+        putNullable("minPaymentFloorKopecks", minPaymentFloorKopecks)
+        putNullable("interestFreeDays", interestFreeDays)
+        putNullable("penaltyAprBp", penaltyAprBp)
+        putNullable("cashFeeBp", cashFeeBp)
+        putNullable("cashFeeFixedKopecks", cashFeeFixedKopecks)
     }
 
     private fun CardEntity.toJson() = JSONObject().apply {
@@ -225,6 +230,11 @@ class BackupManager @Inject constructor(
         duePaymentKopecks  = optLongOrNull("duePaymentKopecks"),
         duePaymentAt       = optLongOrNull("duePaymentAt"),
         duePaymentSeenAt   = optLongOrNull("duePaymentSeenAt"),
+        minPaymentFloorKopecks = optLongOrNull("minPaymentFloorKopecks"),
+        interestFreeDays   = optIntOrNull("interestFreeDays"),
+        penaltyAprBp       = optIntOrNull("penaltyAprBp"),
+        cashFeeBp          = optIntOrNull("cashFeeBp"),
+        cashFeeFixedKopecks = optLongOrNull("cashFeeFixedKopecks"),
     )
 
     private fun JSONObject.toCard() = CardEntity(

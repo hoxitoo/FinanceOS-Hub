@@ -168,9 +168,7 @@ fun CreditCardsScreen(
             account    = account,
             sheetState = editSheetState,
             onDismiss  = { editing = null },
-            onSave     = { debt, limit, aprBp, statementDay, dueDays, minBp ->
-                vm.saveCard(account, debt, limit, aprBp, statementDay, dueDays, minBp)
-            },
+            onSave     = { debt, terms -> vm.saveCard(account, debt, terms) },
         )
     }
 }
@@ -331,6 +329,21 @@ private fun CreditCardBlock(
         card.aprPercent?.let { apr ->
             TermRow("Ставка", "${FosFormatter.percent(apr / 100.0, decimals = 1)} годовых")
         }
+        card.account.interestFreeDays?.let { days ->
+            TermRow(
+                "Беспроцентный период",
+                pluralDays(days),
+                hint = "на покупки, от даты покупки",
+            )
+        }
+        card.account.penaltyAprBp?.takeIf { it > 0 }?.let { bp ->
+            TermRow(
+                "Неустойка",
+                "${FosFormatter.percent(bp / 10_000.0, decimals = 1)} годовых",
+                hint = "если пропустить обязательный платёж",
+                valueColor = FosColors.Warning,
+            )
+        }
         card.freeLimit?.let { free ->
             TermRow("Свободный лимит", FosFormatter.amount(free))
         }
@@ -346,6 +359,21 @@ private fun CreditCardBlock(
         }
 
         InterestBlock(card)
+
+        // A cash withdrawal is the one move that quietly costs the most on a credit card: the fee
+        // is charged up front AND the interest-free period usually does not apply to it at all.
+        card.account.cashFeeBp?.takeIf { it > 0 }?.let { bp ->
+            val fixed = card.account.cashFeeFixedKopecks ?: 0L
+            TermRow(
+                "Снятие наличных",
+                buildString {
+                    append(FosFormatter.percent(bp / 10_000.0, decimals = 1))
+                    if (fixed > 0) append(" + ${FosFormatter.amount(fixed)}")
+                },
+                hint = "и обычно без беспроцентного периода",
+                valueColor = FosColors.Warning,
+            )
+        }
 
         Spacer(Modifier.height(10.dp))
         // Only offered when there is something to pay off — a settled card showing «Погасить»

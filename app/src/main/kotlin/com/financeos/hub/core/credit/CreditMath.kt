@@ -243,15 +243,16 @@ fun duePayment(
 private const val MAX_PLAN_MONTHS = 600
 
 /**
- * Floor under the minimum payment, kopecks (300 ₽ — Сбер's figure for its credit cards).
+ * Fallback floor under the obligatory payment, kopecks, used when the card's own «но не менее …»
+ * has not been entered.
  *
- * Not cosmetic: a minimum that is ONLY a percentage of the balance never reaches zero, because
- * each payment shrinks with the balance it is computed from. Without a floor the simulation just
- * decays forever and hits [MAX_PLAN_MONTHS], reporting "never pays off" for a card that plainly
- * does. Real cards all carry such a floor; this one is an assumption, and the UI calls the whole
- * figure an estimate for exactly reasons like this.
+ * A payment that is only a percentage of the balance never reaches zero, because each one shrinks
+ * with the balance it is computed from — without a floor the simulation decays forever and reports
+ * "never pays off" for a card that plainly does. Every real tariff carries such a floor (Сбер's
+ * СберКарта: 150 ₽), so this constant exists only to keep the maths sane until the real figure is
+ * typed in, and the estimate is labelled as one on screen either way.
  */
-private const val MIN_PAYMENT_FLOOR_KOPECKS = 300_00L
+private const val DEFAULT_MIN_PAYMENT_FLOOR_KOPECKS = 300_00L
 
 /**
  * Interest accrued on [debtKopecks] over [days] at [aprBp], on a simple 365-day-year basis.
@@ -284,11 +285,17 @@ sealed interface MinimumPaymentOutlook {
  * debt takes years and costs a large fraction of itself. Deliberately pessimistic in one respect —
  * it assumes no further spending — and optimistic in another: it ignores fees and insurance.
  */
-fun minimumPaymentOutlook(debtKopecks: Long, aprBp: Int?, minPaymentBp: Int?): MinimumPaymentOutlook? {
+fun minimumPaymentOutlook(
+    debtKopecks : Long,
+    aprBp       : Int?,
+    minPaymentBp: Int?,
+    floorKopecks: Long? = null,
+): MinimumPaymentOutlook? {
     val apr   = aprBp?.takeIf { it > 0 } ?: return null
     val minBp = minPaymentBp?.takeIf { it > 0 } ?: return null
     if (debtKopecks <= 0L) return MinimumPaymentOutlook.PaysOff(months = 0, totalInterestKopecks = 0L)
 
+    val floor       = floorKopecks?.takeIf { it > 0L } ?: DEFAULT_MIN_PAYMENT_FLOOR_KOPECKS
     val monthlyRate = apr / 10_000.0 / 12.0
     var balance       = debtKopecks.toDouble()
     var totalInterest = 0.0
@@ -299,7 +306,7 @@ fun minimumPaymentOutlook(debtKopecks: Long, aprBp: Int?, minPaymentBp: Int?): M
         // A share of the balance, but never below the floor — and the final month settles whatever
         // is left rather than leaving a sliver that never rounds away.
         val payment = minOf(
-            maxOf(balance * minBp / 10_000.0, MIN_PAYMENT_FLOOR_KOPECKS.toDouble()),
+            maxOf(balance * minBp / 10_000.0, floor.toDouble()),
             balance + interest,
         )
         if (payment <= interest) return MinimumPaymentOutlook.NeverPaysOff
@@ -316,8 +323,13 @@ fun minimumPaymentOutlook(debtKopecks: Long, aprBp: Int?, minPaymentBp: Int?): M
  * understating a minimum payment is the one error that actually costs the user money.
  * Returns 0 when nothing is owed, and null when the percentage was never configured.
  */
-fun minPaymentKopecks(debtKopecks: Long, minPaymentBp: Int?): Long? {
+fun minPaymentKopecks(debtKopecks: Long, minPaymentBp: Int?, floorKopecks: Long? = null): Long? {
     if (debtKopecks <= 0L) return 0L
     val bp = minPaymentBp?.takeIf { it > 0 } ?: return null
-    return (debtKopecks * bp + 9_999L) / 10_000L
+    val share = (debtKopecks * bp + 9_999L) / 10_000L
+    // «…но не менее 150 руб.»: on a small balance the floor IS the payment, and quoting the
+    // percentage alone would understate what the bank will actually take. Never more than the
+    // whole debt, though — a 150 ₽ floor on a 40 ₽ balance is 40 ₽.
+    val floor = floorKopecks?.takeIf { it > 0L } ?: return share
+    return maxOf(share, floor).coerceAtMost(debtKopecks)
 }

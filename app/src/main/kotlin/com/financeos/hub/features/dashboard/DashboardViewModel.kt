@@ -264,32 +264,16 @@ class DashboardViewModel @Inject constructor(
                 statementDay       = draft.statementDay,
                 dueDays            = draft.dueDays,
                 minPaymentBp       = draft.minPaymentBp,
+                minPaymentFloorKopecks = draft.minPaymentFloorKopecks,
+                interestFreeDays   = draft.interestFreeDays,
+                penaltyAprBp       = draft.penaltyAprBp,
+                cashFeeBp          = draft.cashFeeBp,
+                cashFeeFixedKopecks = draft.cashFeeFixedKopecks,
             )
             accountRepo.upsert(account)
             // Attach any transactions already ingested for this card (and reconcile to the
             // bank-authoritative balance) — they may have arrived before the account existed.
             accountLinker.relinkOrphans(account.id, draft.cardMask)
-        }
-    }
-
-    /** Edits the credit terms of an existing card (limit, rate, statement day, days to pay). */
-    fun updateCreditTerms(
-        account           : AccountEntity,
-        creditLimitKopecks: Long?,
-        aprBp             : Int?,
-        statementDay      : Int?,
-        dueDays           : Int?,
-        minPaymentBp      : Int?,
-    ) {
-        viewModelScope.launch {
-            accountRepo.upsert(account.copy(
-                creditLimitKopecks = creditLimitKopecks,
-                aprBp              = aprBp,
-                statementDay       = statementDay,
-                dueDays            = dueDays,
-                minPaymentBp       = minPaymentBp,
-                updatedAt          = System.currentTimeMillis(),
-            ))
         }
     }
 
