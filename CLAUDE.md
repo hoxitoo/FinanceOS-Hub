@@ -271,6 +271,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Shimmer** | «Анимации» + «Атмосфера» layers (particles, tilt/sheen, breathing hero, bioluminescent ripple, currency reef) |
 | **Cat mode** | Mood-matched mascot + paw particles, mood tiers identical to the score tiers |
 | **Distribution** | Release pipeline, in-app updater, background update notifications, encrypted backups |
+| **Credit cards** | `AccountKind`, схема v10→v12, плитка + экран, разбор реальных пушей Сбера, погашение переводом, оценка процентов |
 | **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
