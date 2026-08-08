@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -175,6 +175,24 @@ abstract class FosDatabase : RoomDatabase() {
                 // Rules are INSERT OR IGNORE, so re-running the seed only adds what is new.
                 insertDefaultCategories(db)
                 insertDefaultMerchantRules(db)
+            }
+        }
+
+        /**
+         * The rest of a real credit-card tariff, as printed in the bank's own «Тариф» screen.
+         *
+         * The first pass modelled a card as "statement day + days to pay", which fits a classic
+         * grace card but not Сбер's 120-day СберКарта: there the obligatory payment is monthly
+         * while the interest-free period runs from each purchase. These columns let the card be
+         * described as the bank describes it, instead of forcing it into the wrong shape.
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE accounts ADD COLUMN min_payment_floor_kopecks INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN interest_free_days INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN penalty_apr_bp INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN cash_fee_bp INTEGER")
+                db.execSQL("ALTER TABLE accounts ADD COLUMN cash_fee_fixed_kopecks INTEGER")
             }
         }
 

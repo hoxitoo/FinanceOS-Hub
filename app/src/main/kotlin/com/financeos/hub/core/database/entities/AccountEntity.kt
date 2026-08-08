@@ -49,8 +49,30 @@ data class AccountEntity(
     @ColumnInfo(name = "statement_day") val statementDay: Int? = null,
     /** Days allowed to pay after the statement closes (Сбер: 20). */
     @ColumnInfo(name = "due_days") val dueDays: Int? = null,
-    /** Minimum payment as basis points of the debt — 5% → 500. */
+    /** Obligatory monthly payment as basis points of the debt — «до 10% от долга» → 1000. */
     @ColumnInfo(name = "min_payment_bp") val minPaymentBp: Int? = null,
+    /**
+     * Floor under that payment, kopecks — «но не менее 150 руб.» → 15_000.
+     *
+     * Not cosmetic. A payment that is only a percentage of the balance shrinks with it and never
+     * reaches zero, so without a floor the pay-off simulation runs forever. It used to be a
+     * hardcoded guess; taking it from the tariff makes the estimate the user's own.
+     */
+    @ColumnInfo(name = "min_payment_floor_kopecks") val minPaymentFloorKopecks: Long? = null,
+    /**
+     * Length of the interest-free period in DAYS, counted from a purchase — «до 120 дней».
+     *
+     * A different thing from [statementDay]/[dueDays], which describe the monthly obligatory
+     * payment. A card can demand a small payment every month AND leave the purchase itself
+     * interest-free for four months; conflating the two was the original modelling mistake.
+     */
+    @ColumnInfo(name = "interest_free_days") val interestFreeDays: Int? = null,
+    /** Penalty rate once an obligatory payment is missed — «36% годовых» → 3600. */
+    @ColumnInfo(name = "penalty_apr_bp") val penaltyAprBp: Int? = null,
+    /** Cash-withdrawal / transfer fee, percentage part in basis points — «5,9%» → 590. */
+    @ColumnInfo(name = "cash_fee_bp") val cashFeeBp: Int? = null,
+    /** …plus its fixed part, kopecks — «+ 590 ₽» → 59_000. */
+    @ColumnInfo(name = "cash_fee_fixed_kopecks") val cashFeeFixedKopecks: Long? = null,
 
     // ── What the BANK itself said about the next payment ──────────────────────
     // Straight from a «Платёж по кредитной карте» reminder push. This outranks anything computed
