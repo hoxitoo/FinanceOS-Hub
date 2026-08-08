@@ -223,7 +223,8 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Transactions (search, filters, swipe-left-to-reveal delete, detail/edit sheet with source
       diagnostics, CSV export, PDF import, manual add incl. **Перевод** with destination account)
 - [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
-- [x] Budget (envelopes, CRUD, throttled alerts), Goals (art backdrops, history, 🔗 routing)
+- [x] Budget (envelopes, CRUD, throttled alerts), Goals (9 bundled art backdrops, history,
+      🔗 routing, ручное пополнение И снятие через ±)
 - [x] Subscriptions, Categories CRUD, Settings, Onboarding
 - [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
       + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного периода,

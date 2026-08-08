@@ -22,6 +22,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -54,6 +56,8 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 
     var contributeTarget by remember { mutableStateOf<GoalEntity?>(null) }
     var contributeText   by remember { mutableStateOf("") }
+    /** false = пополнить, true = снять. Reset on every open — see below. */
+    var withdrawMode     by remember { mutableStateOf(false) }
 
     var editTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -105,9 +109,12 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                     GoalCard(
                         goal              = goal,
                         onEdit            = { editTarget = goal },
-                        onAddContribution = {
+                        onAdjust = {
                             contributeTarget = goal
                             contributeText   = ""
+                            // Always reopen on "пополнить". Remembering the last direction means
+                            // tapping ± to add money and silently taking it out instead.
+                            withdrawMode     = false
                         },
                         onLink    = { linkTarget = goal },
                         onHistory = { historyTarget = goal },
@@ -148,6 +155,12 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
     // Contribute dialog
     contributeTarget?.let { goal ->
         val kopecks = FosFormatter.parseAmountInput(contributeText) ?: 0L
+        // Withdrawing is capped at what the goal actually holds. contribute() floors at zero
+        // anyway, but silently swallowing the excess would leave the user unsure how much came
+        // out — better to say what is available and refuse the rest up front.
+        val overWithdraw = withdrawMode && kopecks > goal.savedKopecks
+        val canApply     = kopecks > 0 && !overWithdraw
+
         AlertDialog(
             onDismissRequest = { contributeTarget = null },
             containerColor   = FosColors.Surface,
@@ -160,8 +173,37 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Direction first: it changes what the amount below means, so it has to be
+                    // decided (and visible) before the number is typed.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !withdrawMode,
+                            onClick  = { withdrawMode = false },
+                            label    = { Text("Пополнить", style = FosType.Label) },
+                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FosColors.Positive.copy(alpha = 0.15f),
+                                selectedLabelColor     = FosColors.Positive,
+                                containerColor         = FosColors.Surface2,
+                                labelColor             = FosColors.TextSecondary,
+                            ),
+                        )
+                        FilterChip(
+                            selected = withdrawMode,
+                            onClick  = { withdrawMode = true },
+                            label    = { Text("Снять", style = FosType.Label) },
+                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FosColors.Warning.copy(alpha = 0.15f),
+                                selectedLabelColor     = FosColors.Warning,
+                                containerColor         = FosColors.Surface2,
+                                labelColor             = FosColors.TextSecondary,
+                            ),
+                        )
+                    }
                     Text(
-                        "Добавить сбережения:",
+                        if (withdrawMode) "Отложено: ${FosFormatter.amount(goal.savedKopecks)}"
+                        else "Добавить сбережения:",
                         style = FosType.Body,
                         color = FosColors.TextSecondary,
                     )
@@ -170,6 +212,16 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                         onValueChange   = { contributeText = FosFormatter.sanitizeAmountInput(it) },
                         visualTransformation = AmountVisualTransformation,
                         label           = { Text("Сумма, ₽", style = FosType.Label) },
+                        isError         = overWithdraw,
+                        supportingText  = if (overWithdraw) {
+                            {
+                                Text(
+                                    "Больше, чем отложено на цель",
+                                    style = FosType.Micro,
+                                    color = FosColors.Negative,
+                                )
+                            }
+                        } else null,
                         singleLine      = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
@@ -182,19 +234,34 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
                             cursorColor          = FosColors.Info,
                             focusedTextColor     = FosColors.TextPrimary,
                             unfocusedTextColor   = FosColors.TextPrimary,
+                            errorBorderColor     = FosColors.Negative,
                         ),
                     )
+                    if (withdrawMode) {
+                        Text(
+                            "Деньги уйдут из цели, но операция не создастся — это правка суммы, " +
+                                "отложенной на цель, а не перевод по счетам.",
+                            style = FosType.Micro,
+                            color = FosColors.TextMuted,
+                        )
+                    }
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick  = {
-                        if (kopecks > 0) vm.addContribution(goal, kopecks)
+                        if (canApply) {
+                            if (withdrawMode) vm.withdrawContribution(goal, kopecks)
+                            else              vm.addContribution(goal, kopecks)
+                        }
                         contributeTarget = null
                     },
-                    enabled = kopecks > 0,
+                    enabled = canApply,
                 ) {
-                    Text("Добавить", color = FosColors.Positive)
+                    Text(
+                        if (withdrawMode) "Снять" else "Добавить",
+                        color = if (withdrawMode) FosColors.Warning else FosColors.Positive,
+                    )
                 }
             },
             dismissButton = {
@@ -236,7 +303,7 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 private fun GoalCard(
     goal             : GoalEntity,
     onEdit           : () -> Unit,
-    onAddContribution: () -> Unit,
+    onAdjust         : () -> Unit,
     onLink           : () -> Unit,
     onHistory        : () -> Unit,
     onDelete         : () -> Unit,
@@ -306,13 +373,14 @@ private fun GoalCard(
                     style = FosType.SmallBold,
                     color = if (complete) FosColors.Positive else FosColors.TextSecondary,
                 )
-                if (!complete) {
-                    TextButton(
-                        onClick      = onAddContribution,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text("+", style = FosType.BodySemi, color = FosColors.Info)
-                    }
+                // ± rather than +: the dialog behind it both adds and withdraws. Shown on a
+                // completed goal too — that is precisely when the money gets spent and has to
+                // come back out, and the card used to hide the control at exactly that point.
+                TextButton(
+                    onClick        = onAdjust,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text("±", style = FosType.BodySemi, color = FosColors.Info)
                 }
                 TextButton(
                     onClick        = onLink,
