@@ -274,11 +274,11 @@ class CreditCardsViewModel @Inject constructor(
     }
 
     /**
-     * Saves the card's terms AND its debt in ONE write.
+     * Saves the card's whole tariff AND its debt in ONE write.
      *
-     * Deliberately not two methods: two `account.copy(...)` calls both branch off the same captured
-     * entity, so whichever coroutine lands second would write back the other's stale field — saving
-     * a corrected debt and a new limit together would silently discard one of them.
+     * Deliberately not split per field: two `copy(...)` calls both branch off the same captured
+     * entity, so whichever coroutine lands second writes back the other's stale field — correcting
+     * the debt and the limit together would silently discard one of them.
      *
      * [debtKopecks] arrives as a positive magnitude and is negated here, at the storage boundary.
      */
@@ -303,6 +303,5 @@ class CreditCardsViewModel @Inject constructor(
                 updatedAt          = System.currentTimeMillis(),
             ))
         }
-    }
     }
 }
