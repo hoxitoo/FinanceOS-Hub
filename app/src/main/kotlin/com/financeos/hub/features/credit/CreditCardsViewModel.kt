@@ -154,18 +154,26 @@ class CreditCardsViewModel @Inject constructor(
                 // Purchases only — «Потрачено после выписки» means shopping, and netting a
                 // repayment against it would understate (or hide) what rolls into the next bill.
                 spentSinceStatement = purchasesSince,
-                minPayment          = minPaymentKopecks(stillDue, account.minPaymentBp),
+                minPayment          = minPaymentKopecks(
+                    debtKopecks  = stillDue,
+                    minPaymentBp = account.minPaymentBp,
+                    floorKopecks = account.minPaymentFloorKopecks,
+                ),
                 // Only what the deadline has already passed by earns interest; inside the
                 // interest-free period the answer is a genuine, exact zero.
+                // Once a payment is missed the tariff switches to the penalty rate («неустойка,
+                // если пропустить обязательный платёж»), so an overdue card is not charged the
+                // ordinary purchase rate. Falls back to the ordinary rate when no penalty is set.
                 interestSoFar       = accruedInterest(
                     debtKopecks = account.debtKopecks,
-                    aprBp       = account.aprBp,
+                    aprBp       = account.penaltyAprBp ?: account.aprBp,
                     days        = due?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
                 ),
                 minimumOutlook      = minimumPaymentOutlook(
                     debtKopecks  = account.debtKopecks,
                     aprBp        = account.aprBp,
                     minPaymentBp = account.minPaymentBp,
+                    floorKopecks = account.minPaymentFloorKopecks,
                 ),
                 freeLimit           = account.freeLimitKopecks,
                 utilization         = account.creditUtilization,
@@ -266,31 +274,32 @@ class CreditCardsViewModel @Inject constructor(
     }
 
     /**
-     * Saves the card's terms AND its debt in ONE write.
+     * Saves the card's whole tariff AND its debt in ONE write.
      *
-     * Deliberately not two methods: two `account.copy(...)` calls both branch off the same captured
-     * entity, so whichever coroutine lands second would write back the other's stale field — saving
-     * a corrected debt and a new limit together would silently discard one of them.
+     * Deliberately not split per field: two `copy(...)` calls both branch off the same captured
+     * entity, so whichever coroutine lands second writes back the other's stale field — correcting
+     * the debt and the limit together would silently discard one of them.
      *
      * [debtKopecks] arrives as a positive magnitude and is negated here, at the storage boundary.
      */
-    fun saveCard(
-        account           : AccountEntity,
-        debtKopecks       : Long,
-        creditLimitKopecks: Long?,
-        aprBp             : Int?,
-        statementDay      : Int?,
-        dueDays           : Int?,
-        minPaymentBp      : Int?,
-    ) {
+    fun saveCard(account: AccountEntity, debtKopecks: Long, terms: CreditTermsState) {
         viewModelScope.launch {
-            accountRepo.upsert(account.copy(
+            // Re-read rather than trusting the captured entity: a push may have moved the balance
+            // or CreditNoticeApplier written a payment demand since the sheet opened, and writing
+            // a stale copy back would silently revert it.
+            val fresh = accountRepo.getById(account.id) ?: return@launch
+            accountRepo.upsert(fresh.copy(
                 balanceKopecks     = -kotlin.math.abs(debtKopecks),
-                creditLimitKopecks = creditLimitKopecks,
-                aprBp              = aprBp,
-                statementDay       = statementDay,
-                dueDays            = dueDays,
-                minPaymentBp       = minPaymentBp,
+                creditLimitKopecks = terms.limitKopecks,
+                aprBp              = terms.aprBpValue,
+                statementDay       = terms.statementDayValue,
+                dueDays            = terms.dueDaysValue,
+                minPaymentBp       = terms.minPaymentBpValue,
+                minPaymentFloorKopecks = terms.minPaymentFloorKopecks,
+                interestFreeDays   = terms.interestFreeDaysValue,
+                penaltyAprBp       = terms.penaltyAprBpValue,
+                cashFeeBp          = terms.cashFeeBpValue,
+                cashFeeFixedKopecks = terms.cashFeeFixedKopecks,
                 updatedAt          = System.currentTimeMillis(),
             ))
         }

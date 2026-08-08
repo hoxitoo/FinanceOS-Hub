@@ -27,4 +27,9 @@ data class AccountDraft(
     val statementDay      : Int?  = null,
     val dueDays           : Int?  = null,
     val minPaymentBp      : Int?  = null,
+    val minPaymentFloorKopecks: Long? = null,
+    val interestFreeDays  : Int?  = null,
+    val penaltyAprBp      : Int?  = null,
+    val cashFeeBp         : Int?  = null,
+    val cashFeeFixedKopecks: Long? = null,
 )

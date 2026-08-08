@@ -341,6 +341,18 @@ class CreditMathTest {
     }
 
     @Test
+    fun `the card's own payment floor changes the outlook, not a hardcoded guess`() {
+        // The floor decides the tail of the plan: a lower one drags the last rubles out over more
+        // months and costs more interest. Сбер's real 150 ₽ against the old hardcoded 300 ₽.
+        val real  = minimumPaymentOutlook(50_000_00L, 2980, 500, floorKopecks = 150_00L)
+                as MinimumPaymentOutlook.PaysOff
+        val guess = minimumPaymentOutlook(50_000_00L, 2980, 500, floorKopecks = 300_00L)
+                as MinimumPaymentOutlook.PaysOff
+        assertTrue("a smaller floor must take longer", real.months > guess.months)
+        assertTrue("and cost more", real.totalInterestKopecks > guess.totalInterestKopecks)
+    }
+
+    @Test
     fun `a percentage-only minimum would never reach zero, so a floor is applied`() {
         // Each payment shrinks with the balance it is computed from, so without the floor the
         // balance decays forever and a plainly-repayable card reports "never pays off".
@@ -387,6 +399,17 @@ class CreditMathTest {
         assertEquals(2_500_00L, minPaymentKopecks(50_000_00L, 500))
         // 5% of 1 000,01 ₽ = 50,0005 ₽ → rounds UP to 50,01 ₽; never quote less than the bank asks.
         assertEquals(50_01L, minPaymentKopecks(1_000_01L, 500))
+    }
+
+    @Test
+    fun `the floor wins on a small balance`() {
+        // «до 10% от суммы основного долга, но не менее 150 руб.» — on 1 000 ₽ the 10% share is
+        // 100 ₽, and quoting that would understate what the bank actually takes.
+        assertEquals(150_00L, minPaymentKopecks(1_000_00L, 1000, floorKopecks = 150_00L))
+        // …but never more than the whole debt: a 150 ₽ floor on a 40 ₽ balance is 40 ₽.
+        assertEquals(40_00L, minPaymentKopecks(40_00L, 1000, floorKopecks = 150_00L))
+        // On a large balance the percentage is what bites.
+        assertEquals(5_000_00L, minPaymentKopecks(50_000_00L, 1000, floorKopecks = 150_00L))
     }
 
     @Test
