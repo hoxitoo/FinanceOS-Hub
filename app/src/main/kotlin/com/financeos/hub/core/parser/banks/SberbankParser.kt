@@ -34,10 +34,27 @@ class SberbankParser @Inject constructor() : BankParser {
         RegexOption.IGNORE_CASE
     )
 
-    // Sberbank push format: "[Merchant] [amount] ₽ В запасе: [balance] ₽ [Карта/СЧЁТ] •[last4]"
+    // Sberbank push format: "[Merchant] [amount] ₽ [balance label]: [balance] ₽ [Карта/СЧЁТ] •[last4]"
     // The amount has no mandatory sign — type is inferred from keywords (Зачисление/Покупка/etc.).
+    //
+    // The label varies by card and by notification style. A real credit-card purchase push reads
+    // "Покупка DNS 18 699 ₽ — Баланс: 411 301 ₽ Счёт карты МИР •• 6703", which the old
+    // «В запасе»-only anchor missed entirely — an 18 699 ₽ purchase was silently dropped. All four
+    // labels are accepted; PromoFilter has already rejected marketing copy by the time we get here.
+    //
+    // What the number MEANS still depends on the account, not on the label: on a credit card
+    // «Баланс» is the free limit, not money owned. That translation lives in AccountLinker, which
+    // knows the account kind — the parser only reports what the bank printed.
     private val pushBalRe  = Regex(
-        "В\\s+запасе:\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽",
+        "(?:В\\s+запасе|Баланс|Остаток|Доступно):\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // Leading operation word in a push title ("Покупка DNS" → "DNS"). Left in place the merchant
+    // would be "Покупка DNS", which no merchant rule matches and which reads as the operation type
+    // rather than the shop.
+    private val pushOpPrefix = Regex(
+        "^(?:Покупка|Оплата|Списание|Зачисление|Пополнение|Перевод|Платёж|Платеж)(?![А-Яа-яёЁ])[\\s:—–-]*",
         RegexOption.IGNORE_CASE,
     )
     private val pushAmtRe  = Regex("([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽")
@@ -107,8 +124,9 @@ class SberbankParser @Inject constructor() : BankParser {
 
     /**
      * Field-based parser for Sberbank push notifications.
-     * Requires "В запасе:" to be present (strong signal this is a transaction push, not marketing).
-     * Transaction amount = the last ₽-value before "В запасе:", type inferred from keywords.
+     * Requires a balance label to be present (strong signal this is a transaction push, not
+     * marketing). Transaction amount = the last ₽-value before that label, type inferred from
+     * keywords.
      */
     private fun parsePush(body: String, smsId: String, ts: Long): ParsedTransaction? {
         val balMatch = pushBalRe.find(body) ?: return null
@@ -122,7 +140,9 @@ class SberbankParser @Inject constructor() : BankParser {
         val card     = pushCardRe.find(body)?.let { m -> m.groupValues.drop(1).firstOrNull { it.isNotEmpty() } }
         val isIncome = pushIncomeKw.containsMatchIn(body)
         val merchant = bodyBeforeBal.substring(0, amtMatch.range.first)
-            .trim().trim('.', ',', ';', '-', ' ')
+            .trim().trim('.', ',', ';', '-', '—', '–', ' ')
+            .replace(pushOpPrefix, "")
+            .trim()
             .takeIf { it.isNotBlank() }
 
         return ParsedTransaction(

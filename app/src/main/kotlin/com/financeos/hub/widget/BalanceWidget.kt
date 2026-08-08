@@ -48,7 +48,7 @@ class BalanceWidget : AppWidgetProvider() {
         }
         CoroutineScope(SupervisorJob() + Dispatchers.IO + handler).launch {
             try {
-                val balanceKopecks = ep.accountDao().sumAllBalances()
+                val balanceKopecks = ep.accountDao().sumCashBalances()
                 val todayExpenses  = ep.transactionDao().getTodayExpenses(todayStartMillis())
                 ids.forEach { id -> updateWidget(context, manager, id, balanceKopecks, todayExpenses) }
             } finally {

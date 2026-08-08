@@ -28,5 +28,21 @@ class ParserEngine @Inject constructor(
             .firstNotNullOfOrNull { it.parse(sender, normalizedBody, timestampMillis) }
     }
 
+    /**
+     * Recognises a credit-card payment reminder — a statement about a card, not an operation.
+     *
+     * A separate entry point from [parse] for two reasons: it must never produce a transaction,
+     * and [PromoFilter] would otherwise reject the message outright (Сбер's reminder ends with
+     * «беспроцентным периодом», which trips the marketing marker `беспроцентн`). Skipping the
+     * promo filter is safe here because [CreditNoticeParser] demands the literal
+     * «внесите платёж … до <дата>» shape, which no marketing copy has.
+     *
+     * Callers use it as a fallback: when [parse] returns null the message may still be a notice.
+     */
+    fun parseCreditNotice(sender: String, body: String): CreditNoticeParser.CreditNotice? {
+        val normalizedBody = body.replace(nbsp, ' ').replace(narrowNbsp, ' ')
+        return CreditNoticeParser.parse(sender, normalizedBody)
+    }
+
     fun supportedBanks(): List<String> = parsers.map { it.bankId }
 }

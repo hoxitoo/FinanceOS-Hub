@@ -1,18 +1,18 @@
 package com.financeos.hub.ui.components
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import com.financeos.hub.R
 import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.ui.theme.FosColors
 
@@ -24,20 +24,28 @@ import com.financeos.hub.ui.theme.FosColors
  * in the creation flow.
  */
 enum class GoalArtKind(
-    /** Drawable base name: `goal_art_<asset>` in res/drawable. Optional — see [GoalArtBackdrop]. */
-    val asset: String,
-    /** Tint used by the procedural fallback while the artwork is not bundled yet. */
+    /**
+     * The bundled artwork for this theme.
+     *
+     * A direct `R.drawable` reference, not a name looked up at runtime. The lookup version was
+     * there only while the art did not exist yet; now that all nine files are in place, referencing
+     * them properly means the compiler catches a missing or renamed file, the artwork survives
+     * resource shrinking (which strips anything it cannot see referenced), and no reflection runs
+     * on every card.
+     */
+    @DrawableRes val art: Int,
+    /** Tint for the wash drawn under the artwork, keeping each theme's colour identity. */
     val tint : Color,
 ) {
-    VACATION ("vacation",  Color(0xFF3BC9DB)),
-    HOME     ("home",      Color(0xFFFFA94D)),
-    CAR      ("car",       Color(0xFF748FFC)),
-    TECH     ("tech",      Color(0xFF9B5CFF)),
-    EDUCATION("education", Color(0xFF4DABF7)),
-    HEALTH   ("health",    Color(0xFF69DB7C)),
-    GIFT     ("gift",      Color(0xFFFF87C2)),
-    PURCHASE ("purchase",  Color(0xFFFFD43B)),
-    SAVINGS  ("savings",   Color(0xFF4DFFA0)),
+    VACATION (R.drawable.goal_art_vacation,  Color(0xFF3BC9DB)),
+    HOME     (R.drawable.goal_art_home,      Color(0xFFFFA94D)),
+    CAR      (R.drawable.goal_art_car,       Color(0xFF748FFC)),
+    TECH     (R.drawable.goal_art_tech,      Color(0xFF9B5CFF)),
+    EDUCATION(R.drawable.goal_art_education, Color(0xFF4DABF7)),
+    HEALTH   (R.drawable.goal_art_health,    Color(0xFF69DB7C)),
+    GIFT     (R.drawable.goal_art_gift,      Color(0xFFFF87C2)),
+    PURCHASE (R.drawable.goal_art_purchase,  Color(0xFFFFD43B)),
+    SAVINGS  (R.drawable.goal_art_savings,   Color(0xFF4DFFA0)),
 }
 
 /** Emoji → theme. Mirrors the emoji list offered in AddGoalSheet. */
@@ -74,10 +82,9 @@ fun goalArtFor(goal: GoalEntity): GoalArtKind {
 /**
  * Pixel-art backdrop for a goal card.
  *
- * The artwork is OPTIONAL: it is resolved by name at runtime, so the app builds and looks finished
- * without it, and each `goal_art_<kind>` drawable starts showing the moment it is dropped into
- * res/drawable (same graceful-degradation approach as the optional .tflite models). Until then a
- * procedural themed gradient stands in.
+ * The themed wash is drawn UNDER the artwork rather than instead of it. It used to be a stand-in
+ * for missing files; now it gives each theme a colour of its own even where the art is dark or
+ * sparse, so a goal is recognisable at a glance before its picture resolves into anything.
  *
  * Whatever is drawn stays dim and is covered by a horizontal scrim, so the card's text and numbers
  * keep their contrast — the backdrop must never compete with the amounts.
@@ -87,40 +94,31 @@ fun GoalArtBackdrop(
     kind    : GoalArtKind,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    @Suppress("DiscouragedApi")
-    val resId = remember(kind) {
-        context.resources.getIdentifier("goal_art_${kind.asset}", "drawable", context.packageName)
-    }
-
     Box(modifier) {
-        if (resId != 0) {
-            // NOTE: no filterQuality here — the painter-based Image overload in this Compose
-            // version (BOM 2024.06) does not accept it. Pixel art therefore gets bilinear
-            // smoothing when upscaled, so generate the art at least as large as the card
-            // (docs/GOAL_ART_PROMPTS.md asks for 1024×320, which is wider than any phone card).
-            Image(
-                painter            = painterResource(resId),
-                contentDescription = null,
-                contentScale       = ContentScale.Crop,
-                alpha              = 0.38f,
-                modifier           = Modifier.fillMaxSize(),
-            )
-        } else {
-            // Fallback: themed diagonal wash so the card already reads as "has a backdrop".
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            0.0f to kind.tint.copy(alpha = 0.20f),
-                            1.0f to Color.Transparent,
-                            start = Offset.Zero,
-                            end   = Offset(700f, 320f),
-                        )
+        // Themed diagonal wash, under everything.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        0.0f to kind.tint.copy(alpha = 0.20f),
+                        1.0f to Color.Transparent,
+                        start = Offset.Zero,
+                        end   = Offset(700f, 320f),
                     )
-            )
-        }
+                )
+        )
+        // NOTE: no filterQuality here — the painter-based Image overload in this Compose
+        // version (BOM 2024.06) does not accept it. Pixel art therefore gets bilinear
+        // smoothing when upscaled, so the art is authored at least as large as the card
+        // (docs/GOAL_ART_PROMPTS.md asks for 1024×320, wider than any phone card).
+        Image(
+            painter            = painterResource(kind.art),
+            contentDescription = null,
+            contentScale       = ContentScale.Crop,
+            alpha              = 0.38f,
+            modifier           = Modifier.fillMaxSize(),
+        )
         // Scrim: keeps the left-hand text legible over any artwork.
         Box(
             Modifier

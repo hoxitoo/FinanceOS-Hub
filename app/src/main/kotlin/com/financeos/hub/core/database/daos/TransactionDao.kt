@@ -37,19 +37,25 @@ interface TransactionDao {
     suspend fun existsBySmsId(smsId: String): Boolean
 
     /**
-     * Cross-channel dedup: returns true if an SMS or PUSH transaction with the same absolute
-     * amount already exists within a ±5-minute window. Used to prevent the same bank event
-     * from being inserted twice when it arrives via both channels (e.g. Sberbank sends both
-     * an SMS and a push notification for every operation).
+     * Cross-channel dedup: returns true if an SMS or PUSH transaction with the same SIGNED amount
+     * already exists within a ±5-minute window. Prevents the same bank event being inserted twice
+     * when it arrives via both channels (e.g. Sberbank sends both an SMS and a push for every
+     * operation).
+     *
+     * Matching is on the SIGNED amount, not the magnitude. Two deliveries of one event always
+     * carry the same sign; the two legs of a transfer between the user's own accounts always carry
+     * OPPOSITE signs. Repaying a credit card is exactly that — −50 000 off the debit card and
+     * +50 000 onto the credit card, seconds apart — and a magnitude match silently swallowed the
+     * second leg, so the repayment never appeared in the card's history.
      */
     @Query("""
         SELECT COUNT(*) > 0 FROM transactions
         WHERE is_deleted = 0
-          AND ABS(amount_kopecks) = :magnitude
+          AND amount_kopecks = :signedAmount
           AND timestamp BETWEEN :fromTs AND :toTs
           AND source IN ('SMS', 'PUSH')
     """)
-    suspend fun existsSimilarSmsOrPush(magnitude: Long, fromTs: Long, toTs: Long): Boolean
+    suspend fun existsSimilarSmsOrPush(signedAmount: Long, fromTs: Long, toTs: Long): Boolean
 
     @Query("""
         SELECT category_id, SUM(ABS(amount_kopecks)) as total
