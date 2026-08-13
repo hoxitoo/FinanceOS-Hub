@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.notifications.PushNotificationListener
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
@@ -637,9 +638,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .background(FosColors.Surface)
-                .padding(FosDimens.CardPadding),
+                .fosCard(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             content()

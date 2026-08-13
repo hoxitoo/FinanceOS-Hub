@@ -34,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.GoalEntity
@@ -44,6 +43,7 @@ import com.financeos.hub.ui.components.goalArtFor
 import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
@@ -316,8 +316,7 @@ private fun GoalCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
+            .fosCardSurface()
             .clickable { onEdit() },
     ) {
         // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).

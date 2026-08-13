@@ -35,6 +35,7 @@ import com.financeos.hub.ui.components.Pie3D
 import com.financeos.hub.ui.components.PieSlice
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
@@ -95,9 +96,7 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                        .fosCard(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Pie3D(

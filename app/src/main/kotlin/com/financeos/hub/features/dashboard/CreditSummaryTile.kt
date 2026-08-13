@@ -1,7 +1,6 @@
 package com.financeos.hub.features.dashboard
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,9 +22,12 @@ import com.financeos.hub.features.credit.dueLabel
 import com.financeos.hub.features.credit.dueUrgency
 import com.financeos.hub.features.credit.dueUrgencyColor
 import com.financeos.hub.features.credit.pluralCards
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 
 /**
@@ -44,19 +46,19 @@ fun CreditSummaryTile(
     val urgency = dueUrgency(credit.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
     val label   = dueLabel(credit.daysUntilDue)
-    // Only an actually pressing deadline earns a coloured border; a calm card stays neutral so the
-    // dashboard doesn't cry wolf every day of the month.
-    val borderColor = when (urgency) {
-        DueUrgency.OVERDUE, DueUrgency.CRITICAL, DueUrgency.SOON -> accent.copy(alpha = 0.35f)
-        else -> FosColors.Border
+    // Only an actually pressing deadline earns a coloured rail and edge; a calm card stays neutral
+    // so the dashboard doesn't cry wolf every day of the month.
+    val tone = when (urgency) {
+        DueUrgency.OVERDUE, DueUrgency.CRITICAL -> FosTone.Negative
+        DueUrgency.SOON                         -> FosTone.Warning
+        else                                    -> FosTone.Neutral
     }
+    val style = if (tone == FosTone.Neutral) FosCardStyle.Plain else FosCardStyle.Rail
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .border(1.dp, borderColor, RoundedCornerShape(FosDimens.RadiusCard))
+            .fosCardSurface(style, tone, FosDimens.RadiusCard)
             .clickable { onClick() }
             .padding(FosDimens.CardPadding),
     ) {

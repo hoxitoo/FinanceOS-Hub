@@ -38,6 +38,7 @@ import com.financeos.hub.ui.components.SegmentedDonut
 import com.financeos.hub.ui.components.SpendTimeline
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 import java.time.Instant
@@ -90,9 +91,7 @@ fun TrendsTab(state: AnalyticsState) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                    .background(FosColors.Surface)
-                    .padding(FosDimens.CardPadding),
+                    .fosCard(),
             ) {
                 SpendTimeline(daily = state.dailyExpenses)
             }
@@ -118,9 +117,7 @@ fun TrendsTab(state: AnalyticsState) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                        .fosCard(),
                 ) {
                     if (fatigue.dailyAverages.any { it.second > 0L }) {
                         FatigueBars(dailyAverages = fatigue.dailyAverages)
@@ -148,9 +145,7 @@ fun TrendsTab(state: AnalyticsState) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                        .fosCard(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     // Plain-language headline first — the one line that answers "так лучше или хуже?"
@@ -233,9 +228,7 @@ private fun WhenYouSpendCard(heat: HeatmapData) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .background(FosColors.Surface)
-                .padding(FosDimens.CardPadding),
+                .fosCard(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (!hasData) {
@@ -327,9 +320,7 @@ private fun ImpulseCard(stats: com.financeos.hub.core.analytics.ImpulseStats) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Headline: the share of MONEY, which matters more than the share of receipts.
