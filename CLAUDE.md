@@ -61,7 +61,7 @@ app/
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
 └── ui/
-    ├── theme/        (FosColors, FosType, FosDimens, FosTheme, FosFormatter,
+    ├── theme/        (FosColors, FosType, FosDimens, FosSurface, FosTheme, FosFormatter,
     │                  AmountVisualTransformation, Shimmer)
     └── components/   (see README project structure)
 ```
@@ -78,6 +78,20 @@ app/
    (CRITICAL→Negative, WARNING→Warning, INFO→Info)
 5. Net Worth negative → Negative color
 6. `ScoreDonut` slices never use Negative — red reads as "error", not "category"
+7. **Никогда не рисуй карточку руками.** `clip + background(Surface)` в фиче — это баг: экран
+   сливается в одно полотно. Только `Modifier.fosCard / fosCardSurface / fosHeroCard / fosInset`
+   из `ui/theme/FosSurface.kt`.
+   - `FosCardStyle` выбирается по **роли** блока: `Raised` — главный блок экрана (один на экран),
+     `Rail` — блок с финансовым направлением, `Sunken` — вложенный список внутри карточки,
+     `Outline` — призыв к действию/пустое состояние, `Plain` — всё остальное.
+   - `FosTone` подчиняется правилам #1/#2: `Positive` только доход/успех, `Negative` только
+     расход/превышение. Блоку без направления — `Neutral`.
+   - Красная огранка на КАЖДОЙ строке списка расходов запрещена: когда красное всё, не выделено
+     ничего. В `TransactionRow` полосу получает только доход.
+   - Заголовок группы — `FosSectionHeader` (галочка тона + линейка), не голый `Text(SectionCap)`.
+     `SectionCap` остаётся только для подписи поля внутри формы/шита.
+   - Карточка, содержимое которой заливает её целиком (арт целей), дополнительно получает
+     `fosCardEdge` — обычная рамка рисуется ДО детей и оказывается под артом.
 
 ## Amounts Storage
 - Store as `Long` kopecks (×100), convert to Double only in `FosFormatter`
@@ -374,3 +388,4 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 - User-facing overview: `README.md`
 - Goal art generation prompts: `docs/GOAL_ART_PROMPTS.md`
 - Colour tokens: `FosColors.kt` · Typography: `FosType.kt`
+- Огранка карточек: `ui/theme/FosSurface.kt` · Заголовки и «?»-пояснения: `ui/components/FosSection.kt`
