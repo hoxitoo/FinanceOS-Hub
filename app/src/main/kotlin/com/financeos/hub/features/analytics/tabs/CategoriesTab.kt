@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -31,12 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.features.analytics.AnalyticsViewModel
+import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.components.Pie3D
 import com.financeos.hub.ui.components.PieSlice
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
-import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosCardSurface
+import com.financeos.hub.ui.theme.fosHeroCard
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 
 /** Fallback palette for categories whose stored colour can't be parsed. */
@@ -70,7 +73,7 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
             .fillMaxSize()
             .background(FosColors.Background)
             .padding(horizontal = FosDimens.ScreenPadding),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item { Spacer(Modifier.height(FosDimens.ItemGap)) }
 
@@ -96,7 +99,7 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fosCard(),
+                        .fosHeroCard(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Pie3D(
@@ -159,19 +162,22 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
             // ── Top-3 ────────────────────────────────────────────────────────
             item {
                 Spacer(Modifier.height(FosDimens.ItemGap))
-                Text("ТОП-3 ТРАТЫ", style = FosType.SectionCap, color = FosColors.TextMuted)
-                Spacer(Modifier.height(6.dp))
+                FosSectionHeader("ТОП-3 ТРАТЫ", tone = FosTone.Negative)
+                Spacer(Modifier.height(8.dp))
             }
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     sorted.take(3).forEachIndexed { i, (catId, kopecks) ->
+                        val color = sliceColor(catId, i)
+                        // The top three are cut differently from the tail below: raised surface,
+                        // rounder corners, a filled rank badge. Same data, different weight — which
+                        // is the whole reason for splitting the list in two.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-                                .background(FosColors.Surface)
+                                .fosCardSurface(FosCardStyle.Raised, radius = FosDimens.RadiusCard)
                                 .clickable { drillCategory = catId }
-                                .padding(FosDimens.CardPaddingSmall),
+                                .padding(FosDimens.CardPadding),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment     = Alignment.CenterVertically,
                         ) {
@@ -179,12 +185,16 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
                                 modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    "${i + 1}",
-                                    style    = FosType.BodySemi,
-                                    color    = sliceColor(catId, sorted.indexOfFirst { it.key == catId }),
-                                    modifier = Modifier.padding(end = 8.dp),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(color.copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("${i + 1}", style = FosType.SmallBold, color = color)
+                                }
+                                Spacer(Modifier.size(10.dp))
                                 Column {
                                     Text(
                                         "${state.categoryEmojis[catId].orEmpty()} " +
@@ -201,15 +211,15 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
                             }
                             Text(
                                 FosFormatter.compact(kopecks),
-                                style = FosType.SmallBold,
+                                style = FosType.CardAmount,
                                 color = FosColors.Negative,
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(FosDimens.ItemGap))
-                Text("ВСЕ КАТЕГОРИИ", style = FosType.SectionCap, color = FosColors.TextMuted)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(FosDimens.SectionGap))
+                FosSectionHeader("ВСЕ КАТЕГОРИИ")
+                Spacer(Modifier.height(8.dp))
             }
         }
 
@@ -222,8 +232,7 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-                    .background(FosColors.Surface)
+                    .fosCardSurface(FosCardStyle.Plain, radius = FosDimens.RadiusCardSmall)
                     .clickable {
                         selectedSlice = catId
                         drillCategory = catId

@@ -43,6 +43,10 @@ import com.financeos.hub.ui.components.goalArtFor
 import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.FosCardStyle
+import com.financeos.hub.ui.theme.FosTone
+import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosCardEdge
 import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
@@ -97,12 +101,21 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
 
             if (state.goals.isEmpty()) {
                 item {
-                    Text(
-                        "Нажмите + чтобы добавить первую цель",
-                        style    = FosType.Body,
-                        color    = FosColors.TextMuted,
-                        modifier = Modifier.padding(top = FosDimens.SectionGap),
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = FosDimens.SectionGap)
+                            .fosCard(FosCardStyle.Outline, FosTone.Info),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("Целей пока нет", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                        Text(
+                            "Нажмите +, чтобы добавить первую. Пополнять можно вручную или " +
+                                "привязать цель к счёту — тогда переводы будут учитываться сами.",
+                            style = FosType.Micro,
+                            color = FosColors.TextSecondary,
+                        )
+                    }
                 }
             } else {
                 items(state.goals, key = { it.id }) { goal ->
@@ -313,10 +326,17 @@ private fun GoalCard(
     val complete = ratio >= 1f
     val artKind  = remember(goal.emoji, goal.name) { goalArtFor(goal) }
 
+    // Достигнутая цель — единственный случай, когда зелёная огранка честна по правилам цвета.
+    val tone  = if (complete) FosTone.Positive else FosTone.Neutral
+    val style = if (complete) FosCardStyle.Rail else FosCardStyle.Plain
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .fosCardSurface()
+            .fosCardSurface(style, tone)
+            // Рамка поверх содержимого: арт цели закрашивает карточку целиком и обычную рамку
+            // просто перекрывает — соседние цели сливались в одно полотно.
+            .fosCardEdge(style, tone)
             .clickable { onEdit() },
     ) {
         // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).

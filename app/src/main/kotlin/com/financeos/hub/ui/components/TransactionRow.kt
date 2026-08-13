@@ -16,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
@@ -29,10 +31,16 @@ fun TransactionRow(
     modifier     : Modifier = Modifier,
     onClick      : (() -> Unit)? = null,
 ) {
+    // Зелёную полосу получает только доход. Расход НЕ помечается красным краем намеренно: в списке,
+    // где расход — это почти каждая строка, красная огранка перестаёт что-либо выделять и экран
+    // снова превращается в однородное полотно. Сумма справа и так красная (правило #2).
+    val tone  = if (transaction.type == TransactionType.INCOME) FosTone.Positive else FosTone.Neutral
+    val style = if (tone == FosTone.Neutral) FosCardStyle.Plain else FosCardStyle.Rail
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .fosCardSurface(radius = FosDimens.RadiusCardSmall)
+            .fosCardSurface(style, tone, FosDimens.RadiusCardSmall)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(FosDimens.CardPaddingSmall),
         horizontalArrangement = Arrangement.SpaceBetween,

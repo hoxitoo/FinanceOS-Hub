@@ -7,12 +7,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -96,16 +98,7 @@ fun Modifier.fosCardSurface(
         FosCardStyle.Outline -> Color.Transparent
         else                 -> FosColors.Surface
     }
-    val borderColor = when {
-        // A toned card states its direction through the border too, not only the rail — at a
-        // glance across a scroll the edge is what the eye picks up.
-        style == FosCardStyle.Outline && accent != null -> accent.copy(alpha = 0.45f)
-        style == FosCardStyle.Outline                   -> FosColors.BorderStrong
-        accent != null                                  -> accent.copy(alpha = 0.28f)
-        style == FosCardStyle.Raised                    -> FosColors.BorderStrong.copy(alpha = 0.55f)
-        style == FosCardStyle.Sunken                    -> FosColors.BorderSoft
-        else                                            -> FosColors.Border
-    }
+    val borderColor = edgeColor(style, accent)
 
     var m: Modifier = this
     // A raised card is the only one that lifts. Shadows on every card would flatten the hierarchy
@@ -141,6 +134,55 @@ fun Modifier.fosCardSurface(
         }
     }
     return m
+}
+
+/** Which colour the edge of a card takes, given its style and (optional) accent. */
+private fun edgeColor(style: FosCardStyle, accent: Color?): Color = when {
+    // A toned card states its direction through the border too, not only the rail — at a
+    // glance across a scroll the edge is what the eye picks up.
+    style == FosCardStyle.Outline && accent != null -> accent.copy(alpha = 0.45f)
+    style == FosCardStyle.Outline                   -> FosColors.BorderStrong
+    accent != null                                  -> accent.copy(alpha = 0.28f)
+    style == FosCardStyle.Raised                    -> FosColors.BorderStrong.copy(alpha = 0.55f)
+    style == FosCardStyle.Sunken                    -> FosColors.BorderSoft
+    else                                            -> FosColors.Border
+}
+
+/**
+ * The border and rail of [fosCardSurface], drawn ON TOP of the card's own content.
+ *
+ * For the one case the plain modifier can't serve: a card whose content fills it edge to edge — the
+ * goal cards paint pixel art across their whole area, and a border applied in the modifier chain is
+ * painted *before* children, so the artwork covered it. The card looked borderless precisely where a
+ * border was most needed to separate two adjacent goals.
+ *
+ * Apply this in addition to [fosCardSurface], not instead of it: the fill still belongs underneath.
+ */
+fun Modifier.fosCardEdge(
+    style : FosCardStyle = FosCardStyle.Plain,
+    tone  : FosTone      = FosTone.Neutral,
+    radius: Dp           = FosDimens.RadiusCard,
+): Modifier = drawWithContent {
+    drawContent()
+    val accent = tone.accent
+    val r      = CornerRadius(radius.toPx(), radius.toPx())
+    val stroke = 1.dp.toPx()
+    drawRoundRect(
+        color        = edgeColor(style, accent),
+        topLeft      = Offset(stroke / 2f, stroke / 2f),
+        size         = Size(size.width - stroke, size.height - stroke),
+        cornerRadius = r,
+        style        = Stroke(width = stroke),
+    )
+    if (style == FosCardStyle.Rail && accent != null) {
+        val w = FosDimens.RailWidth.toPx()
+        drawRoundRect(
+            color        = accent,
+            topLeft      = Offset.Zero,
+            size         = Size(w, size.height),
+            cornerRadius = CornerRadius(w / 2f, w / 2f),
+        )
+    }
 }
 
 /** Convenience for the single most important block on a screen. */
