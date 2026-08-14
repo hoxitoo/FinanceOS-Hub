@@ -371,8 +371,16 @@ private fun BreakdownCard(result: SavingsMath.Result, input: CalcInputs) {
         Line("Ваши взносы", FosFormatter.amount(result.contributedKopecks), FosColors.TextPrimary)
         Line("Проценты", FosFormatter.amount(result.interestKopecks), FosColors.Positive)
         if (result.taxKopecks > 0) {
-            Line("НДФЛ 13 %", "−" + FosFormatter.amount(result.taxKopecks), FosColors.Negative)
-            Line("Проценты после налога", FosFormatter.amount(result.netInterestKopecks), FosColors.TextPrimary)
+            // На счёте лежит сумма ДО налога, и это не упрощение: НДФЛ с процентов начисляет
+            // налоговая по итогам года и платится отдельно, вклад он не уменьшает. Поэтому
+            // главное число остаётся валовым, а «на руки» показано здесь явной строкой — иначе
+            // пришлось бы либо соврать в итоге, либо спрятать налог совсем.
+            Line("НДФЛ 13 % (платится отдельно)", "−" + FosFormatter.amount(result.taxKopecks), FosColors.Negative)
+            Line(
+                "Останется после налога",
+                FosFormatter.amount(result.finalKopecks - result.taxKopecks),
+                FosColors.TextPrimary,
+            )
         }
         if (input.inflationBp > 0) {
             Line(
@@ -410,9 +418,13 @@ private fun BreakdownCard(result: SavingsMath.Result, input: CalcInputs) {
                 "приносят процент — поэтому эффективная ставка выше номинальной.\n\n" +
                 "«В сегодняшних деньгах» — итог, поделённый на инфляцию за срок: столько " +
                 "накопленное будет стоить по нынешним ценам.\n\n" +
-                "Налог считается простыми 13 % от процентного дохода. Настоящий НДФЛ с вкладов " +
-                "берётся только с суммы сверх необлагаемого минимума, поэтому реальный налог " +
-                "будет меньше показанного, а не больше."
+                "Налог считается простыми 13 % от процентного дохода и НЕ вычитается из итога: " +
+                "НДФЛ с процентов начисляет налоговая по итогам года, и платите вы его отдельно, " +
+                "а не со счёта. Строка «останется после налога» показывает, сколько денег будет " +
+                "по-настоящему вашими.\n\n" +
+                "Настоящий НДФЛ с вкладов берётся только с суммы сверх необлагаемого минимума " +
+                "(он привязан к ключевой ставке), поэтому реальный налог будет МЕНЬШЕ показанного, " +
+                "а не больше."
         )
     }
 }
@@ -504,9 +516,11 @@ private fun AdvancedBlock(input: CalcInputs) {
             verticalAlignment     = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Вычитать НДФЛ 13 %", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                Text("Показывать НДФЛ 13 %", style = FosType.BodySemi, color = FosColors.TextPrimary)
                 Text(
-                    "Упрощённо, без необлагаемого минимума.",
+                    "Налог платится отдельно и вклад не уменьшает, поэтому итог остаётся прежним — " +
+                        "в разборе появляется строка «останется после налога». Упрощённо, без " +
+                        "необлагаемого минимума.",
                     style = FosType.Micro, color = FosColors.TextMuted,
                 )
             }

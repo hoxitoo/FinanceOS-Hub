@@ -449,53 +449,78 @@ abstract class FosDatabase : RoomDatabase() {
                 // Google Ads…), and matching is a plain `contains`, so one loose word would swallow
                 // whole other categories. Only the billing descriptors that actually identify a
                 // subscription are listed.
-                Triple("r200", "яндекс плюс",       "cat_subscription"),
-                Triple("r201", "яндекс.плюс",       "cat_subscription"),
-                Triple("r202", "yandex plus",       "cat_subscription"),
-                Triple("r203", "кинопоиск",         "cat_subscription"),
-                Triple("r204", "kinopoisk",         "cat_subscription"),
-                Triple("r205", "сбер прайм",        "cat_subscription"),
-                Triple("r206", "сберпрайм",         "cat_subscription"),
-                Triple("r207", "sberprime",         "cat_subscription"),
-                Triple("r208", "ozon premium",      "cat_subscription"),
-                Triple("r209", "озон премиум",      "cat_subscription"),
-                Triple("r210", "wink",              "cat_subscription"),
-                Triple("r211", "megogo",            "cat_subscription"),
-                Triple("r212", "мегого",            "cat_subscription"),
-                Triple("r213", "amediateka",        "cat_subscription"),
-                Triple("r214", "амедиатека",        "cat_subscription"),
-                Triple("r215", "литрес",            "cat_subscription"),
-                Triple("r216", "litres",            "cat_subscription"),
-                Triple("r217", "bookmate",          "cat_subscription"),
-                Triple("r218", "букмейт",           "cat_subscription"),
-                Triple("r219", "youtube",           "cat_subscription"),
-                Triple("r220", "google play",       "cat_subscription"),
-                Triple("r221", "google one",        "cat_subscription"),
-                Triple("r222", "apple.com/bill",    "cat_subscription"),
-                Triple("r223", "itunes",            "cat_subscription"),
-                Triple("r224", "icloud",            "cat_subscription"),
-                Triple("r225", "apple music",       "cat_subscription"),
-                Triple("r226", "telegram premium",  "cat_subscription"),
-                Triple("r227", "vk музыка",         "cat_subscription"),
-                Triple("r228", "vk combo",          "cat_subscription"),
-                Triple("r229", "deezer",            "cat_subscription"),
-                Triple("r230", "openai",            "cat_subscription"),
-                Triple("r231", "chatgpt",           "cat_subscription"),
-                Triple("r232", "dropbox",           "cat_subscription"),
-                Triple("r233", "notion",            "cat_subscription"),
-                Triple("r234", "adobe",             "cat_subscription"),
-                Triple("r235", "jetbrains",         "cat_subscription"),
-                Triple("r236", "figma",             "cat_subscription"),
-                Triple("r237", "canva",             "cat_subscription"),
-                Triple("r238", "duolingo",          "cat_subscription"),
-                Triple("r239", "подписка",          "cat_subscription"),
+                Triple("r300", "яндекс плюс",       "cat_subscription"),
+                Triple("r301", "яндекс.плюс",       "cat_subscription"),
+                Triple("r302", "yandex plus",       "cat_subscription"),
+                Triple("r303", "кинопоиск",         "cat_subscription"),
+                Triple("r304", "kinopoisk",         "cat_subscription"),
+                Triple("r305", "сбер прайм",        "cat_subscription"),
+                Triple("r306", "сберпрайм",         "cat_subscription"),
+                Triple("r307", "sberprime",         "cat_subscription"),
+                Triple("r310", "wink",              "cat_subscription"),
+                Triple("r311", "megogo",            "cat_subscription"),
+                Triple("r312", "мегого",            "cat_subscription"),
+                Triple("r313", "amediateka",        "cat_subscription"),
+                Triple("r314", "амедиатека",        "cat_subscription"),
+                Triple("r315", "литрес",            "cat_subscription"),
+                Triple("r316", "litres",            "cat_subscription"),
+                Triple("r317", "bookmate",          "cat_subscription"),
+                Triple("r318", "букмейт",           "cat_subscription"),
+                Triple("r319", "youtube",           "cat_subscription"),
+                Triple("r320", "google play",       "cat_subscription"),
+                Triple("r321", "google one",        "cat_subscription"),
+                Triple("r322", "apple.com/bill",    "cat_subscription"),
+                Triple("r323", "itunes",            "cat_subscription"),
+                Triple("r324", "icloud",            "cat_subscription"),
+                Triple("r325", "apple music",       "cat_subscription"),
+                Triple("r326", "telegram premium",  "cat_subscription"),
+                Triple("r327", "vk музыка",         "cat_subscription"),
+                Triple("r328", "vk combo",          "cat_subscription"),
+                Triple("r329", "deezer",            "cat_subscription"),
+                Triple("r330", "openai",            "cat_subscription"),
+                Triple("r331", "chatgpt",           "cat_subscription"),
+                Triple("r332", "dropbox",           "cat_subscription"),
+                Triple("r333", "notion",            "cat_subscription"),
+                Triple("r334", "adobe",             "cat_subscription"),
+                Triple("r335", "jetbrains",         "cat_subscription"),
+                Triple("r336", "figma",             "cat_subscription"),
+                Triple("r337", "canva",             "cat_subscription"),
+                Triple("r338", "duolingo",          "cat_subscription"),
                 Triple("r200", "букмекер",          "cat_betting"),
                 Triple("r201", "ставка на спорт",   "cat_betting"),
+                // Самое широкое правило во всём списке — идёт ПОСЛЕДНИМ, чтобы срабатывать только
+                // тогда, когда ни один конкретный сервис не опознан.
+                Triple("r399", "подписка",          "cat_subscription"),
             )
+            insertRules(db, rules, priority = 0)
+            insertRules(db, PRIORITY_RULES, priority = 1)
+        }
+
+        /**
+         * Правила, которые обязаны победить более широкое правило, стоящее РАНЬШЕ них в списке.
+         *
+         * `DictionaryClassifier` берёт первое совпадение при сортировке `priority DESC`, дальше —
+         * порядок вставки. «ozon premium» содержит в себе «ozon» (r071, Покупки), поэтому при
+         * равном приоритете подписка Ozon Premium навсегда уезжала бы в Покупки, а эти две строки
+         * были бы мёртвым кодом. Приоритет 1 поднимает их над всем списком.
+         *
+         * Сюда попадает только то, что реально перекрыто: раздать приоритет всем подряд — значит
+         * потерять сам порядок как инструмент.
+         */
+        private val PRIORITY_RULES = listOf(
+            Triple("r308", "ozon premium", "cat_subscription"),
+            Triple("r309", "озон премиум", "cat_subscription"),
+        )
+
+        private fun insertRules(
+            db      : SupportSQLiteDatabase,
+            rules   : List<Triple<String, String, String>>,
+            priority: Int,
+        ) {
             rules.forEach { (id, pattern, catId) ->
                 db.execSQL(
-                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, 0, 0)",
-                    arrayOf(id, pattern, catId),
+                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, ?, 0)",
+                    arrayOf(id, pattern, catId, priority),
                 )
             }
         }

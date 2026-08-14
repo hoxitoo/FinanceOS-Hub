@@ -169,13 +169,14 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     sorted.take(3).forEachIndexed { i, (catId, kopecks) ->
                         val color = sliceColor(catId, i)
-                        // The top three are cut differently from the tail below: raised surface,
-                        // rounder corners, a filled rank badge. Same data, different weight — which
-                        // is the whole reason for splitting the list in two.
+                        // Отличаются от хвоста ниже радиусом, отступом и кружком с местом — но НЕ
+                        // подъёмом: Raised на экране ровно один, и это пирог. Четыре приподнятых
+                        // блока подряд снова уравнивают всё со всем — ровно та беда, от которой
+                        // писалась система огранки.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .fosCardSurface(FosCardStyle.Raised, radius = FosDimens.RadiusCard)
+                                .fosCardSurface(FosCardStyle.Plain, radius = FosDimens.RadiusCard)
                                 .clickable { drillCategory = catId }
                                 .padding(FosDimens.CardPadding),
                             horizontalArrangement = Arrangement.SpaceBetween,
