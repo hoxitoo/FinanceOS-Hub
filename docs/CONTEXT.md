@@ -92,7 +92,7 @@ CardEntity:          id, accountId (FK, onDelete = CASCADE), cardMask, isActive
 TransferRouteEntity: id, goalId, matchType (ACCOUNT|CARD|KEYWORD), matchValue (lowercased), isActive
 ```
 
-### CategoryEntity (17 system categories: 14 expense + 3 income)
+### CategoryEntity (18 system categories: 15 expense + 3 income)
 ```
 id, name, emoji, color (hex)
 isSystem: Boolean
@@ -115,28 +115,67 @@ deadlineAt: Long?
 isCompleted: Boolean
 ```
 
-## Default Categories (17)
+## Default Categories (18)
 ```
-Expense (14):
+Expense (15):
 cat_food, cat_grocery, cat_transport, cat_housing, cat_health,
 cat_shopping, cat_telecom, cat_entertain, cat_education, cat_travel,
-cat_beauty, cat_pets, cat_other, cat_betting (Букмекер 🎰)
+cat_beauty, cat_pets, cat_other, cat_betting (Букмекер 🎰),
+cat_subscription (Подписки 🔄)
 Income (3):
 cat_salary (Зарплата 💼), cat_income (Прочие доходы 💰), cat_cashback (Кэшбэк 💸)
 ```
 `sort_order` is the seed-list index, and existing installs keep their stored order via
 `INSERT OR IGNORE` — so a **new category must be appended LAST**, never inserted mid-list,
 or new and existing installs would disagree on the order. The colour list must be extended
-in step (17 categories / 17 colours) to keep `colors[i]` in range.
+in step (18 categories / 18 colours) to keep `colors[i]` in range.
+
+### Adding a category is TWO operations, not one
+Seeding the category and its rules is only half the job. Rules go in with `INSERT OR IGNORE`
+and the classifier takes the **first** match (`ORDER BY priority DESC`, then rowid), so a rule
+whose pattern already exists under another category will never fire — the duplicate lands after
+the original. The existing row has to be re-pointed with an explicit `UPDATE`.
+
+`MIGRATION_13_14` is the worked example: it seeds `cat_subscription`, adds ~40 rules, and then
+
+```sql
+UPDATE merchant_rules SET category_id = 'cat_subscription'
+WHERE id IN ('r091','r092','r093','r094','r095','r096')   -- netflix, spotify, okko, more.tv, иви, я.музыка
+  AND category_id = 'cat_entertain'                        -- не перетирать чужой выбор
+```
+
+Already-ingested transactions are **not** re-labelled: the category lives on the transaction row,
+and rules only affect the parsing of future messages.
+
+Watch the breadth of a literal: matching is a plain `contains` on `merchant + description`, so
+bare «яндекс», «apple», «google» or «telegram» would swallow Яндекс.Такси, Яндекс.Еду and half of
+«Транспорт». Only billing descriptors that actually identify the service belong in the list
+(`apple.com/bill`, `google play`, `яндекс плюс`).
+
+И обратная сторона той же монеты: новое правило может оказаться перекрыто СТАРЫМ широким. «ozon
+premium» содержит в себе «ozon» (r071, Покупки), которое стоит раньше, — при равном приоритете
+новая строка мертва. Для таких случаев есть `PRIORITY_RULES`: тот же формат, но `priority = 1`,
+и сортировка `priority DESC` поднимает их над всем списком. Список держится коротким намеренно —
+раздать приоритет всем значит потерять порядок как инструмент.
+
+Перед добавлением правил стоит прогнать по списку две проверки: нет ли повторов `id` (при
+`INSERT OR IGNORE` побеждает ПЕРВЫЙ, и какой именно — зависит от возраста установки) и не является
+ли какой-нибудь более ранний паттерн подстрокой нового.
 
 ## Categorisation — how it actually works
 Two-stage, **deterministic** — there is no on-device learning loop:
-1. `DictionaryClassifier` — 143 seeded merchant rules (literal/regex substring match on
+1. `DictionaryClassifier` — ~183 seeded merchant rules (literal/regex substring match on
    `merchant + description`, lowercased, first match wins, compiled once and cached).
 2. `MLCategoryClassifier` (optional, behind the ML toggle) — a **pre-trained, frozen**
    TFLite model (`merchant_classifier.tflite`, 256→13 softmax). Inference only; the
-   weights ship in the APK and never change on device. Below 0.40 confidence it defers
-   to the dictionary. Its output space is the 13 **expense** categories only.
+   weights ship in the APK and never change on device. Its output space is the original 13
+   expense categories only.
+   **It asks the dictionary FIRST and returns that answer when there is one.** The model cannot
+   name `cat_betting` or `cat_subscription` — they did not exist when it was trained — so with the
+   model in front, those categories would stay permanently empty for anyone who turned the toggle
+   on, which reads as a broken feature rather than a model limitation. Below 0.40 confidence it
+   returns null: the dictionary has already had its turn, and an under-confident guess is worse
+   than no category, because it looks decided.
 3. Fallback — `CategoryDefaults.forType(type)`: any INCOME row that still has no category
    defaults to `cat_income`. Applied at all 3 ingestion sites.
 
@@ -221,7 +260,8 @@ dimmed (α .16). `FosColors.Negative` is deliberately never used for a slice —
 ```
 onboarding → dashboard (after onboarding_complete = true)
 dashboard | transactions | analytics | budget | goals   ← bottom nav
-settings | categories | subscriptions                   ← pushed routes
+settings | categories | subscriptions | credit          ← pushed routes
+calculator                                              ← pushed from goals
 transactions?categoryId=<id>                            ← optional pre-filter (subscription deep-link)
 ```
 Deep-links from notifications are validated against `FosRoute.sanitizeDeepLink` (allowlist) in
@@ -292,6 +332,77 @@ ignores the period chips (it answers a fixed month-vs-month question) and matche
 
 ### Инсайты
 Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, no icon.
+
+## Screen: Калькулятор накоплений (`features/calculator`)
+
+Вход — кнопка «🧮 Калькулятор» в шапке «Целей». Не в настройках: вопрос «за сколько я это
+накоплю» возникает ровно тогда, когда смотришь на недособранную цель.
+
+### Три режима — одно уравнение
+| Режим | Что спрашивает | Что вычисляет | Функция |
+|---|---|---|---|
+| `Grow` | старт, взнос, срок, ставка | итоговую сумму | `SavingsMath.project` |
+| `Time` | старт, взнос, ставка, **цель** | срок | `SavingsMath.monthsToReach` |
+| `Contribution` | старт, срок, ставка, **цель** | ежемесячный взнос | `SavingsMath.requiredMonthly` |
+
+Все три опираются на одну помесячную симуляцию `SavingsMath.simulate`. Замкнутая формула
+аннуитета короче ровно до первого реального требования — капитализация раз в квартал, взнос в
+начале месяца, ежегодная индексация взноса ломают формулу и не ломают симуляцию.
+
+### Модель месяца
+```
+если взнос в НАЧАЛЕ:  principal += взнос
+проценты = principal × (ставка / 12);  pending += проценты
+если месяц кратен периоду капитализации:  principal += pending;  pending = 0
+если взнос в КОНЦЕ:   principal += взнос
+баланс = principal + pending
+```
+`pending` — начисленное, но ещё не присоединённое. Без капитализации оно так и не попадает в
+`principal` и своих процентов не приносит, что и есть простой процент.
+
+Взнос индексируется по ГОДАМ: `взнос × (1 + рост)^floor((месяц−1)/12)`.
+
+### Обратные задачи
+- **Срок** — тот же прогон с обрывом по достижении цели (`onMonth` возвращает `false`).
+  Потолок `MAX_MONTHS = 600`; недостижимая цель даёт `null` («никогда»), а не 600 месяцев.
+- **Взнос** — итог ЛИНЕЕН по взносу, поэтому хватает двух прогонов (при нулевом взносе и при
+  пробном 10 000 ₽) и деления. Подбор половинным делением дал бы тот же ответ за двадцать прогонов.
+
+### Округление
+`Double` внутри, округление ОДИН раз на выходе. Проценты — разность округлённых величин, а не
+округление разности: иначе «ваши + проценты ≠ итог» на копейку, и это первое, что замечает глаз.
+Правило действует и в итоге, и в каждой строке таблицы по годам.
+
+### Что показывается сверх ответа
+- полоса и легенда «своё / проценты», разбивка суммами;
+- НДФЛ 13 % (переключатель) и «останется после налога». Налог НЕ вычитается из итога и не влияет
+  на обратные задачи, и это не забытая ветка: НДФЛ с процентов начисляет налоговая по итогам года
+  и платится отдельно, вклад он не уменьшает. Поэтому главное число валовое, а «на руки» стоит
+  отдельной строкой; переключатель называется «Показывать», не «Вычитать»;
+- «в сегодняшних деньгах» — итог, делённый на инфляцию за срок;
+- эффективная годовая ставка (при капитализации она выше номинальной);
+- **точка перелома** — первый год, в котором проценты за год превысили взносы за год;
+- столбики по годам (низ — своё, верх — проценты) и таблица.
+
+### Данные пользователя в калькуляторе
+- «Ваш темп» — `TransactionRepository.averageMonthlyNet(3)`: средний остаток за три **закрытых**
+  месяца. Текущий исключён намеренно — 3-го числа зарплата уже пришла, а расходы ещё нет, и
+  средний остаток вышел бы вдвое больше правды (та же ловушка, что и в пилларах оценки).
+  Отрицательный темп не предлагается: «откладывайте −4 000 ₽» — не совет.
+- Чипы целей ставят сумму цели в «цель», а накопленное — в «уже накоплено». Считать целью ОСТАТОК
+  и одновременно ставить накопленное стартом значило бы вычесть накопленное дважды.
+
+### Честность цифр
+Экран прямым текстом называет результат оценкой. Банк меняет ставку при пролонгации, у НДФЛ с
+вкладов есть необлагаемый минимум, привязанный к ключевой ставке (поэтому реальный налог будет
+МЕНЬШЕ показанного, а не больше), взнос можно пропустить. Точна ровно одна цифра — сумма взносов
+при нулевой ставке.
+
+### Состояние
+`CalcInputs` хранит ввод СТРОКАМИ (правило денежных полей ниже), переживает поворот через
+`listSaver`; перечисления сохраняются именами, не `ordinal`. Имена параметров конструктора
+намеренно отличаются от имён свойств (`startMode` → `mode`) — `var mode by mutableStateOf(mode)`
+читается двусмысленно.
 
 ## Money input fields
 

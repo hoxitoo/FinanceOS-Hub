@@ -36,9 +36,15 @@ import com.financeos.hub.ui.components.MoMComparison
 import com.financeos.hub.ui.components.SectionHeader
 import com.financeos.hub.ui.components.SegmentedDonut
 import com.financeos.hub.ui.components.SpendTimeline
+import com.financeos.hub.ui.components.FosSectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosHeroCard
+import com.financeos.hub.ui.theme.fosInset
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import java.time.Instant
 import java.time.ZoneId
@@ -86,13 +92,12 @@ fun TrendsTab(state: AnalyticsState) {
                     "На длинных периодах дни объединяются: до 45 дней — по дням, дальше — " +
                     "по неделям, а на очень больших промежутках — по месяцам. Иначе столбики " +
                     "становятся тоньше волоса и график превращается в шум.",
+                tone      = FosTone.Negative,
             )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                    .background(FosColors.Surface)
-                    .padding(FosDimens.CardPadding),
+                    .fosHeroCard(),
             ) {
                 SpendTimeline(daily = state.dailyExpenses)
             }
@@ -114,13 +119,12 @@ fun TrendsTab(state: AnalyticsState) {
                         "Оранжевые столбики выше нормы, красный — пик.\n\n" +
                         "Зачем: видно, где деньги «утекают» — например, всплеск сразу после зарплаты " +
                         "и спад к концу месяца, когда бюджет уже устал.",
+                    tone      = FosTone.Warning,
                 )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                        .fosCard(),
                 ) {
                     if (fatigue.dailyAverages.any { it.second > 0L }) {
                         FatigueBars(dailyAverages = fatigue.dailyAverages)
@@ -134,6 +138,13 @@ fun TrendsTab(state: AnalyticsState) {
         // ── 4. Month over month ───────────────────────────────────────────────
         if (state.waterfallBars.isNotEmpty()) {
             val total = state.waterfallBars.firstOrNull { it.isTotal }
+            // Красная огранка, если расходы выросли, зелёная — если снизились. Направление читается
+            // с края карточки раньше, чем взгляд доходит до цифры.
+            val momTone = when {
+                total == null                              -> FosTone.Neutral
+                total.currentKopecks > total.prevKopecks    -> FosTone.Negative
+                else                                       -> FosTone.Positive
+            }
             Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
                 SectionHeader(
                     title     = "МЕСЯЦ К МЕСЯЦУ",
@@ -144,13 +155,12 @@ fun TrendsTab(state: AnalyticsState) {
                         "Под каждой строкой видно «было → стало»: сумма за прошлый месяц и за " +
                         "текущий.\n\nВажно: в начале месяца текущий период ещё неполный, поэтому " +
                         "почти всё будет выглядеть как экономия — это нормально.",
+                    tone      = momTone,
                 )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                        .fosCard(FosCardStyle.Rail, momTone),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     // Plain-language headline first — the one line that answers "так лучше или хуже?"
@@ -192,6 +202,7 @@ fun TrendsTab(state: AnalyticsState) {
                             "Это эвристика по времени и сумме, а не чтение мыслей: проверьте " +
                             "список ниже — если покупка на самом деле плановая, просто не " +
                             "обращайте на неё внимания.",
+                        tone      = FosTone.Warning,
                     )
                     ImpulseCard(stats)
                 }
@@ -233,9 +244,7 @@ private fun WhenYouSpendCard(heat: HeatmapData) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .background(FosColors.Surface)
-                .padding(FosDimens.CardPadding),
+                .fosCard(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (!hasData) {
@@ -327,9 +336,7 @@ private fun ImpulseCard(stats: com.financeos.hub.core.analytics.ImpulseStats) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(FosCardStyle.Rail, FosTone.Warning),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Headline: the share of MONEY, which matters more than the share of receipts.
@@ -375,11 +382,13 @@ private fun ImpulseCard(stats: com.financeos.hub.core.analytics.ImpulseStats) {
         // The proof: which purchases were actually flagged, with the hour that triggered it.
         if (stats.samples.isNotEmpty()) {
             Spacer(Modifier.height(2.dp))
-            Text("ЧТО ИМЕННО", style = FosType.SectionCap, color = FosColors.TextMuted)
+            FosSectionHeader("ЧТО ИМЕННО")
             stats.samples.forEach { tx ->
                 val ldt = Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDateTime()
                 Row(
-                    modifier              = Modifier.fillMaxWidth(),
+                    // Sunken: these rows are evidence for the card above them, not cards of their
+                    // own. Recessing them keeps the nesting visible one level deep.
+                    modifier              = Modifier.fillMaxWidth().fosInset(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {

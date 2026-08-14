@@ -57,4 +57,29 @@ class TransactionRepository @Inject constructor(
         val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
         return dao.sumIncome(from, to) ?: 0L
     }
+
+    /**
+     * Сколько в среднем оставалось в месяц за последние [months] ЗАВЕРШЁННЫХ месяцев.
+     *
+     * Текущий месяц исключён намеренно: 3-го числа зарплата уже пришла, а расходы ещё нет, и
+     * «средний остаток» получился бы вдвое больше правды — ровно та же ловушка, из-за которой
+     * пиллар оценки считает только закрытые месяцы.
+     *
+     * `null` — данных нет вообще; отличать «ноль» от «не знаю» здесь обязательно: на этом числе
+     * калькулятор предлагает пользователю его собственный темп накопления.
+     */
+    suspend fun averageMonthlyNet(months: Int = 3): Long? {
+        val zone = ZoneId.systemDefault()
+        val nets = (1..months).mapNotNull { offset ->
+            val m    = YearMonth.now().minusMonths(offset.toLong())
+            val from = m.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val to   = m.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+            val income  = dao.sumIncome(from, to)
+            val expense = dao.sumExpenses(from, to)
+            if (income == null && expense == null) null
+            else (income ?: 0L) - (expense ?: 0L)
+        }
+        if (nets.isEmpty()) return null
+        return nets.sum() / nets.size
+    }
 }

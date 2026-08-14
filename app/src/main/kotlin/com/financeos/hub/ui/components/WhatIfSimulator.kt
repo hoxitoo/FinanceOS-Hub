@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
@@ -68,9 +69,7 @@ fun WhatIfSimulator(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .background(FosColors.Surface)
-                .padding(FosDimens.CardPadding),
+                .fosCard(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text("ЕСЛИ СОКРАТИТЬ РАСХОДЫ", style = FosType.SectionCap, color = FosColors.TextMuted)

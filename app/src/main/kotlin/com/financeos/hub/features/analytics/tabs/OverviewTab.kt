@@ -24,13 +24,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.ExpensePyramid
+import com.financeos.hub.ui.components.FORECAST_EXPLANATION
+import com.financeos.hub.ui.components.FosExplain
+import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.components.ScoreDonut
 import com.financeos.hub.ui.components.scoreSegments
 import com.financeos.hub.ui.components.WhatIfSimulator
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosHeroCard
 
 @Composable
 fun OverviewTab(state: AnalyticsState) {
@@ -45,16 +52,11 @@ fun OverviewTab(state: AnalyticsState) {
 
         // Score card
         state.score?.let { score ->
+            item { FosSectionHeader("ФИНАНСОВОЕ ЗДОРОВЬЕ") }
             item {
-                Text("ФИНАНСОВОЕ ЗДОРОВЬЕ", style = FosType.SectionCap, color = FosColors.TextMuted)
-            }
-            item {
+                // The one block this screen is about, so it is the only raised card here.
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                    modifier = Modifier.fillMaxWidth().fosHeroCard(),
                     horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {
@@ -75,16 +77,10 @@ fun OverviewTab(state: AnalyticsState) {
 
         // User archetype (ML)
         state.userArchetype?.let { archetype ->
-            item {
-                Text("ВАШ ФИНАНСОВЫЙ ПРОФИЛЬ", style = FosType.SectionCap, color = FosColors.TextMuted)
-            }
+            item { FosSectionHeader("ВАШ ФИНАНСОВЫЙ ПРОФИЛЬ") }
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
+                    modifier = Modifier.fillMaxWidth().fosCard(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {
@@ -107,25 +103,29 @@ fun OverviewTab(state: AnalyticsState) {
 
         // Forecast
         if (state.forecastKopecks > 0) {
+            item { FosSectionHeader("ПРОГНОЗ НА КОНЕЦ МЕСЯЦА", tone = FosTone.Warning) }
             item {
-                Text("ПРОГНОЗ НА КОНЕЦ МЕСЯЦА", style = FosType.SectionCap, color = FosColors.TextMuted)
-            }
-            item {
-                Row(
+                // A forecast is not a fact, so it carries the amber rail rather than sitting in a
+                // neutral card that looks exactly like the measured figures above it.
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                        .background(FosColors.Surface)
-                        .padding(FosDimens.CardPadding),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically,
+                        .fosCard(FosCardStyle.Rail, FosTone.Warning),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("Расходы к концу месяца", style = FosType.Body, color = FosColors.TextSecondary)
-                    Text(
-                        FosFormatter.compact(state.forecastKopecks),
-                        style = FosType.SmallBold,
-                        color = FosColors.Negative,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text("Расходы к концу месяца", style = FosType.Body, color = FosColors.TextSecondary)
+                        Text(
+                            FosFormatter.compact(state.forecastKopecks),
+                            style = FosType.SmallBold,
+                            color = FosColors.Warning,
+                        )
+                    }
+                    FosExplain(FORECAST_EXPLANATION)
                 }
             }
         }
@@ -142,16 +142,10 @@ fun OverviewTab(state: AnalyticsState) {
         }
 
         // Top 5 categories
-        item {
-            Text("ТОП КАТЕГОРИИ", style = FosType.SectionCap, color = FosColors.TextMuted)
-        }
+        item { FosSectionHeader("ТОП КАТЕГОРИИ", tone = FosTone.Negative) }
         item {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                    .background(FosColors.Surface)
-                    .padding(FosDimens.CardPadding),
+                modifier = Modifier.fillMaxWidth().fosCard(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val total = state.categoryExpenses.values.sum().coerceAtLeast(1L)
@@ -170,9 +164,7 @@ fun OverviewTab(state: AnalyticsState) {
 
         // What-if simulator
         if (state.categoryExpenses.isNotEmpty()) {
-            item {
-                Text("ЧТО ЕСЛИ", style = FosType.SectionCap, color = FosColors.TextMuted)
-            }
+            item { FosSectionHeader("ЧТО ЕСЛИ", tone = FosTone.Info) }
             item {
                 WhatIfSimulator(
                     categoryExpenses = state.categoryExpenses,

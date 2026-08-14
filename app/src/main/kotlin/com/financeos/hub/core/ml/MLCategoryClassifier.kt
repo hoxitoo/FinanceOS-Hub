@@ -17,7 +17,8 @@ import javax.inject.Singleton
  *   Input  : float[1][256]  — text feature vector from TextFeatureExtractor
  *   Output : float[1][13]   — softmax probabilities over 13 categories
  *
- * Falls back to [DictionaryClassifier] if the model file is absent or inference fails.
+ * [DictionaryClassifier] runs FIRST and wins whenever it matches; the model only answers for
+ * merchants no rule knows. It also covers the model being absent or throwing.
  */
 @Singleton
 class MLCategoryClassifier @Inject constructor(
@@ -51,8 +52,15 @@ class MLCategoryClassifier @Inject constructor(
         val text = listOfNotNull(merchant, description).joinToString(" ")
         if (text.isBlank()) return null
 
-        val interp = interpreter
-            ?: return dictionaryClassifier.classify(merchant, description)
+        // Явное правило бьёт модель. Модель заморожена на 13 метках (см. CATEGORY_IDS), и категории,
+        // добавленные позже — «Букмекер», «Подписки» — она физически не может назвать. При включённой
+        // «ИИ классификации» Netflix уходил бы в «Развлечения», а новая категория оставалась бы
+        // навсегда пустой: со стороны это выглядит как сломанная функция, а не как ограничение модели.
+        // Модель по-прежнему делает всю работу там, где правила молчат — то есть ровно то, ради чего
+        // она и нужна.
+        dictionaryClassifier.classify(merchant, description)?.let { return it }
+
+        val interp = interpreter ?: return null
 
         return try {
             val features = featureExtractor.extract(text)
@@ -68,14 +76,12 @@ class MLCategoryClassifier @Inject constructor(
             val probabilities = output[0]
             val maxIdx        = probabilities.indices.maxByOrNull { probabilities[it] } ?: -1
 
-            // Require at least 40% confidence, otherwise defer to dictionary
-            if (maxIdx >= 0 && probabilities[maxIdx] >= 0.40f) {
-                CATEGORY_IDS.getOrNull(maxIdx)
-            } else {
-                dictionaryClassifier.classify(merchant, description)
-            }
+            // Require at least 40% confidence. Below it the dictionary has already had its turn
+            // and said nothing, so the honest answer is "не знаю" — an under-confident guess is
+            // worse than no category at all, because it looks decided.
+            if (maxIdx >= 0 && probabilities[maxIdx] >= 0.40f) CATEGORY_IDS.getOrNull(maxIdx) else null
         } catch (e: Exception) {
-            dictionaryClassifier.classify(merchant, description)
+            null
         }
     }
 }

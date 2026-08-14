@@ -10,13 +10,21 @@ object FosDimens {
     val ItemGap          = 8.dp
     val SectionGap       = 20.dp
 
-    // Border radius
-    val RadiusCard       = 18.dp
-    val RadiusCardSmall  = 16.dp
+    // ── Радиусы: огранка по роли ─────────────────────────────────────────────
+    // Разный радиус — половина того, что отличает главный блок от рядового. Когда всё скруглено
+    // одинаково, экран читается как один список; когда радиус растёт вместе с важностью,
+    // иерархия видна до чтения текста.
+    val RadiusHero       = 24.dp   // главный блок экрана
+    val RadiusCard       = 18.dp   // обычная карточка
+    val RadiusCardSmall  = 14.dp   // плитка в сетке
+    val RadiusInset      = 10.dp   // вложенный ряд внутри карточки
     val RadiusChip       = 20.dp
     val RadiusIcon       = 10.dp
     val RadiusButton     = 12.dp
     val RadiusBar        = 5.dp
+
+    /** Толщина акцентного канта слева у тонированной карточки. */
+    val RailWidth        = 3.dp
 
     // Component sizes
     val IconSizeSm       = 32.dp

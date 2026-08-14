@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,11 +21,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.components.FosSectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
+import com.financeos.hub.ui.theme.FosTone
+import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
@@ -89,13 +91,7 @@ fun SubscriptionsScreen(
 
         // Missed subscriptions
         if (state.missed.isNotEmpty()) {
-            item {
-                Text(
-                    "ПРОПУЩЕНЫ",
-                    style = FosType.SectionCap,
-                    color = FosColors.Negative,
-                )
-            }
+            item { FosSectionHeader("ПРОПУЩЕНЫ", tone = FosTone.Negative) }
             items(state.missed, key = { it.categoryId }) { sub ->
                 SubscriptionCard(sub = sub, isMissed = true, onClick = { onCategoryClick(sub.categoryId) })
             }
@@ -104,7 +100,7 @@ fun SubscriptionsScreen(
         // Active subscriptions
         if (state.active.isNotEmpty()) {
             item {
-                Text("РЕГУЛЯРНЫЕ РАСХОДЫ", style = FosType.SectionCap, color = FosColors.TextMuted)
+                FosSectionHeader("РЕГУЛЯРНЫЕ РАСХОДЫ")
             }
             items(state.active, key = { it.categoryId }) { sub ->
                 SubscriptionCard(sub = sub, isMissed = false, onClick = { onCategoryClick(sub.categoryId) })
@@ -117,11 +113,15 @@ fun SubscriptionsScreen(
 
 @Composable
 private fun SubscriptionCard(sub: SubscriptionInfo, isMissed: Boolean, onClick: () -> Unit) {
+    // Пропущенный платёж получает красную огранку: это единственная строка на экране, где что-то
+    // не так, и её видно в списке одинаковых подписок без чтения подписи.
+    val tone  = if (isMissed) FosTone.Negative else FosTone.Neutral
+    val style = if (isMissed) FosCardStyle.Rail else FosCardStyle.Plain
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
+            .fosCardSurface(style, tone)
             .clickable(onClick = onClick)
             .padding(FosDimens.CardPadding),
         horizontalArrangement = Arrangement.SpaceBetween,

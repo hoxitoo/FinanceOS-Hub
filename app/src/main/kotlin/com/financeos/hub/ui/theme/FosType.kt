@@ -39,6 +39,16 @@ object FosType {
     // Лейблы и мета
     val Label      = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp)
     val Micro      = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
+    /**
+     * [Micro] для ЧИСЕЛ. Правило дизайна #3 требует табличных цифр у любой денежной подписи, а
+     * без них колонка таблицы едет: «1 111» и «8 888» получают разную ширину, и запятые в столбце
+     * перестают стоять друг под другом.
+     */
+    val MicroNum   = TextStyle(
+        fontSize = 10.5.sp,
+        fontWeight = FontWeight.Medium,
+        fontFeatureSettings = "tnum"
+    )
     val SectionCap = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
 
     // Дополнительные стили

@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v13
+- **DB schema:** Room v14
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -44,6 +44,7 @@ app/
 │   ├── credit/       (CreditMath — debt, free limit, cycle, min payment, due payment;
 │   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
+│   ├── finance/      (SavingsMath — накопления: прогноз, срок, требуемый взнос)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
 │   ├── ml/           (ModelLoader, TextFeatureExtractor, MLCategoryClassifier,
@@ -56,12 +57,12 @@ app/
 │   ├── repositories/ (Tx, Account, Card, Category, Budget, Goal, TransferRoute)
 │   └── preferences/  (UserPreferences via DataStore)
 ├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
-├── features/         (dashboard, transactions, analytics, budget, goals,
+├── features/         (dashboard, transactions, analytics, budget, goals, calculator,
 │                      subscriptions, categories, credit, onboarding, settings)
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
 └── ui/
-    ├── theme/        (FosColors, FosType, FosDimens, FosTheme, FosFormatter,
+    ├── theme/        (FosColors, FosType, FosDimens, FosSurface, FosTheme, FosFormatter,
     │                  AmountVisualTransformation, Shimmer)
     └── components/   (see README project structure)
 ```
@@ -78,6 +79,20 @@ app/
    (CRITICAL→Negative, WARNING→Warning, INFO→Info)
 5. Net Worth negative → Negative color
 6. `ScoreDonut` slices never use Negative — red reads as "error", not "category"
+7. **Никогда не рисуй карточку руками.** `clip + background(Surface)` в фиче — это баг: экран
+   сливается в одно полотно. Только `Modifier.fosCard / fosCardSurface / fosHeroCard / fosInset`
+   из `ui/theme/FosSurface.kt`.
+   - `FosCardStyle` выбирается по **роли** блока: `Raised` — главный блок экрана (один на экран),
+     `Rail` — блок с финансовым направлением, `Sunken` — вложенный список внутри карточки,
+     `Outline` — призыв к действию/пустое состояние, `Plain` — всё остальное.
+   - `FosTone` подчиняется правилам #1/#2: `Positive` только доход/успех, `Negative` только
+     расход/превышение. Блоку без направления — `Neutral`.
+   - Красная огранка на КАЖДОЙ строке списка расходов запрещена: когда красное всё, не выделено
+     ничего. В `TransactionRow` полосу получает только доход.
+   - Заголовок группы — `FosSectionHeader` (галочка тона + линейка), не голый `Text(SectionCap)`.
+     `SectionCap` остаётся только для подписи поля внутри формы/шита.
+   - Карточка, содержимое которой заливает её целиком (арт целей), дополнительно получает
+     `fosCardEdge` — обычная рамка рисуется ДО детей и оказывается под артом.
 
 ## Amounts Storage
 - Store as `Long` kopecks (×100), convert to Double only in `FosFormatter`
@@ -87,6 +102,11 @@ app/
 ## SMS Deduplication
 `smsId = "${sender}_${timestamp}_${body.hashCode()}"` — checked before insert, then
 `existsSimilarSmsOrPush(|amount|, ±5 min)` catches the SMS↔push twin of the same event.
+
+## Categories (18)
+13 расходных + 3 доходных + «Букмекер» + «Подписки». Список **append-only** — см. инвариант #9.
+«Подписки» отделены от «Развлечений»: кинотеатр и купленная в Steam игра — разовая покупка,
+Netflix и Яндекс Плюс — ежемесячное списание, и в бюджете это разные вещи.
 
 ## Supported Banks (12)
 - **P1:** Сбербанк, Т-Банк, ВТБ, Альфа-Банк, Газпромбанк
@@ -206,7 +226,10 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] `SmsReceiver` (real-time, `goAsync`), `SmsReader` (90-day import), `PushNotificationListener`
       (reads **every** notification text extra)
 - [x] SMS is **opt-in** (`sms_realtime_enabled`, default false)
-- [x] `DictionaryClassifier` (143 rules), `CategoryDefaults.forType` income fallback
+- [x] `DictionaryClassifier` (~183 rules, 18 категорий), `CategoryDefaults.forType` income fallback.
+      **Словарь идёт ПЕРВЫМ, модель — вторая.** Модель заморожена на 13 метках и категории,
+      добавленные позже («Букмекер», «Подписки»), назвать не может; при обратном порядке они
+      остались бы навсегда пустыми.
 - [x] `AccountLinker` (card→account, authoritative balance, orphan re-link, recency guard)
 - [x] `AccountKind` (CASH / CREDIT / INVESTMENT) + credit terms on `AccountEntity`; net worth,
       widget and score cushion are CASH-only
@@ -216,6 +239,9 @@ Everything below is **implemented and shipped** unless marked otherwise.
       банку и только когда ответ однозначен. В 90-дневном импорте не применяется — старое
       напоминание затёрло бы текущее.
 - [x] `TransferRouter` (goal routing by account/card/keyword, counterparty leg, internal pairing)
+- [x] `SavingsMath` (`core/finance/`) — одна помесячная симуляция на три задачи: что накопится,
+      за сколько наберётся, сколько откладывать. Капитализация, момент взноса, индексация взноса,
+      инфляция, НДФЛ, эффективная ставка, точка перелома. 24 юнит-теста.
 - [x] All 7 repositories, `UserPreferences` (DataStore, ~20 keys)
 
 ## Screens
@@ -226,6 +252,9 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Budget (envelopes, CRUD, throttled alerts), Goals (9 bundled art backdrops, history,
       🔗 routing, ручное пополнение И снятие через ±)
 - [x] Subscriptions, Categories CRUD, Settings, Onboarding
+- [x] Калькулятор накоплений — `features/calculator`, вход из «Целей» (🧮). Три режима, тонкая
+      настройка, разбивка «своё / проценты», столбики и таблица по годам. Подставляет ваш темп
+      (средний остаток за 3 закрытых месяца) и суммы ваших целей.
 - [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
       + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного периода,
       ставка, утилизация, история операций, лист редактирования условий)
@@ -273,6 +302,8 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Distribution** | Release pipeline, in-app updater, background update notifications, encrypted backups |
 | **Credit cards** | `AccountKind`, схема v10→v12, плитка + экран, разбор реальных пушей Сбера, погашение переводом, оценка процентов |
 | **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
+| **UI system** | `FosSurface` — огранка карточек по роли (Raised/Rail/Sunken/Outline/Plain) + тон по правилам цвета; `FosSectionHeader`; `fosCardEdge` для карточек с артом на всю площадь; пояснение прогноза трат |
+| **Подписки + калькулятор** | Категория «Подписки» (v13→v14) с переводом старых правил стриминга через UPDATE; словарь стал приоритетнее замороженной модели; `SavingsMath` + экран калькулятора накоплений |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
 *Hard-won invariants* above; the rest are visible in `git log`.
@@ -340,6 +371,29 @@ Everything below is **implemented and shipped** unless marked otherwise.
 беспроцентного периода, комиссия за наличные), у каждого поля написано, где его взять, а два поля
 расписания помечены необязательными: сумму и дату банк присылает сам, они лишь подстраховка.
 
+### 18. Правило категоризации бьёт модель, а не наоборот
+`MLCategoryClassifier` спрашивает `DictionaryClassifier` ПЕРВЫМ и возвращает его ответ, если тот
+есть. Модель заморожена на 13 метках (`CATEGORY_IDS`), а категорий уже 18 — «Букмекер» и
+«Подписки» она физически назвать не может. При обратном порядке новая категория остаётся
+навсегда пустой при включённой «ИИ классификации», и это выглядит как сломанная функция, а не как
+ограничение модели. Модель по-прежнему отвечает там, где правила молчат.
+
+Следствие для добавления категории: **мало вставить правило.** Правила идут через
+`INSERT OR IGNORE`, а классификатор берёт ПЕРВОЕ совпадение (`ORDER BY priority DESC`, дальше
+rowid). Дубликат паттерна с новым id встанет позже старого и не сработает никогда — существующую
+строку нужно переписывать `UPDATE`, как это делает `MIGRATION_13_14` для шести правил стриминга.
+Историю это не трогает: категория лежит в самой транзакции, правила влияют только на будущий разбор.
+
+### 19. Калькулятор считает симуляцией, а не формулой
+`SavingsMath.simulate` идёт по месяцам. Замкнутая формула аннуитета короче ровно до первого
+реального требования: капитализация раз в квартал, взнос в начале месяца, ежегодная индексация
+взноса — каждое ломает формулу и не ломает симуляцию.
+- Обе обратные задачи опираются на ту же симуляцию: срок — прогон до достижения суммы, взнос —
+  два прогона (итог линеен по взносу), а не подбор делением пополам.
+- Округление ОДИН раз, на выходе. Проценты = разность округлённых величин, а не округление
+  разности, иначе «ваши + проценты ≠ итог» на копейку — и это первое, что замечает глаз.
+- Потолок `MAX_MONTHS = 600`. Недостижимая цель возвращает `null` («никогда»), а не 600 месяцев.
+
 ### Реальные форматы пушей Сбера (проверено на устройстве)
 | Что | Текст | Как обрабатывается |
 |---|---|---|
@@ -374,3 +428,4 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 - User-facing overview: `README.md`
 - Goal art generation prompts: `docs/GOAL_ART_PROMPTS.md`
 - Colour tokens: `FosColors.kt` · Typography: `FosType.kt`
+- Огранка карточек: `ui/theme/FosSurface.kt` · Заголовки и «?»-пояснения: `ui/components/FosSection.kt`
