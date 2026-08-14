@@ -53,7 +53,10 @@ import com.financeos.hub.ui.theme.FosType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
+fun GoalsScreen(
+    onCalculatorClick: () -> Unit = {},
+    vm: GoalsViewModel = hiltViewModel(),
+) {
     val state       by vm.state.collectAsState()
     var showAddSheet by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -96,7 +99,21 @@ fun GoalsScreen(vm: GoalsViewModel = hiltViewModel()) {
         ) {
             item { Spacer(Modifier.height(16.dp)) }
             item {
-                Text("Цели", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text("Цели", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+                    // Калькулятор живёт здесь, а не в настройках: вопрос «за сколько я это накоплю»
+                    // возникает ровно в тот момент, когда смотришь на недособранную цель.
+                    TextButton(
+                        onClick        = onCalculatorClick,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("🧮 Калькулятор", style = FosType.Label, color = FosColors.TextSecondary)
+                    }
+                }
             }
 
             if (state.goals.isEmpty()) {
