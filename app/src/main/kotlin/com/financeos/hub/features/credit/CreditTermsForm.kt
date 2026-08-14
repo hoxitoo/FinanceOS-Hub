@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.features.dashboard.accountSheetFieldColors
 import com.financeos.hub.ui.theme.AmountVisualTransformation
+import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -163,7 +164,8 @@ fun CreditTermsForm(state: CreditTermsState, currencySymbol: String) {
 @Composable
 private fun Group(title: String, subtitle: String?) {
     Spacer(Modifier.height(4.dp))
-    Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
+    // Форма длинная и вся из одинаковых полей — линейка отделяет группу от предыдущей.
+    FosSectionHeader(title)
     if (subtitle != null) Hint(subtitle)
 }
 

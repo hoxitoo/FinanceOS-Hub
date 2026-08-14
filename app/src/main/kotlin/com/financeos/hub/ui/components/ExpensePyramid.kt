@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
@@ -51,9 +52,7 @@ fun ExpensePyramid(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("СТРУКТУРА РАСХОДОВ", style = FosType.SectionCap, color = FosColors.TextMuted)

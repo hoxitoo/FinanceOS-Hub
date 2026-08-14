@@ -45,8 +45,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.notifications.PushNotificationListener
+import com.financeos.hub.ui.components.FosSectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosType
 
 @Composable
@@ -460,7 +464,7 @@ fun SettingsScreen(
         }
 
         // ── Data ────────────────────────────────────────────────────────────────
-        SettingsSection(title = "ДАННЫЕ") {
+        SettingsSection(title = "ДАННЫЕ", tone = FosTone.Negative) {
             Row(
                 modifier              = Modifier
                     .fillMaxWidth()
@@ -630,17 +634,26 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Заголовок с линейкой + одна карточка на группу настроек.
+ *
+ * Экран длинный, и без линейки одинаковые карточки шли сплошной лентой: где кончается «Резервная
+ * копия» и начинается «Безопасность», приходилось искать глазами по капслоку.
+ */
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+private fun SettingsSection(
+    title  : String,
+    tone   : FosTone = FosTone.Neutral,
+    content: @Composable () -> Unit,
+) {
+    val style = if (tone == FosTone.Neutral) FosCardStyle.Plain else FosCardStyle.Rail
     Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
-        Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
+        FosSectionHeader(title, tone = tone)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusCard))
-                .background(FosColors.Surface)
-                .padding(FosDimens.CardPadding),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .fosCard(style, tone),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             content()
         }

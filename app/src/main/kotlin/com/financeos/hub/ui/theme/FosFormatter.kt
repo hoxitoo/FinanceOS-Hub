@@ -45,6 +45,10 @@ object FosFormatter {
         return date.format(monthYearFmt).replaceFirstChar { it.titlecase(RU) }
     }
 
+    /** LocalDate → "Июнь 2025". Same wording as the epoch-millis overload, no timezone hop. */
+    fun monthYear(date: LocalDate): String =
+        date.format(monthYearFmt).replaceFirstChar { it.titlecase(RU) }
+
     /** Current month name, capitalised — e.g. "Июль". Used to label "this month" metric blocks. */
     fun currentMonthName(): String =
         LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL", RU))
@@ -182,6 +186,21 @@ object FosFormatter {
             decRaw == null -> "$sign$intPart"
             else           -> "$sign$intPart,$decRaw"
         }
+    }
+
+    /**
+     * Kopecks → the RAW string a money field holds: ungrouped, comma for kopecks, nothing else.
+     *
+     * The inverse of [parseAmountInput], and it must stay raw. Feeding a field the *formatted*
+     * value (with NBSP groups or a currency sign) is what desynchronises the caret — grouping is
+     * [AmountVisualTransformation]'s job, and it runs on top of this string, not instead of it.
+     * Whole rubles come back without ",00": a prefilled "10 000,00" invites the user to delete
+     * three characters before typing.
+     */
+    fun plainAmountInput(kopecks: Long): String {
+        val rubles = kopecks / 100L
+        val cents  = Math.abs(kopecks % 100L)
+        return if (cents == 0L) rubles.toString() else "$rubles,%02d".format(cents)
     }
 
     /** Parses a (possibly grouped) money input back to kopecks. Rounds, never truncates. */

@@ -10,7 +10,8 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS; reads **every** text extra (title/text/bigText/subText/summary/info/inbox lines/ticker) so a balance line in any field is seen |
 | **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`); cross-channel SMS↔push dedup within ±5 min |
 | **Marketing filter** | `PromoFilter` drops credit-card offers and cashback ads before any parser runs — a "лимит 163 000 ₽" promo is never booked as a transfer |
-| **Smart categorization** | Deterministic dictionary classifier (143 merchant rules incl. transit, marketplaces, bookmakers, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning) |
+| **Smart categorization** | Deterministic dictionary classifier (~183 merchant rules across 18 categories incl. transit, marketplaces, bookmakers, subscriptions, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning). **Rules always win over the model** — it is frozen at 13 labels and cannot name a category added later |
+| **Subscriptions category** | Netflix, Яндекс Плюс, Кинопоиск, СберПрайм, YouTube, iCloud, Adobe и ещё три десятка сервисов идут в отдельную категорию «Подписки», а не в «Развлечения»: билет в кино — разовая покупка, ежемесячное списание — совсем другая строка бюджета |
 | **Account linking** | Card mask from SMS/push (e.g. ··2548) auto-links transactions to the correct account; the bank's «Остаток» is applied as an authoritative snapshot, with a recency guard so a fresher manual edit is never reverted |
 | **Credit cards** | `AccountKind.CREDIT` — the balance is a **debt**, never mixed into net worth. Dashboard tile (free limit + debt + deadline) opens a dedicated screen: payment amount and date, interest-free period bar, rate, utilisation, repayment, per-card history |
 | **Credit push parsing** | On a credit card Сбер prints the **free limit** under the same «Баланс» label a debit card uses — only the account kind can tell them apart, so it is converted to a debt using the card's limit. The «Внесите платёж … до …» reminder is filed as a **fact about the card, not an operation**, and the bank's own figure outranks anything the app infers |
@@ -30,6 +31,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
+| **Savings calculator** | Отдельный экран с тремя режимами: что накопится за срок, за сколько наберётся нужная сумма, сколько для этого откладывать. Капитализация (месяц/квартал/год/без), взнос в начале или конце месяца, ежегодная индексация взноса, инфляция → «в сегодняшних деньгах», НДФЛ 13 %, эффективная ставка, разбивка «своё / проценты» столбиками и таблицей по годам, и **точка перелома** — год, когда проценты начинают приносить больше ваших взносов. Подставляет ваш собственный темп накопления и суммы ваших целей |
 | **Backup / restore** | Full 8-table export to a `.fose` file, AES-GCM-256 encrypted via Android Keystore; restore is additive, idempotent and FK-safe |
 | **Notifications** | Budget alerts, weekly summaries, critical insights, update-available (4 channels) |
 | **Deep-links** | Notification taps navigate directly to the relevant screen (allowlisted routes) |
@@ -67,17 +69,18 @@ Offline-first Android finance app that reads bank SMS messages and automatically
    - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
    - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
-5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword
-6. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
-7. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
-8. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
-9. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
+5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword, «🧮 Калькулятор» in the header
+6. **Калькулятор** — three modes over one monthly simulation; fine-tuning panel; «ваш темп» and goal chips prefill from your own data; every figure is explicitly labelled an estimate
+7. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
+8. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
+9. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
+10. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
 
 ## Tech Stack
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v10**, amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v14**, amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -90,13 +93,14 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v12 — 17 categories, 144 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v14 — 18 categories, ~183 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import), PushNotificationListener
 │   ├── account/        # AccountLinker (card→account resolution, authoritative balance, orphan re-link)
 │   ├── credit/         # CreditMath (debt, free limit, cycle, min payment, interest), CreditNoticeApplier
 │   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
+│   ├── finance/        # SavingsMath (прогноз накоплений, срок до цели, требуемый взнос)
 │   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer, NarrativeEngine
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
 │   ├── pdf/            # PdfImporter, PdfTransactionParser
@@ -107,12 +111,12 @@ app/
 │   ├── repositories/   # Tx, Account, Card, Category, Budget, Goal, TransferRoute
 │   └── preferences/    # UserPreferences (DataStore)
 ├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule
-├── features/           # dashboard, transactions, analytics, budget, goals, subscriptions, categories, credit, onboarding, settings
+├── features/           # dashboard, transactions, analytics, budget, goals, calculator, subscriptions, categories, credit, onboarding, settings
 ├── navigation/         # FosNavHost, FosRoutes, bottom nav
 ├── widget/             # BalanceWidget
 └── ui/
-    ├── theme/          # FosColors, FosType, FosDimens, FosTheme, FosFormatter, AmountVisualTransformation, Shimmer
-    └── components/     # TransactionRow, LineChart, ScoreRing, ScoreDonut, Pie3D, AnalyticsCharts,
+    ├── theme/          # FosColors, FosType, FosDimens, FosSurface (огранка карточек), FosTheme, FosFormatter, AmountVisualTransformation, Shimmer
+    └── components/     # TransactionRow, FosSection (заголовки + «?»), LineChart, ScoreRing, ScoreDonut, Pie3D, AnalyticsCharts,
                         # GoalRing, GoalArt, HeatmapGrid, ExpensePyramid, WhatIfSimulator,
                         # SwipeToRevealDelete, CatMascot, ParticleLayer, CurrencyReef, ShimmerCardFx
 ```

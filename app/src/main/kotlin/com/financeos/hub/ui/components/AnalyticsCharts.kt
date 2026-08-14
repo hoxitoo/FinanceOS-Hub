@@ -40,6 +40,7 @@ import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -62,11 +63,11 @@ fun InfoBadge(
         modifier = modifier
             .size(22.dp)
             .clip(CircleShape)
-            .background(FosColors.Surface2)
+            .background(FosColors.info(0.16f))
             .clickable { open = true },
         contentAlignment = Alignment.Center,
     ) {
-        Text("?", style = FosType.Micro, color = FosColors.TextSecondary)
+        Text("?", style = FosType.Micro, color = FosColors.Info)
     }
 
     if (open) {
@@ -84,21 +85,25 @@ fun InfoBadge(
     }
 }
 
-/** Card header: caption on the left, an [InfoBadge] pinned to the right. */
+/**
+ * Card header: caption, the hairline rule that separates it from the block above, and an
+ * [InfoBadge] pinned to the right.
+ *
+ * Shares [FosSectionHeader] with the rest of the app rather than drawing its own row, so a header
+ * that happens to carry an explanation is still visually the same object as one that doesn't.
+ */
 @Composable
 fun SectionHeader(
     title    : String,
     infoTitle: String,
     infoBody : String,
+    tone     : FosTone = FosTone.Neutral,
 ) {
-    Row(
-        modifier              = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment     = Alignment.CenterVertically,
-    ) {
-        Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
-        InfoBadge(title = infoTitle, body = infoBody)
-    }
+    FosSectionHeader(
+        title    = title,
+        tone     = tone,
+        trailing = { InfoBadge(title = infoTitle, body = infoBody) },
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

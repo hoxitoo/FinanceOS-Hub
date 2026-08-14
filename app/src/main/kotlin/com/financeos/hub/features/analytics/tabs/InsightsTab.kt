@@ -15,12 +15,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -29,14 +27,26 @@ import com.financeos.hub.core.analytics.Insight
 import com.financeos.hub.core.analytics.InsightSeverity
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.features.analytics.AnalyticsState
+import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.PawParticleLayer
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.LocalShimmer
+import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosCardSurface
 
+/**
+ * Everything the app has to *say*, as opposed to everything it has counted.
+ *
+ * All three block types are rail cards, so a glance down the scroll reads as a column of severities
+ * — red, amber, blue — before a single word is read. Design rule #4 still holds: the severity is
+ * carried by the edge only, never by an icon inside the card.
+ */
 @Composable
 fun InsightsTab(state: AnalyticsState) {
     val shimmer = LocalShimmer.current
@@ -52,74 +62,79 @@ fun InsightsTab(state: AnalyticsState) {
                 .padding(horizontal = FosDimens.ScreenPadding),
             verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap),
         ) {
-        item { Spacer(Modifier.height(FosDimens.ItemGap)) }
+            item { Spacer(Modifier.height(FosDimens.ItemGap)) }
 
-        // ── Alerts (sorted CRITICAL first) ────────────────────────────────────
-        if (state.insights.isNotEmpty()) {
-            item {
-                Text("ОПОВЕЩЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            // ── Alerts (sorted CRITICAL first) ────────────────────────────────
+            if (state.insights.isNotEmpty()) {
+                item {
+                    // The worst thing on the screen gives the header its colour.
+                    FosSectionHeader("ОПОВЕЩЕНИЯ", tone = toneOf(state.insights.first().severity))
+                }
+                items(state.insights, key = { it.id }) { insight ->
+                    InsightCard(insight = insight)
+                }
             }
-            items(state.insights, key = { it.id }) { insight ->
-                InsightCard(insight = insight)
-            }
-        }
 
-        // ── Category anomalies ────────────────────────────────────────────────
-        if (state.categoryAnomalies.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
-                Text("АНОМАЛИИ РАСХОДОВ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            // ── Category anomalies ────────────────────────────────────────────
+            if (state.categoryAnomalies.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
+                    FosSectionHeader("АНОМАЛИИ РАСХОДОВ", tone = FosTone.Warning)
+                }
+                items(state.categoryAnomalies, key = { it.categoryId }) { anomaly ->
+                    AnomalyCard(
+                        anomaly = anomaly,
+                        catName = state.categoryNames[anomaly.categoryId] ?: "Другое",
+                    )
+                }
             }
-            items(state.categoryAnomalies, key = { it.categoryId }) { anomaly ->
-                AnomalyCard(
-                    anomaly  = anomaly,
-                    catName  = state.categoryNames[anomaly.categoryId] ?: "Другое",
-                )
-            }
-        }
 
-        // ── Narrative stories ─────────────────────────────────────────────────
-        if (state.narratives.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
-                Text("НАБЛЮДЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            // ── Narrative stories ─────────────────────────────────────────────
+            if (state.narratives.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(FosDimens.SectionGap - FosDimens.ItemGap))
+                    FosSectionHeader("НАБЛЮДЕНИЯ", tone = FosTone.Info)
+                }
+                itemsIndexed(state.narratives, key = { _, n -> n.id }) { _, narrative ->
+                    NarrativeCard(narrative = narrative)
+                }
             }
-            itemsIndexed(state.narratives, key = { _, n -> n.id }) { _, narrative ->
-                NarrativeCard(narrative = narrative)
-            }
-        }
 
-        if (state.insights.isEmpty() && state.narratives.isEmpty() && state.categoryAnomalies.isEmpty()) {
-            item {
-                Text(
-                    "Недостаточно данных. Добавьте транзакции или дайте приложению время.",
-                    style = FosType.Body,
-                    color = FosColors.TextMuted,
-                )
+            if (state.insights.isEmpty() && state.narratives.isEmpty() && state.categoryAnomalies.isEmpty()) {
+                item {
+                    Column(Modifier.fillMaxWidth().fosCard(FosCardStyle.Sunken)) {
+                        Text(
+                            "Недостаточно данных. Добавьте транзакции или дайте приложению время.",
+                            style = FosType.Body,
+                            color = FosColors.TextMuted,
+                        )
+                    }
+                }
             }
-        }
 
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
 }
 
+private fun toneOf(severity: InsightSeverity): FosTone = when (severity) {
+    InsightSeverity.CRITICAL -> FosTone.Negative
+    InsightSeverity.WARNING  -> FosTone.Warning
+    InsightSeverity.INFO     -> FosTone.Info
+}
+
 // InsightCard: left border ONLY — no icon per design rules
 @Composable
 private fun InsightCard(insight: Insight) {
-    val borderColor: Color = when (insight.severity) {
-        InsightSeverity.CRITICAL -> FosColors.Negative
-        InsightSeverity.WARNING  -> FosColors.Warning
-        InsightSeverity.INFO     -> FosColors.Info
-    }
+    val tone        = toneOf(insight.severity)
+    val borderColor = tone.accent ?: FosColors.Info
     // «Атмосфера» layer: the left border glows inward by severity (still no icon — rule #4 intact).
     val glow = LocalShimmer.current.insightBorderGlow
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-            .background(FosColors.Surface),
+            .fosCardSurface(FosCardStyle.Rail, tone, FosDimens.RadiusCardSmall),
     ) {
         if (glow) {
             Box(
@@ -133,25 +148,14 @@ private fun InsightCard(insight: Insight) {
                     ),
             )
         }
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(60.dp)
-                    .background(borderColor),
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-            ) {
-                Text(
-                    text  = insight.text,
-                    style = FosType.Body,
-                    color = FosColors.TextPrimary,
-                )
-            }
-        }
+        Text(
+            text     = insight.text,
+            style    = FosType.Body,
+            color    = FosColors.TextPrimary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 14.dp, end = 14.dp, bottom = 14.dp),
+        )
     }
 }
 
@@ -160,42 +164,31 @@ private fun AnomalyCard(anomaly: CategoryAnomaly, catName: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-            .background(FosColors.Surface),
+            .fosCardSurface(FosCardStyle.Rail, FosTone.Warning, FosDimens.RadiusCardSmall)
+            .padding(start = 16.dp, top = 14.dp, end = 14.dp, bottom = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(60.dp)
-                .background(FosColors.Warning),
-        )
-        Row(
-            modifier              = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment     = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(catName, style = FosType.BodySemi, color = FosColors.TextPrimary)
-                Text(
-                    "Обычно ${FosFormatter.compact(anomaly.avgKopecks)} в месяц",
-                    style = FosType.Micro,
-                    color = FosColors.TextMuted,
-                )
-            }
-            Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
-                Text(
-                    FosFormatter.compact(anomaly.currentKopecks),
-                    style = FosType.SmallBold,
-                    color = FosColors.Negative,
-                )
-                Text(
-                    "+${anomaly.deltaPercent}%",
-                    style = FosType.Micro,
-                    color = FosColors.Warning,
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(catName, style = FosType.BodySemi, color = FosColors.TextPrimary)
+            Text(
+                "Обычно ${FosFormatter.compact(anomaly.avgKopecks)} в месяц",
+                style = FosType.Micro,
+                color = FosColors.TextMuted,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                FosFormatter.compact(anomaly.currentKopecks),
+                style = FosType.SmallBold,
+                color = FosColors.Negative,
+            )
+            Text(
+                "+${anomaly.deltaPercent}%",
+                style = FosType.Micro,
+                color = FosColors.Warning,
+            )
         }
     }
 }
@@ -205,9 +198,8 @@ private fun NarrativeCard(narrative: NarrativeInsight) {
     Row(
         modifier          = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-            .background(FosColors.Surface)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .fosCardSurface(FosCardStyle.Rail, FosTone.Info, FosDimens.RadiusCardSmall)
+            .padding(start = 16.dp, top = 14.dp, end = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(

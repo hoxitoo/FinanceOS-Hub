@@ -1,7 +1,6 @@
 package com.financeos.hub.features.credit
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,8 +39,13 @@ import com.financeos.hub.core.credit.MinimumPaymentOutlook
 import com.financeos.hub.core.credit.PaymentSource
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.ui.components.TransactionRow
+import com.financeos.hub.ui.components.FosSectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
+import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosHeroCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 import java.time.format.DateTimeFormatter
@@ -139,7 +143,7 @@ fun CreditCardsScreen(
         if (state.history.isNotEmpty()) {
             item {
                 Spacer(Modifier.height(FosDimens.ItemGap))
-                Text("Операции по кредиткам", style = FosType.SectionCap, color = FosColors.TextMuted)
+                FosSectionHeader("ОПЕРАЦИИ ПО КРЕДИТКАМ")
             }
             items(state.history, key = { it.id }) { tx ->
                 TransactionRow(transaction = tx, categoryName = state.categoryName(tx.categoryId))
@@ -179,9 +183,7 @@ private fun CreditTotals(state: CreditScreenState) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosHeroCard(),
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Column {
@@ -237,18 +239,19 @@ private fun CreditCardBlock(
     val urgency = dueUrgency(card.duePayment?.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
 
+    // Огранка карточки = срочность платежа. Просрочка и «сегодня-завтра» получают красную полосу,
+    // приближающийся срок — жёлтую, спокойная карта остаётся обычной.
+    val tone = when (urgency) {
+        DueUrgency.OVERDUE, DueUrgency.CRITICAL -> FosTone.Negative
+        DueUrgency.SOON                         -> FosTone.Warning
+        else                                    -> FosTone.Neutral
+    }
+    val style = if (tone == FosTone.Neutral) FosCardStyle.Plain else FosCardStyle.Rail
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .border(
-                1.dp,
-                if (urgency == DueUrgency.OVERDUE || urgency == DueUrgency.CRITICAL)
-                    accent.copy(alpha = 0.35f) else FosColors.Border,
-                RoundedCornerShape(FosDimens.RadiusCard),
-            )
-            .padding(FosDimens.CardPadding),
+            .fosCard(style, tone),
     ) {
         Text(card.account.name, style = FosType.BodySemi, color = FosColors.TextPrimary)
         Spacer(Modifier.height(10.dp))

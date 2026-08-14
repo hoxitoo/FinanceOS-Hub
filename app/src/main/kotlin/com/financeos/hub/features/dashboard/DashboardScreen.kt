@@ -1,6 +1,7 @@
 package com.financeos.hub.features.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +44,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
+import com.financeos.hub.ui.components.FORECAST_EXPLANATION
+import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.components.CurrencyReef
 import com.financeos.hub.ui.components.LineChart
 import com.financeos.hub.ui.components.CatMascot
@@ -56,6 +60,7 @@ import com.financeos.hub.ui.components.rememberBreathingScale
 import com.financeos.hub.ui.components.shimmerTilt
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.LocalShimmer
@@ -76,6 +81,7 @@ fun DashboardScreen(
     var selectedBank         by remember { mutableStateOf<String?>(null) }
     val bankSheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTx           by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
+    var showForecastInfo     by remember { mutableStateOf(false) }
     val txSheetState         = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
@@ -128,7 +134,7 @@ fun DashboardScreen(
         }
 
         // Hero — variant-based (CALM / CONTRAST / MINIMAL)
-        item { HeroBlock(state = state) }
+        item { HeroBlock(state = state, onForecastClick = { showForecastInfo = true }) }
 
         // Credit cards — one tile directly under the hero, so it lands below the income/expense/
         // forecast chips in ALL THREE hero variants from a single insertion point. Adding it inside
@@ -196,6 +202,23 @@ fun DashboardScreen(
         }
 
         item { Spacer(Modifier.height(80.dp)) }
+    }
+
+    // The forecast is the one number on this screen the app INFERRED rather than measured, so it
+    // is the one that has to be able to explain itself. Tapping the chip opens the same wording the
+    // Analytics tab uses — one explanation, not two that can drift apart.
+    if (showForecastInfo) {
+        AlertDialog(
+            onDismissRequest = { showForecastInfo = false },
+            containerColor   = FosColors.Surface,
+            title = { Text("Как считается прогноз", style = FosType.BodySemi, color = FosColors.TextPrimary) },
+            text  = { Text(FORECAST_EXPLANATION, style = FosType.Body, color = FosColors.TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { showForecastInfo = false }) {
+                    Text("Понятно", color = FosColors.Info)
+                }
+            },
+        )
     }
 
     if (showAddAccountSheet) {
@@ -406,11 +429,14 @@ private fun MetricChip(
     value   : String,
     color   : androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
+    onClick : (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
             .background(FosColors.Surface2)
+            .border(1.dp, FosColors.Border, RoundedCornerShape(FosDimens.RadiusCardSmall))
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(12.dp),
     ) {
         Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
@@ -422,17 +448,17 @@ private fun MetricChip(
 // ── Hero variant composables ──────────────────────────────────────────────────
 
 @Composable
-private fun HeroBlock(state: DashboardState) {
+private fun HeroBlock(state: DashboardState, onForecastClick: () -> Unit) {
     when (state.heroVariant) {
-        "CONTRAST" -> ContrastHero(state)
+        "CONTRAST" -> ContrastHero(state, onForecastClick)
         "MINIMAL"  -> MinimalHero(state)
-        else       -> CalmHero(state)
+        else       -> CalmHero(state, onForecastClick)
     }
 }
 
 /** CALM: compact score row → full-width net worth → metric chips */
 @Composable
-private fun CalmHero(state: DashboardState) {
+private fun CalmHero(state: DashboardState, onForecastClick: () -> Unit) {
     val scoreColor = when {
         state.financialScore >= 70 -> FosColors.Positive
         state.financialScore >= 40 -> FosColors.Warning
@@ -445,9 +471,7 @@ private fun CalmHero(state: DashboardState) {
             .fillMaxWidth()
             .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
             .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(),
     ) {
         if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
@@ -533,7 +557,13 @@ private fun CalmHero(state: DashboardState) {
                 MetricChip("Доходы",  FosFormatter.compact(state.incomeKopecks),  FosColors.Positive, Modifier.weight(1f))
                 MetricChip("Расходы", FosFormatter.compact(state.expenseKopecks), FosColors.Negative, Modifier.weight(1f))
                 if (state.forecastKopecks > 0) {
-                    MetricChip("Прогноз", FosFormatter.compact(state.forecastKopecks), FosColors.Warning, Modifier.weight(1f))
+                    MetricChip(
+                        "Прогноз ?",
+                        FosFormatter.compact(state.forecastKopecks),
+                        FosColors.Warning,
+                        Modifier.weight(1f),
+                        onClick = onForecastClick,
+                    )
                 }
             }
         }
@@ -542,7 +572,7 @@ private fun CalmHero(state: DashboardState) {
 
 /** CONTRAST: bold income/expense side-by-side, net worth + forecast below */
 @Composable
-private fun ContrastHero(state: DashboardState) {
+private fun ContrastHero(state: DashboardState, onForecastClick: () -> Unit) {
     val shimmer = LocalShimmer.current
     val breath  = rememberBreathingScale(shimmer.heroBreathing)
     Box(
@@ -550,9 +580,7 @@ private fun ContrastHero(state: DashboardState) {
             .fillMaxWidth()
             .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
             .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(),
     ) {
         if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())
@@ -634,8 +662,14 @@ private fun ContrastHero(state: DashboardState) {
                     }
                 }
                 if (state.forecastKopecks > 0) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("Прогноз", style = FosType.Micro, color = FosColors.TextMuted)
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(FosDimens.RadiusIcon))
+                            .clickable { onForecastClick() }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text("Прогноз ?", style = FosType.Micro, color = FosColors.TextMuted)
                         Text(
                             "−${FosFormatter.compact(state.forecastKopecks)}",
                             style = FosType.CardAmount,
@@ -658,9 +692,7 @@ private fun MinimalHero(state: DashboardState) {
             .fillMaxWidth()
             .then(if (shimmer.surfaceGlow) Modifier.shadow(14.dp, RoundedCornerShape(FosDimens.RadiusCard), ambientColor = FosColors.Shimmer.GlowIndigo, spotColor = FosColors.Shimmer.GlowViolet) else Modifier)
             .then(if (shimmer.heroBreathing) Modifier.graphicsLayer { scaleX = breath; scaleY = breath } else Modifier)
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(),
     ) {
         if (shimmer.catPawParticles) PawParticleLayer(count = 10, animated = shimmer.catParticlePulse, modifier = Modifier.matchParentSize())
         else if (shimmer.particles)  ParticleLayer(count = 16, animated = shimmer.particlePulse, modifier = Modifier.matchParentSize())

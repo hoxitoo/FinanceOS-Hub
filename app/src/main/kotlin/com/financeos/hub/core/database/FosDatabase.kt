@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -196,6 +196,38 @@ abstract class FosDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Категория «Подписки» + перевод уже существующих правил стриминга на неё.
+         *
+         * Одного `insertDefaultMerchantRules` здесь мало, и это важная тонкость. Правила
+         * вставляются через INSERT OR IGNORE, а `DictionaryClassifier` берёт ПЕРВОЕ совпадение
+         * при сортировке `priority DESC` (у всех сеяных правил priority = 0, дальше порядок по
+         * rowid). Значит на старой установке строка r091 «netflix → Развлечения» никуда не
+         * денется, а добавленный дубликат с новым id встанет ПОЗЖЕ и никогда не сработает: новая
+         * категория осталась бы навсегда пустой, и выглядело бы это как сломанная функция.
+         *
+         * Поэтому шесть строк переписываются явным UPDATE. Условие `category_id = 'cat_entertain'`
+         * — страховка: если пользовательская правка правил когда-нибудь появится, чужой выбор не
+         * будет молча перезаписан.
+         *
+         * Уже проведённые операции НЕ переразмечаются: категория хранится в самой строке
+         * транзакции, а правила влияют только на разбор будущих сообщений (инвариант «категоризация
+         * не учится»). История остаётся ровно такой, какой пользователь её видел.
+         */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultCategories(db)
+                insertDefaultMerchantRules(db)
+                db.execSQL(
+                    """
+                    UPDATE merchant_rules SET category_id = 'cat_subscription'
+                    WHERE id IN ('r091','r092','r093','r094','r095','r096')
+                      AND category_id = 'cat_entertain'
+                    """.trimIndent()
+                )
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -227,6 +259,7 @@ abstract class FosDatabase : RoomDatabase() {
                 // keep their stored order (INSERT OR IGNORE), so adding in the middle would only
                 // reshuffle new installs for no benefit.
                 Triple("cat_betting",    "Букмекер",         "🎰"),
+                Triple("cat_subscription", "Подписки",       "🔄"),
             )
             val colors = listOf(
                 "#FFB84D", "#4DFFA0", "#4D9FFF", "#FF6B6B", "#C084FC",
@@ -234,6 +267,7 @@ abstract class FosDatabase : RoomDatabase() {
                 "#E879F9", "#2DD4BF", "#94A3B8",
                 "#4DFFA0", "#22D3A6", "#38BDF8",
                 "#F87171",   // cat_betting
+                "#818CF8",   // cat_subscription
             )
             cats.forEachIndexed { i, (id, name, emoji) ->
                 db.execSQL(
@@ -308,16 +342,20 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r082", "мегафон",       "cat_telecom"),
                 Triple("r083", "теле2",         "cat_telecom"),
                 Triple("r084", "ростелеком",    "cat_telecom"),
-                // Entertainment
+                // Entertainment. A cinema ticket and a game bought on Steam are one-off purchases —
+                // they stay here. Anything that renews itself every month lives in cat_subscription.
                 Triple("r090", "кинотеатр",     "cat_entertain"),
-                Triple("r091", "netflix",       "cat_entertain"),
-                Triple("r092", "spotify",       "cat_entertain"),
-                Triple("r093", "okko",          "cat_entertain"),
-                Triple("r094", "more.tv",       "cat_entertain"),
-                Triple("r095", "иви",           "cat_entertain"),
-                Triple("r096", "яндекс.музыка", "cat_entertain"),
                 Triple("r097", "steam",         "cat_entertain"),
                 Triple("r098", "playstation",   "cat_entertain"),
+                // Subscriptions. r091..r096 keep their original ids on purpose: existing installs
+                // already hold those rows, and INSERT OR IGNORE would skip a renumbered copy. The
+                // rows themselves are re-pointed by MIGRATION_13_14 — see there.
+                Triple("r091", "netflix",       "cat_subscription"),
+                Triple("r092", "spotify",       "cat_subscription"),
+                Triple("r093", "okko",          "cat_subscription"),
+                Triple("r094", "more.tv",       "cat_subscription"),
+                Triple("r095", "иви",           "cat_subscription"),
+                Triple("r096", "яндекс.музыка", "cat_subscription"),
                 // Beauty
                 Triple("r100", "л'этуаль",      "cat_beauty"),
                 Triple("r101", "летуаль",       "cat_beauty"),
@@ -405,13 +443,84 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r197", "parimatch",         "cat_betting"),
                 Triple("r198", "тенниси",           "cat_betting"),
                 Triple("r199", "pari.ru",           "cat_betting"),
+                // Subscriptions — services that charge every month on their own.
+                // Deliberately NOT here: bare "яндекс", "apple", "google", "telegram". Each of them
+                // is a substring of dozens of unrelated merchant names (Яндекс.Такси, Яндекс.Еда,
+                // Google Ads…), and matching is a plain `contains`, so one loose word would swallow
+                // whole other categories. Only the billing descriptors that actually identify a
+                // subscription are listed.
+                Triple("r300", "яндекс плюс",       "cat_subscription"),
+                Triple("r301", "яндекс.плюс",       "cat_subscription"),
+                Triple("r302", "yandex plus",       "cat_subscription"),
+                Triple("r303", "кинопоиск",         "cat_subscription"),
+                Triple("r304", "kinopoisk",         "cat_subscription"),
+                Triple("r305", "сбер прайм",        "cat_subscription"),
+                Triple("r306", "сберпрайм",         "cat_subscription"),
+                Triple("r307", "sberprime",         "cat_subscription"),
+                Triple("r310", "wink",              "cat_subscription"),
+                Triple("r311", "megogo",            "cat_subscription"),
+                Triple("r312", "мегого",            "cat_subscription"),
+                Triple("r313", "amediateka",        "cat_subscription"),
+                Triple("r314", "амедиатека",        "cat_subscription"),
+                Triple("r315", "литрес",            "cat_subscription"),
+                Triple("r316", "litres",            "cat_subscription"),
+                Triple("r317", "bookmate",          "cat_subscription"),
+                Triple("r318", "букмейт",           "cat_subscription"),
+                Triple("r319", "youtube",           "cat_subscription"),
+                Triple("r320", "google play",       "cat_subscription"),
+                Triple("r321", "google one",        "cat_subscription"),
+                Triple("r322", "apple.com/bill",    "cat_subscription"),
+                Triple("r323", "itunes",            "cat_subscription"),
+                Triple("r324", "icloud",            "cat_subscription"),
+                Triple("r325", "apple music",       "cat_subscription"),
+                Triple("r326", "telegram premium",  "cat_subscription"),
+                Triple("r327", "vk музыка",         "cat_subscription"),
+                Triple("r328", "vk combo",          "cat_subscription"),
+                Triple("r329", "deezer",            "cat_subscription"),
+                Triple("r330", "openai",            "cat_subscription"),
+                Triple("r331", "chatgpt",           "cat_subscription"),
+                Triple("r332", "dropbox",           "cat_subscription"),
+                Triple("r333", "notion",            "cat_subscription"),
+                Triple("r334", "adobe",             "cat_subscription"),
+                Triple("r335", "jetbrains",         "cat_subscription"),
+                Triple("r336", "figma",             "cat_subscription"),
+                Triple("r337", "canva",             "cat_subscription"),
+                Triple("r338", "duolingo",          "cat_subscription"),
                 Triple("r200", "букмекер",          "cat_betting"),
                 Triple("r201", "ставка на спорт",   "cat_betting"),
+                // Самое широкое правило во всём списке — идёт ПОСЛЕДНИМ, чтобы срабатывать только
+                // тогда, когда ни один конкретный сервис не опознан.
+                Triple("r399", "подписка",          "cat_subscription"),
             )
+            insertRules(db, rules, priority = 0)
+            insertRules(db, PRIORITY_RULES, priority = 1)
+        }
+
+        /**
+         * Правила, которые обязаны победить более широкое правило, стоящее РАНЬШЕ них в списке.
+         *
+         * `DictionaryClassifier` берёт первое совпадение при сортировке `priority DESC`, дальше —
+         * порядок вставки. «ozon premium» содержит в себе «ozon» (r071, Покупки), поэтому при
+         * равном приоритете подписка Ozon Premium навсегда уезжала бы в Покупки, а эти две строки
+         * были бы мёртвым кодом. Приоритет 1 поднимает их над всем списком.
+         *
+         * Сюда попадает только то, что реально перекрыто: раздать приоритет всем подряд — значит
+         * потерять сам порядок как инструмент.
+         */
+        private val PRIORITY_RULES = listOf(
+            Triple("r308", "ozon premium", "cat_subscription"),
+            Triple("r309", "озон премиум", "cat_subscription"),
+        )
+
+        private fun insertRules(
+            db      : SupportSQLiteDatabase,
+            rules   : List<Triple<String, String, String>>,
+            priority: Int,
+        ) {
             rules.forEach { (id, pattern, catId) ->
                 db.execSQL(
-                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, 0, 0)",
-                    arrayOf(id, pattern, catId),
+                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, ?, 0)",
+                    arrayOf(id, pattern, catId, priority),
                 )
             }
         }

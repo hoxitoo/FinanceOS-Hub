@@ -3,12 +3,19 @@ package com.financeos.hub.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object FosColors {
-    // Фоны
-    val Background  = Color(0xFF0A0D12)
-    val Surface     = Color(0xFF111620)
-    val Surface2    = Color(0xFF181E2A)
-    val Border      = Color(0xFF1E2738)
-    val BorderStrong = Color(0xFF3D4860)   // более контрастная граница для полей ввода
+    // ── Лестница поверхностей ────────────────────────────────────────────────
+    // Раньше Surface (#111620) отличался от фона (#0A0D12) на пару единиц яркости и рисовался
+    // без границы — десяток карточек подряд сливались в одно тёмное полотно. Ступени разведены,
+    // и у каждой карточки теперь есть волосяная граница: именно она делает плитку плиткой.
+    val Background    = Color(0xFF0A0D12)   // полотно экрана
+    val SurfaceSunken = Color(0xFF0C1017)   // утопленное: дорожки прогресса, вложенные списки
+    val Surface       = Color(0xFF131A26)   // обычная карточка
+    val Surface2      = Color(0xFF1A2231)   // вложенный блок внутри карточки
+    val SurfaceRaised = Color(0xFF202A3C)   // главный блок экрана
+
+    val BorderSoft    = Color(0xFF19212E)   // едва заметная — для утопленных поверхностей
+    val Border        = Color(0xFF232E42)   // база: волосяная граница карточки
+    val BorderStrong  = Color(0xFF3D4860)   // поля ввода и акцентные рамки
 
     // Акценты — строго семантические
     val Positive    = Color(0xFF4DFFA0)   // доход, рост, успех, savings

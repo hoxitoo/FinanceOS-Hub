@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Scaffold
@@ -35,8 +34,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.CategoryEntity
+import com.financeos.hub.ui.components.FosSectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosType
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,22 +94,17 @@ fun CategoriesScreen(
 
             // System categories (read-only)
             if (systemCats.isNotEmpty()) {
-                item {
-                    Text("СИСТЕМНЫЕ", style = FosType.SectionCap, color = FosColors.TextMuted)
-                }
+                item { FosSectionHeader("СИСТЕМНЫЕ") }
                 items(systemCats, key = { it.id }) { cat ->
-                    CategoryRow(cat = cat, onDelete = null)
+                    // Системные утоплены: их нельзя тронуть, и по огранке это видно раньше замка.
+                    CategoryRow(cat = cat, onDelete = null, style = FosCardStyle.Sunken)
                 }
             }
 
             // Custom categories
             item {
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "ПОЛЬЗОВАТЕЛЬСКИЕ",
-                    style = FosType.SectionCap,
-                    color = FosColors.TextMuted,
-                )
+                FosSectionHeader("ПОЛЬЗОВАТЕЛЬСКИЕ")
             }
             if (customCats.isEmpty()) {
                 item {
@@ -140,13 +137,15 @@ fun CategoriesScreen(
 }
 
 @Composable
-private fun CategoryRow(cat: CategoryEntity, onDelete: (() -> Unit)?) {
+private fun CategoryRow(
+    cat     : CategoryEntity,
+    onDelete: (() -> Unit)?,
+    style   : FosCardStyle = FosCardStyle.Plain,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
-            .background(FosColors.Surface)
-            .padding(FosDimens.CardPadding),
+            .fosCard(style, radius = FosDimens.RadiusCardSmall, padding = FosDimens.CardPaddingSmall),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment     = Alignment.CenterVertically,
     ) {
