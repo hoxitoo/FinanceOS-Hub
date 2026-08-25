@@ -1,14 +1,18 @@
 package com.financeos.hub.data.preferences
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +22,23 @@ private val Context.dataStore by preferencesDataStore("fos_prefs")
 class UserPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    /**
+     * Единственная точка чтения настроек — и она не имеет права падать.
+     *
+     * `DataStore.data` бросает `IOException`, если файл повреждён или недоступен (недописанная
+     * запись при внезапном выключении — самый частый случай). Раньше это исключение уходило вверх
+     * по каждому потоку настроек, а читают их в том числе `PushNotificationListener` и
+     * `SmsReceiver` — то есть одна битая запись на диске означала, что КАЖДЫЙ пуш и КАЖДАЯ SMS
+     * молча перестают обрабатываться, и увидеть это нельзя ничем, кроме отсутствия операций.
+     *
+     * Теперь такой случай откатывается к пустым настройкам: приложение ведёт себя как свежая
+     * установка (все опасные тумблеры выключены по умолчанию), но продолжает работать. Всё, что не
+     * `IOException`, пробрасывается дальше — это настоящая ошибка, и прятать её нельзя. Отмену
+     * корутины `catch` не перехватывает по устройству самого Flow.
+     */
+    private val prefs: Flow<Preferences> = context.dataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+
     companion object Keys {
         val ONBOARDING_COMPLETE       = booleanPreferencesKey("onboarding_complete")
         val HERO_VARIANT              = stringPreferencesKey("hero_variant")  // CALM | CONTRAST | MINIMAL
@@ -56,57 +77,57 @@ class UserPreferences @Inject constructor(
         val LAST_NOTIFIED_VERSION        = stringPreferencesKey("last_notified_version")
     }
 
-    val onboardingComplete: Flow<Boolean> = context.dataStore.data
+    val onboardingComplete: Flow<Boolean> = prefs
         .map { it[ONBOARDING_COMPLETE] ?: false }
 
-    val heroVariant: Flow<String> = context.dataStore.data
+    val heroVariant: Flow<String> = prefs
         .map { it[HERO_VARIANT] ?: "CALM" }
 
-    val biometricEnabled: Flow<Boolean> = context.dataStore.data
+    val biometricEnabled: Flow<Boolean> = prefs
         .map { it[BIOMETRIC_ENABLED] ?: false }
 
-    val notificationsEnabled: Flow<Boolean> = context.dataStore.data
+    val notificationsEnabled: Flow<Boolean> = prefs
         .map { it[NOTIFICATIONS_ENABLED] ?: true }
 
-    val budgetAlertThreshold: Flow<Int> = context.dataStore.data
+    val budgetAlertThreshold: Flow<Int> = prefs
         .map { it[BUDGET_ALERT_THRESHOLD]?.toIntOrNull() ?: 80 }
 
-    val mlClassificationEnabled: Flow<Boolean> = context.dataStore.data
+    val mlClassificationEnabled: Flow<Boolean> = prefs
         .map { it[ML_CLASSIFICATION_ENABLED] ?: false }
 
-    val pushListenerEnabled: Flow<Boolean> = context.dataStore.data
+    val pushListenerEnabled: Flow<Boolean> = prefs
         .map { it[PUSH_LISTENER_ENABLED] ?: false }
 
     /** Real-time capture of incoming bank SMS. Off by default so a fresh install never
      *  silently fills up with operations before the user has set anything up. */
-    val smsRealtimeEnabled: Flow<Boolean> = context.dataStore.data
+    val smsRealtimeEnabled: Flow<Boolean> = prefs
         .map { it[SMS_REALTIME_ENABLED] ?: false }
 
-    val lastImportAt: Flow<String?> = context.dataStore.data
+    val lastImportAt: Flow<String?> = prefs
         .map { it[LAST_IMPORT_AT] }
 
     /** «Анимации» — плавные переходы, счётчики чисел, объёмные карты, отклик касания. Off by default. */
-    val animationsEnabled: Flow<Boolean> = context.dataStore.data
+    val animationsEnabled: Flow<Boolean> = prefs
         .map { it[ANIMATIONS_ENABLED] ?: false }
 
     /** «Атмосфера Мерцание» — светлячки, свечение, глубина. Off by default. */
-    val atmosphereEnabled: Flow<Boolean> = context.dataStore.data
+    val atmosphereEnabled: Flow<Boolean> = prefs
         .map { it[ATMOSPHERE_ENABLED] ?: false }
 
     /** Bank cards: variant B (deep glass) when true, variant A (holographic) when false. */
-    val cardsVariantB: Flow<Boolean> = context.dataStore.data
+    val cardsVariantB: Flow<Boolean> = prefs
         .map { it[CARDS_VARIANT_B] ?: false }
 
     /** «Кот-режим» — мяу-маскот в герое + следы лапок вместо светлячков. Off by default. */
-    val catModeEnabled: Flow<Boolean> = context.dataStore.data
+    val catModeEnabled: Flow<Boolean> = prefs
         .map { it[CAT_MODE_ENABLED] ?: false }
 
     /** Уведомлять о новой версии приложения. On by default. */
-    val updateNotificationsEnabled: Flow<Boolean> = context.dataStore.data
+    val updateNotificationsEnabled: Flow<Boolean> = prefs
         .map { it[UPDATE_NOTIFICATIONS_ENABLED] ?: true }
 
     /** Last release version the user was already notified about (null if never). */
-    val lastNotifiedVersion: Flow<String?> = context.dataStore.data
+    val lastNotifiedVersion: Flow<String?> = prefs
         .map { it[LAST_NOTIFIED_VERSION] }
 
     suspend fun setOnboardingComplete(done: Boolean) {
@@ -137,11 +158,13 @@ class UserPreferences @Inject constructor(
     )
 
     suspend fun budgetAlertState(): BudgetAlertState {
-        val prefs = context.dataStore.data.first()
+        // Через тот же защищённый поток: битый файл здесь означал бы падение при каждом пересчёте
+        // бюджета, а не потерянный счётчик оповещений.
+        val snapshot = prefs.first()
         return BudgetAlertState(
-            epochDay    = prefs[BUDGET_ALERT_DAY]?.toLongOrNull() ?: 0L,
-            countToday  = prefs[BUDGET_ALERT_COUNT]?.toIntOrNull() ?: 0,
-            alertedKeys = prefs[BUDGET_ALERTED_KEYS]
+            epochDay    = snapshot[BUDGET_ALERT_DAY]?.toLongOrNull() ?: 0L,
+            countToday  = snapshot[BUDGET_ALERT_COUNT]?.toIntOrNull() ?: 0,
+            alertedKeys = snapshot[BUDGET_ALERTED_KEYS]
                 ?.split('|')?.filter { it.isNotBlank() }?.toSet() ?: emptySet(),
         )
     }
