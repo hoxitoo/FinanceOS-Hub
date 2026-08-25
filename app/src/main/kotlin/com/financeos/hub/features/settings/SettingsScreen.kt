@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,13 +44,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.financeos.hub.core.notifications.PushNotificationListener
+import com.financeos.hub.core.notifications.ListenerHealth
 import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
+import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.FosType
 
@@ -288,8 +291,31 @@ fun SettingsScreen(
         }
 
         // ── Push notification reader ─────────────────────────────────────────────
+        // Состояние службы опрашивается, а не читается один раз: привязка появляется асинхронно
+        // (в том числе через пару секунд после нажатия «Переподключить»), и подпись, застывшая на
+        // момент первой отрисовки, врала бы ровно в тот момент, когда на неё смотрят.
+        val pushHealth by produceState(
+            initialValue = PushHealth(
+                granted     = ListenerHealth.permissionGranted(context),
+                connected   = ListenerHealth.isConnected(),
+                lastPushAt  = ListenerHealth.lastPushAt(context),
+                connectedAt = ListenerHealth.connectedAt(context),
+            ),
+            key1 = context,
+        ) {
+            while (true) {
+                value = PushHealth(
+                    granted     = ListenerHealth.permissionGranted(context),
+                    connected   = ListenerHealth.isConnected(),
+                    lastPushAt  = ListenerHealth.lastPushAt(context),
+                    connectedAt = ListenerHealth.connectedAt(context),
+                )
+                delay(2_000)
+            }
+        }
+
         SettingsSection(title = "УВЕДОМЛЕНИЯ ОТ БАНКОВ") {
-            val pushGranted = PushNotificationListener.isPermissionGranted(context)
+            val pushGranted = pushHealth.granted
             ToggleRow(
                 label    = "Читать уведомления банков",
                 sublabel = "Т-Банк, Сбербанк, ВТБ, Альфа-Банк, Газпромбанк",
@@ -299,11 +325,78 @@ fun SettingsScreen(
             if (state.pushListenerEnabled) {
                 Spacer(Modifier.height(8.dp))
                 if (pushGranted) {
+                    // Разрешение и работающая служба — РАЗНЫЕ вещи. Android рвёт привязку при
+                    // обновлении приложения, перезагрузке и когда диспетчер питания усыпляет
+                    // процесс, а разрешение при этом остаётся выданным. Раньше здесь стояло
+                    // зелёное «уведомления обрабатываются», основанное только на разрешении, —
+                    // приложение уверяло, что всё хорошо, ровно тогда, когда всё сломалось.
+                    val connected = pushHealth.connected
+                    if (connected) {
+                        Text(
+                            "Служба подключена — уведомления обрабатываются",
+                            style = FosType.Micro,
+                            color = FosColors.Positive,
+                        )
+                    } else {
+                        Text(
+                            "Доступ разрешён, но служба не подключена — пуши сейчас не читаются",
+                            style = FosType.Micro,
+                            color = FosColors.Warning,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier              = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment     = Alignment.CenterVertically,
+                        ) {
+                            TextButton(
+                                onClick        = { ListenerHealth.requestRebind(context) },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 8.dp, vertical = 0.dp
+                                ),
+                            ) {
+                                Text("Переподключить", style = FosType.Label, color = FosColors.Info)
+                            }
+                            TextButton(
+                                onClick        = {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 8.dp, vertical = 0.dp
+                                ),
+                            ) {
+                                Text("Настройки Android", style = FosType.Label, color = FosColors.TextSecondary)
+                            }
+                        }
+                        Text(
+                            "Если «Переподключить» не помогло — выключите и снова включите доступ " +
+                                "для FinanceOS в системном списке. Это чинит привязку гарантированно.",
+                            style = FosType.Micro,
+                            color = FosColors.TextMuted,
+                        )
+                    }
+
+                    // Две даты, по которым видно правду без гадания: когда служба поднималась
+                    // последний раз и когда последний раз вообще приходил банковский пуш.
+                    Spacer(Modifier.height(6.dp))
+                    val lastPush = pushHealth.lastPushAt
                     Text(
-                        "Доступ разрешён — уведомления обрабатываются",
+                        if (lastPush > 0) "Последний пуш от банка: ${FosFormatter.dayLabelYear(lastPush)}"
+                        else "Пушей от банков ещё не приходило",
                         style = FosType.Micro,
-                        color = FosColors.Positive,
+                        color = FosColors.TextMuted,
                     )
+                    val connectedAt = pushHealth.connectedAt
+                    if (connectedAt > 0) {
+                        Text(
+                            "Служба подключалась: ${FosFormatter.dayLabelYear(connectedAt)}",
+                            style = FosType.Micro,
+                            color = FosColors.TextMuted,
+                        )
+                    }
                 } else {
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
@@ -640,6 +733,14 @@ fun SettingsScreen(
  * Экран длинный, и без линейки одинаковые карточки шли сплошной лентой: где кончается «Резервная
  * копия» и начинается «Безопасность», приходилось искать глазами по капслоку.
  */
+/** Снимок состояния службы чтения пушей — то, что экран имеет право утверждать. */
+private data class PushHealth(
+    val granted    : Boolean,
+    val connected  : Boolean,
+    val lastPushAt : Long,
+    val connectedAt: Long,
+)
+
 @Composable
 private fun SettingsSection(
     title  : String,
