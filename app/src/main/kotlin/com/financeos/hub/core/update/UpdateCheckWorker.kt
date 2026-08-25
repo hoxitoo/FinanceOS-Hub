@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.financeos.hub.core.notifications.ListenerHealth
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.data.preferences.UserPreferences
 import dagger.assisted.Assisted
@@ -39,6 +40,13 @@ class UpdateCheckWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        // Заодно — раз в 12 часов проверить, жива ли служба чтения банковских пушей, и попросить
+        // систему привязать её обратно, если нет. Иначе починка наступает только когда человек
+        // сам откроет приложение, а смысл фонового чтения ровно в том, чтобы не открывать.
+        // Опции обновлений это не касается: тумблер ниже про уведомления о новых версиях, а не
+        // про то, читать ли пуши.
+        ListenerHealth.healIfNeeded(applicationContext)
+
         return try {
             // Respect the user's opt-out — return success (not retry) so WorkManager keeps the
             // periodic schedule alive for when they turn it back on, without doing any network work.

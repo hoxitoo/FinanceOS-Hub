@@ -43,6 +43,26 @@ class PushNotificationListener : NotificationListenerService() {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
 
+    /**
+     * Система привязала службу. Отсюда и только отсюда известно, что чтение пушей ДЕЙСТВИТЕЛЬНО
+     * работает — выданное разрешение об этом не говорит ничего.
+     */
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        ListenerHealth.markConnected(applicationContext)
+    }
+
+    /**
+     * Привязку разорвали — приложение обновили, систему перезагрузили, диспетчер питания усыпил
+     * процесс. Разрешение при этом остаётся выданным, и без просьбы вернуть привязку служба может
+     * не подняться уже никогда: пуши продолжают приходить на телефон и молча проходить мимо.
+     */
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        ListenerHealth.markDisconnected(applicationContext)
+        ListenerHealth.requestRebind(applicationContext)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // Cancel in-flight coroutines when the service is torn down (e.g. permission revoked
@@ -53,6 +73,10 @@ class PushNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val sender = PACKAGE_TO_SENDER[sbn.packageName] ?: return
+        // Признак жизни ставится ДО всех проверок и до корутины: важно, что уведомление вообще
+        // дошло до службы. Станет оно операцией или окажется рекламой — уже другой вопрос, и на
+        // диагностику «работает / не работает» он влиять не должен.
+        ListenerHealth.markPushSeen(applicationContext)
         scope.launch {
             if (!userPreferences.pushListenerEnabled.first()) return@launch
             val body = extractBody(sbn)

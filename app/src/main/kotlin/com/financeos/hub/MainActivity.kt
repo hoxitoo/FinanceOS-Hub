@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import com.financeos.hub.core.notifications.ListenerHealth
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -98,6 +99,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Самовосстановление чтения пушей. Открытие приложения — самый ранний момент, когда можно
+        // заметить, что служба уведомлений отвалилась (обновление, перезагрузка, диспетчер питания
+        // усыпил процесс) и попросить систему привязать её обратно. Разрешение при таком разрыве
+        // остаётся выданным, поэтому сам пользователь увидеть проблему не может — операции просто
+        // перестают появляться.
+        ListenerHealth.ensureComponentEnabled(this)
+        ListenerHealth.healIfNeeded(this)
+
         lifecycleScope.launch {
             biometricEnabledCache = runCatching { userPreferences.biometricEnabled.first() }
                 .getOrDefault(false)
