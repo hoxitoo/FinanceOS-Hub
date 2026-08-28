@@ -35,8 +35,9 @@ class SubscriptionsViewModel @Inject constructor(
 
     val state = txRepo.observeAll().map { txList ->
         val now  = System.currentTimeMillis()
-        // Год с запасом: годовую подписку видно только тогда, когда в окно попадают хотя бы два
-        // списания подряд, а на 12 месяцах ровно они и оказываются на границе.
+        // Больше двух лет. Ритм подтверждается ТРЕМЯ списаниями, поэтому годовой подписке нужно
+        // окно в два с лишним года — на 400 днях она была недостижима в принципе, и ветка Yearly
+        // существовала бы только в тестах.
         val from = now - WINDOW_DAYS * 24L * 60 * 60 * 1000
 
         val charges = txList
@@ -72,6 +73,6 @@ class SubscriptionsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SubscriptionsState())
 
     private companion object {
-        const val WINDOW_DAYS = 400L
+        const val WINDOW_DAYS = 800L
     }
 }

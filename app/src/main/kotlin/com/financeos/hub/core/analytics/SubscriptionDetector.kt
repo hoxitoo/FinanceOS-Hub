@@ -164,7 +164,9 @@ object SubscriptionDetector {
             // Просрочка объявляется только когда период известен: иначе это гадание.
             isMissed       = period != null && now - last > period.days * DAY_MS * 1.5,
             evidence       = if (period != null) Evidence.Regular else Evidence.Labelled,
-            categoryId     = group.lastOrNull { it.categoryId != null }?.categoryId,
+            // Из самого свежего списания, а не из произвольного элемента неотсортированной
+            // группы: по этой категории строится переход в список операций.
+            categoryId     = sorted.lastOrNull { it.categoryId != null }?.categoryId,
         )
     }
 
