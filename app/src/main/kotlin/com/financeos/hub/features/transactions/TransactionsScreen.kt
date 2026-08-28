@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.ui.components.SwipeToRevealDelete
 import com.financeos.hub.ui.components.TransactionRow
 import java.io.File
@@ -58,6 +59,11 @@ import com.financeos.hub.ui.theme.LocalShimmer
 @Composable
 fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     val state      by vm.state.collectAsState()
+    // Считаем один раз на список, а не на строку: иначе на каждой из сотен строк шёл бы поиск по
+    // списку счетов, и на прокрутке это заметно.
+    val creditAccountIds = remember(state.accounts) {
+        state.accounts.filter { it.kind == AccountKind.CREDIT }.map { it.id }.toSet()
+    }
     val context    = LocalContext.current
     var showAddSheet  by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -243,6 +249,7 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                                     TransactionRow(
                                         transaction  = tx,
                                         categoryName = state.categoryName(tx.categoryId),
+                                        onCredit     = tx.accountId in creditAccountIds,
                                         onClick      = { selectedTx = tx },
                                     )
                                 }

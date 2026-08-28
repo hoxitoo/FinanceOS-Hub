@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.FORECAST_EXPLANATION
@@ -74,6 +75,10 @@ fun DashboardScreen(
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    // Один раз на список, а не на каждую строку — см. тот же приём на экране операций.
+    val creditAccountIds = remember(state.accounts) {
+        state.accounts.filter { it.kind == AccountKind.CREDIT }.map { it.id }.toSet()
+    }
     val shimmer = LocalShimmer.current
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
@@ -196,6 +201,7 @@ fun DashboardScreen(
                 TransactionRow(
                     transaction  = tx,
                     categoryName = state.categoryName(tx.categoryId),
+                    onCredit     = tx.accountId in creditAccountIds,
                     onClick      = { selectedTx = tx },
                 )
             }
