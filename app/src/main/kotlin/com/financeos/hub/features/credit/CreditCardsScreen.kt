@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.credit.MinimumPaymentOutlook
+import com.financeos.hub.core.credit.InterestFreeWindow
 import com.financeos.hub.core.credit.PaymentSource
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.ui.components.TransactionRow
@@ -46,6 +47,7 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.fosHeroCard
+import com.financeos.hub.ui.theme.fosInset
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 import java.time.format.DateTimeFormatter
@@ -326,6 +328,14 @@ private fun CreditCardBlock(
             }
         }
 
+        // Отсчёт по конкретной покупке. Стоит ВНЕ ветки `due != null`: у 120-дневной карты нет ни
+        // дня выписки, ни рассчитанной даты платежа, и раньше на таком экране про беспроцентный
+        // период не было сказано ничего, кроме справочных «120 дней» из тарифа.
+        card.interestFree?.let { window ->
+            Spacer(Modifier.height(12.dp))
+            InterestFreeCountdown(window)
+        }
+
         Spacer(Modifier.height(12.dp))
         HorizontalDivider(color = FosColors.Border)
 
@@ -552,5 +562,90 @@ private fun TermRow(
             Text(value, style = FosType.SmallBold, color = valueColor)
             if (hint != null) Text(hint, style = FosType.Micro, color = FosColors.TextMuted)
         }
+    }
+}
+
+
+/**
+ * Сколько осталось до конца беспроцентного периода по самой старой непогашенной покупке.
+ *
+ * Именно этот срок истекает первым, и именно с него начнут капать проценты — поэтому крупно стоит
+ * число дней, а не длина периода из тарифа. Под ним написано, по какой покупке идёт счёт: без этого
+ * цифра выглядит как свойство карты, хотя на деле она про одну строку в истории.
+ */
+@Composable
+private fun InterestFreeCountdown(window: InterestFreeWindow) {
+    // Цвет — по остатку времени, а не по факту наличия долга: пока период идёт, всё в порядке,
+    // и красить его тревожным было бы враньём.
+    val tone = when {
+        window.expired          -> FosTone.Negative
+        window.daysLeft <= 14   -> FosTone.Warning
+        else                    -> FosTone.Neutral
+    }
+    val accent = tone.accent ?: FosColors.TextPrimary
+
+    Column(
+        modifier            = Modifier.fillMaxWidth().fosInset(tone),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.Bottom,
+        ) {
+            Column {
+                Text("Беспроцентный период", style = FosType.Micro, color = FosColors.TextSecondary)
+                Text(
+                    when {
+                        window.expired        -> "истёк ${pluralDays(-window.daysLeft)} назад"
+                        window.daysLeft == 0  -> "заканчивается сегодня"
+                        else                  -> "осталось ${pluralDays(window.daysLeft)}"
+                    },
+                    style = FosType.HeroAmountMulti,
+                    color = accent,
+                )
+            }
+            Text(
+                "до ${FosFormatter.date(window.deadline)}",
+                style = FosType.Micro,
+                color = FosColors.TextMuted,
+            )
+        }
+
+        // Полоса прожитой части периода: 120 дней в цифрах ничего не говорят, а заполненная на
+        // три четверти линейка говорит сразу.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(FosDimens.BarHeightLg)
+                .clip(RoundedCornerShape(FosDimens.RadiusBar))
+                .background(FosColors.SurfaceSunken),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(window.elapsedFraction)
+                    .height(FosDimens.BarHeightLg)
+                    .clip(RoundedCornerShape(FosDimens.RadiusBar))
+                    .background(accent),
+            )
+        }
+
+        Text(
+            buildString {
+                append("отсчёт от покупки ")
+                append(FosFormatter.dayLabelYear(window.purchaseAt))
+                window.merchant?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
+                append(" · ").append(FosFormatter.compact(window.purchaseKopecks))
+            },
+            style = FosType.Micro,
+            color = FosColors.TextMuted,
+            maxLines = 2,
+        )
+        Text(
+            "Оценка: приложение считает, что погашения закрывают покупки начиная со старых. " +
+                "Покупки, сделанные до установки приложения, оно не видит.",
+            style = FosType.Micro,
+            color = FosColors.TextMuted,
+        )
     }
 }
