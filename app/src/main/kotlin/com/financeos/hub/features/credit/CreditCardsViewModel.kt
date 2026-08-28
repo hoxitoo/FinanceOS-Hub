@@ -10,7 +10,9 @@ import com.financeos.hub.core.credit.creditUtilization
 import com.financeos.hub.core.credit.debtKopecks
 import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.freeLimitKopecks
+import com.financeos.hub.core.credit.InterestFreeWindow
 import com.financeos.hub.core.credit.MinimumPaymentOutlook
+import com.financeos.hub.core.credit.nearestInterestFreeWindow
 import com.financeos.hub.core.credit.accruedInterest
 import com.financeos.hub.core.credit.minPaymentKopecks
 import com.financeos.hub.core.credit.minimumPaymentOutlook
@@ -57,6 +59,11 @@ data class CreditCardState(
     val interestSoFar    : Long?,
     /** What paying only the minimum would cost. Null when the rate or the minimum % is unset. */
     val minimumOutlook   : MinimumPaymentOutlook?,
+    /**
+     * Беспроцентный период по самой старой непогашенной покупке — тот, что истечёт первым.
+     * Null, если длина периода не задана или непогашенных покупок нет.
+     */
+    val interestFree     : InterestFreeWindow?,
 ) {
     val debt: Long get() = account.debtKopecks
     /** True when nothing — neither a bank reminder nor entered terms — can date a payment. */
@@ -107,6 +114,15 @@ class CreditCardsViewModel @Inject constructor(
         val cardStates = creditAccounts.map { account ->
             val cycle = creditCycle(account.statementDay, account.dueDays, today)
             val accountTx = txList.filter { it.accountId == account.id }
+
+            // Отсчёт беспроцентного периода. У 120-дневной карты он идёт от даты покупки, а не от
+            // выписки, поэтому считается отдельно от cycle и работает даже когда cycle == null —
+            // именно этот случай у СберКарты, где дня выписки в тарифе нет вовсе.
+            val interestFree = nearestInterestFreeWindow(
+                transactions     = accountTx,
+                interestFreeDays = account.interestFreeDays,
+                today            = today,
+            )
 
             // Roll the current balance back to the statement close: everything booked after it
             // belongs to the next bill. This is an inference from the transaction log, not a figure
@@ -178,6 +194,7 @@ class CreditCardsViewModel @Inject constructor(
                 freeLimit           = account.freeLimitKopecks,
                 utilization         = account.creditUtilization,
                 aprPercent          = account.aprPercent,
+                interestFree        = interestFree,
             )
         }
 

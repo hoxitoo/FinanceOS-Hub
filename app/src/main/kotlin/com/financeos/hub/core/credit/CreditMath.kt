@@ -3,9 +3,12 @@ package com.financeos.hub.core.credit
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.parser.ParsedTransaction
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
@@ -258,6 +261,75 @@ private const val DEFAULT_MIN_PAYMENT_FLOOR_KOPECKS = 300_00L
  * Interest accrued on [debtKopecks] over [days] at [aprBp], on a simple 365-day-year basis.
  * Null when the rate was never entered; 0 when nothing is owed or no time has passed.
  */
+/**
+ * Беспроцентный период по КОНКРЕТНОЙ покупке.
+ *
+ * У классической грейс-карты период отсчитывается от закрытия выписки, и его показывает
+ * [creditCycle]. У 120-дневной СберКарты дня выписки нет вовсе — период идёт от ДАТЫ ПОКУПКИ,
+ * поэтому у каждой покупки свой срок, и они истекают по очереди. Раньше экран печатал «120 дней»
+ * как справку из тарифа и молчал о том, сколько осталось: цифра, по которой нельзя принять ни
+ * одного решения.
+ *
+ * Считается по самой старой НЕПОГАШЕННОЙ покупке — её срок истекает первым, и именно с неё
+ * начнут капать проценты.
+ */
+data class InterestFreeWindow(
+    val purchaseAt      : Long,
+    val purchaseKopecks : Long,
+    val merchant        : String?,
+    val deadline        : LocalDate,
+    /** Сколько дней осталось. Ноль — истекает сегодня, отрицательное — период уже прошёл. */
+    val daysLeft        : Int,
+    val totalDays       : Int,
+) {
+    val expired: Boolean get() = daysLeft < 0
+    /** 0..1 — какая часть периода прожита. Для полосы прогресса. */
+    val elapsedFraction: Float
+        get() = if (totalDays <= 0) 1f else ((totalDays - daysLeft).toFloat() / totalDays).coerceIn(0f, 1f)
+}
+
+/**
+ * @param purchases покупки по карте: отрицательные суммы, в любом порядке.
+ * @param repayments погашения: положительные суммы.
+ *
+ * Погашения гасят покупки по принципу «сначала самые старые» — так работает подавляющее
+ * большинство карт, и так же считает сам банк. Это ВЫВОД из истории операций, а не цифра от банка:
+ * если часть покупок сделана до того, как приложение начало вести карту, срок окажется оптимистичнее
+ * настоящего. Экран обязан называть это оценкой.
+ */
+fun nearestInterestFreeWindow(
+    transactions    : List<TransactionEntity>,
+    interestFreeDays: Int?,
+    today           : LocalDate,
+    zone            : ZoneId = ZoneId.systemDefault(),
+): InterestFreeWindow? {
+    val days = interestFreeDays?.takeIf { it > 0 } ?: return null
+
+    val ordered   = transactions.sortedBy { it.timestamp }
+    val purchases = ordered.filter { it.amountKopecks < 0 }
+    if (purchases.isEmpty()) return null
+
+    // Гасим старейшие покупки на всю сумму погашений — что останется непокрытым, то и определяет
+    // ближайший срок.
+    var unapplied = ordered.filter { it.amountKopecks > 0 }.sumOf { it.amountKopecks }
+    val oldestUnpaid = purchases.firstOrNull { tx ->
+        val amount = -tx.amountKopecks
+        if (unapplied >= amount) { unapplied -= amount; false } else true
+    } ?: return null   // всё погашено — беспроцентный период считать не по чему
+
+    val purchaseDate = Instant.ofEpochMilli(oldestUnpaid.timestamp).atZone(zone).toLocalDate()
+    val deadline     = purchaseDate.plusDays(days.toLong())
+
+    return InterestFreeWindow(
+        purchaseAt      = oldestUnpaid.timestamp,
+        purchaseKopecks = -oldestUnpaid.amountKopecks,
+        merchant        = oldestUnpaid.merchant,
+        deadline        = deadline,
+        daysLeft        = ChronoUnit.DAYS.between(today, deadline).toInt(),
+        totalDays       = days,
+    )
+}
+
 fun accruedInterest(debtKopecks: Long, aprBp: Int?, days: Int): Long? {
     val apr = aprBp?.takeIf { it > 0 } ?: return null
     if (debtKopecks <= 0L || days <= 0) return 0L

@@ -105,6 +105,9 @@ object FosFormatter {
         return date.format(fullDateFmt)
     }
 
+    /** LocalDate → "18 июня 2026". Для сроков, которые считаются в датах, а не в метках времени. */
+    fun date(date: LocalDate): String = date.format(fullDateFmt)
+
     /** Maps an ISO currency code to a display symbol. */
     fun currencySymbol(code: String): String = when (code.uppercase()) {
         "USD" -> "$"
