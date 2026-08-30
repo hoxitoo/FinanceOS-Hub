@@ -107,6 +107,44 @@ class MerchantNamesTest {
         )
     }
 
+    // ── Находки ревью: их легче внести обратно, чем заметить ────────────────────
+
+    @Test
+    fun `a brand is matched as a whole word, not as a substring`() {
+        // «Canvas» содержит «canva». Без границ слова магазин холстов стал бы подпиской Canva,
+        // а «Стимул» — играми в Steam.
+        assertEquals("CANVAS PRINT SHOP", MerchantNames.display("CANVAS PRINT SHOP"))
+        assertEquals("Canva", MerchantNames.display("CANVA *PRO"))
+    }
+
+    @Test
+    fun `two products of one brand are two subscriptions`() {
+        // Creative Cloud и Acrobat — разные подписки. Слить их в одну значит потерять обе:
+        // суммы разные, проверка стабильности не пройдёт, и со экрана исчезнут обе строки.
+        assertNotEquals(
+            MerchantNames.groupKey("ADOBE *CREATIVE CLOUD"),
+            MerchantNames.groupKey("ADOBE *ACROBAT"),
+        )
+    }
+
+    @Test
+    fun `cutting out a phone number does not leave punctuation behind`() {
+        // «MTS 8-800-250-0890 MOSCOW»: после вырезания длинных чисел оставались огрызки «8- - -».
+        assertEquals("MTS MOSCOW", MerchantNames.display("MTS 8-800-250-0890 MOSCOW"))
+    }
+
+    @Test
+    fun `shops are left alone entirely`() {
+        // Магазины и игры намеренно НЕ переименовываются: они и так читаются, а общий ключ по
+        // бренду склеил бы разовые покупки в одну «подписку».
+        assertEquals("Wildberries", MerchantNames.display("Wildberries"))
+        assertEquals("пополнение стим", MerchantNames.display("пополнение стим"))
+        assertNotEquals(
+            MerchantNames.groupKey("покупка Wildberries"),
+            MerchantNames.groupKey("Wildberries"),
+        )
+    }
+
     @Test
     fun `different shops keep different keys`() {
         assertNotEquals(

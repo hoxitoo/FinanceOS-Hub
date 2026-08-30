@@ -243,8 +243,10 @@ abstract class FosDatabase : RoomDatabase() {
          * модель. Если человек уже поправил категорию руками, условие не выполнится и строку не
          * тронут.
          *
-         * LIKE в SQLite нечувствителен к регистру только для латиницы, поэтому для кириллических
-         * образцов первая буква из шаблона выброшена: «есторан» ловит и «Рестораны», и «рестораны».
+         * LIKE в SQLite нечувствителен к регистру ТОЛЬКО для латиницы. Для кириллицы приходится
+         * перечислять оба написания руками: выброшенной первой буквы хватает на «Рестораны» и
+         * «рестораны», но не на «РЕСТОРАНЫ» — а именно так приходят строки из PDF-выписок
+         * (`'РЕСТОРАНЫ И КАФЕ' LIKE '%есторан%'` возвращает 0, проверено).
          */
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -272,7 +274,7 @@ abstract class FosDatabase : RoomDatabase() {
                     """
                     UPDATE transactions SET category_id = 'cat_food'
                     WHERE is_deleted = 0 AND category_id = 'cat_grocery'
-                      AND merchant LIKE '%есторан%'
+                      AND (merchant LIKE '%есторан%' OR merchant LIKE '%ЕСТОРАН%')
                     """.trimIndent()
                 )
 
@@ -281,18 +283,19 @@ abstract class FosDatabase : RoomDatabase() {
                     """
                     UPDATE transactions SET category_id = 'cat_grocery'
                     WHERE is_deleted = 0 AND category_id = 'cat_food'
-                      AND (   merchant LIKE '%вощи и фрукты%'
-                           OR merchant LIKE '%ристоль%'
-                           OR merchant LIKE '%ясокомбинат%')
+                      AND (   merchant LIKE '%вощи и фрукты%' OR merchant LIKE '%ВОЩИ И ФРУКТЫ%'
+                           OR merchant LIKE '%ристоль%'       OR merchant LIKE '%РИСТОЛЬ%'
+                           OR merchant LIKE '%ясокомбинат%'   OR merchant LIKE '%ЯСОКОМБИНАТ%')
                     """.trimIndent()
                 )
 
-                // Продуктовый склад, уехавший в «Другое».
+                // Продуктовый склад, уехавший в «Другое». TRIM — в истории встречаются названия с
+                // хвостовым пробелом, и без него условие с якорем на конец строки не срабатывает.
                 db.execSQL(
                     """
                     UPDATE transactions SET category_id = 'cat_grocery'
                     WHERE is_deleted = 0 AND category_id = 'cat_other'
-                      AND merchant LIKE '%прок'
+                      AND (TRIM(merchant) LIKE '%прок' OR TRIM(merchant) LIKE '%ПРОК')
                     """.trimIndent()
                 )
             }
