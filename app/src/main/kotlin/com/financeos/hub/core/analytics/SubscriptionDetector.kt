@@ -1,5 +1,6 @@
 package com.financeos.hub.core.analytics
 
+import com.financeos.hub.core.parser.MerchantNames
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -102,28 +103,9 @@ object SubscriptionDetector {
      * складывать их нельзя, а показывать «19,99» без указания чего именно — врать.
      */
     private fun groupKey(charge: Charge): Pair<String, String>? {
-        val name = normalise(charge.merchant ?: charge.description ?: return null)
-        return if (name.isBlank()) null else name to charge.currency
+        val name = MerchantNames.groupKey(charge.merchant ?: charge.description) ?: return null
+        return name to charge.currency
     }
-
-    private val DIGIT_RUN  = Regex("""\d{3,}""")
-    private val SEPARATORS = Regex("""[\s,;:*#/\\_.+()\[\]«»"'-]+""")
-
-    /**
-     * Приведение названия продавца к сравнимому виду.
-     *
-     * Банки дописывают к названию номер терминала, телефон поддержки, номер операции — из-за них
-     * одна и та же подписка выглядит каждый месяц по-новому и никогда не набирает трёх повторов.
-     * Поэтому группы из трёх и более цифр выбрасываются целиком: «RECR GOOGLE *ChatGPT,
-     * 855-836-3987» и та же строка с другим номером схлопываются в «recr google chatgpt».
-     *
-     * Двузначные числа остаются — в них бывает смысл («Тинькофф 2»), и терять его дороже.
-     */
-    internal fun normalise(raw: String): String =
-        raw.lowercase()
-            .replace(DIGIT_RUN, " ")
-            .replace(SEPARATORS, " ")
-            .trim()
 
     private fun analyse(
         key  : Pair<String, String>,
@@ -173,9 +155,7 @@ object SubscriptionDetector {
     /** Показываем название так, как его прислал банк в последний раз — оно узнаваемо. */
     private fun displayTitle(group: List<Charge>): String =
         group.maxByOrNull { it.timestamp }
-            ?.let { it.merchant?.takeIf { m -> m.isNotBlank() } ?: it.description }
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
+            ?.let { MerchantNames.display(it.merchant ?: it.description) }
             ?: "Без названия"
 
     /**

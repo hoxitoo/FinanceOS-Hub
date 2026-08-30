@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.MerchantNames
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -60,7 +61,10 @@ fun TransactionRow(
         // Left — merchant + meta
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text  = transaction.merchant ?: categoryName,
+                // Разобранное имя, а не строка биллинга: «RECR GOOGLE *ChatGPT, 855-836-3987»
+                // занимает всю ширину и не читается. Исходный текст никуда не делся — он лежит в
+                // самой операции, виден в её карточке и по нему по-прежнему ищет поиск.
+                text  = MerchantNames.display(transaction.merchant) ?: categoryName,
                 style = FosType.TxMerchant,
                 color = FosColors.TextPrimary,
                 maxLines = 1,

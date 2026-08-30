@@ -3,6 +3,8 @@ package com.financeos.hub.features.transactions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -90,7 +91,7 @@ private data class SourceOption(
     val key: String get() = "${accountId}_${mask ?: "_"}"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddTransactionSheet(
     sheetState : SheetState,
@@ -274,8 +275,12 @@ fun AddTransactionSheet(
             // INCOME → source presets; EXPENSE → category chips
             if (txType == TransactionType.INCOME) {
                 Text("Тип дохода", style = FosType.SectionCap, color = FosColors.TextMuted)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(INCOME_SOURCES) { (emoji, label) ->
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement   = Arrangement.spacedBy(6.dp),
+                    modifier              = Modifier.fillMaxWidth(),
+                ) {
+                    INCOME_SOURCES.forEach { (emoji, label) ->
                         val selected = incomeSource == label
                         FilterChip(
                             selected = selected,
@@ -293,8 +298,15 @@ fun AddTransactionSheet(
                 }
             } else if (txType == TransactionType.EXPENSE && categories.isNotEmpty()) {
                 Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(categories, key = { it.id }) { cat ->
+                // Сетка с переносом, а не лента вбок. Категорий восемнадцать: в ленте видно четыре,
+                // остальные приходится листать вслепую, не зная ни сколько их, ни где нужная.
+                // Здесь они все на экране сразу, и выбор — одно касание вместо прокрутки.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement   = Arrangement.spacedBy(6.dp),
+                    modifier              = Modifier.fillMaxWidth(),
+                ) {
+                    categories.forEach { cat ->
                         val selected = categoryId == cat.id
                         FilterChip(
                             selected = selected,

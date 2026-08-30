@@ -34,7 +34,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -223,6 +223,76 @@ abstract class FosDatabase : RoomDatabase() {
                     UPDATE merchant_rules SET category_id = 'cat_subscription'
                     WHERE id IN ('r091','r092','r093','r094','r095','r096')
                       AND category_id = 'cat_entertain'
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /**
+         * Правила по реальному экспорту + ТОЧЕЧНАЯ починка уже записанной истории.
+         *
+         * Обычно правила влияют только на разбор будущих сообщений — категория живёт в самой
+         * операции, и переразмечать её задним числом опасно: там могут быть ручные исправления
+         * человека, а отличить их от машинных нельзя, признака «кто поставил категорию» в схеме нет.
+         *
+         * Здесь сделано исключение, и оно намеренно узкое. Модель училась на синтетике, в которой
+         * не было ни ИИ-сервисов, ни местных пермских лавок, поэтому она раскладывала их наугад:
+         * подписка на ChatGPT уезжала в «Покупки», овощная лавка — в «Рестораны», а строка
+         * «Рестораны и кафе» — в «Продукты». Каждый UPDATE ниже требует ОДНОВРЕМЕННО совпадения по
+         * продавцу И нахождения строки ровно в той неверной категории, которую туда поставила
+         * модель. Если человек уже поправил категорию руками, условие не выполнится и строку не
+         * тронут.
+         *
+         * LIKE в SQLite нечувствителен к регистру только для латиницы, поэтому для кириллических
+         * образцов первая буква из шаблона выброшена: «есторан» ловит и «Рестораны», и «рестораны».
+         */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultCategories(db)
+                insertDefaultMerchantRules(db)
+
+                // ИИ-сервисы и хостинг — это подписки, а не покупки.
+                db.execSQL(
+                    """
+                    UPDATE transactions SET category_id = 'cat_subscription'
+                    WHERE is_deleted = 0
+                      AND category_id IN ('cat_shopping', 'cat_other', 'cat_entertain')
+                      AND (   merchant LIKE '%chatgpt%'    OR merchant LIKE '%openai%'
+                           OR merchant LIKE '%claude%'     OR merchant LIKE '%anthropic%'
+                           OR merchant LIKE '%heygen%'     OR merchant LIKE '%klingai%'
+                           OR merchant LIKE '%midjourney%' OR merchant LIKE '%perplexity%'
+                           OR merchant LIKE '%elevenlabs%' OR merchant LIKE '%aeza%'
+                           OR merchant LIKE '%vps%'        OR merchant LIKE '%hetzner%'
+                           OR merchant LIKE '%digitalocean%')
+                    """.trimIndent()
+                )
+
+                // «Рестораны и кафе» — это еда, а не продукты.
+                db.execSQL(
+                    """
+                    UPDATE transactions SET category_id = 'cat_food'
+                    WHERE is_deleted = 0 AND category_id = 'cat_grocery'
+                      AND merchant LIKE '%есторан%'
+                    """.trimIndent()
+                )
+
+                // Овощная лавка и алкомаркет — это продукты, а не ресторан.
+                db.execSQL(
+                    """
+                    UPDATE transactions SET category_id = 'cat_grocery'
+                    WHERE is_deleted = 0 AND category_id = 'cat_food'
+                      AND (   merchant LIKE '%вощи и фрукты%'
+                           OR merchant LIKE '%ристоль%'
+                           OR merchant LIKE '%ясокомбинат%')
+                    """.trimIndent()
+                )
+
+                // Продуктовый склад, уехавший в «Другое».
+                db.execSQL(
+                    """
+                    UPDATE transactions SET category_id = 'cat_grocery'
+                    WHERE is_deleted = 0 AND category_id = 'cat_other'
+                      AND merchant LIKE '%прок'
                     """.trimIndent()
                 )
             }
@@ -491,6 +561,47 @@ abstract class FosDatabase : RoomDatabase() {
                 // Самое широкое правило во всём списке — идёт ПОСЛЕДНИМ, чтобы срабатывать только
                 // тогда, когда ни один конкретный сервис не опознан.
                 Triple("r399", "подписка",          "cat_subscription"),
+                // ── Разбор реального экспорта пользователя ──────────────────────────
+                // Всё ниже добавлено по живой истории за три месяца: это те продавцы, которых
+                // модель раскладывала наугад, потому что в синтетике, на которой её учили, их не
+                // было. ИИ-сервисы и хостинг уезжали в «Покупки», овощная лавка — в «Рестораны»,
+                // а строка «Рестораны и кафе» — в «Продукты».
+                Triple("r402", "claude",            "cat_subscription"),
+                Triple("r403", "anthropic",         "cat_subscription"),
+                Triple("r404", "midjourney",        "cat_subscription"),
+                Triple("r405", "heygen",            "cat_subscription"),
+                Triple("r406", "klingai",           "cat_subscription"),
+                Triple("r407", "perplexity",        "cat_subscription"),
+                Triple("r408", "elevenlabs",        "cat_subscription"),
+                Triple("r409", "aeza",              "cat_subscription"),
+                Triple("r410", "аеза",              "cat_subscription"),
+                Triple("r411", "vps",               "cat_subscription"),
+                Triple("r412", "hetzner",           "cat_subscription"),
+                Triple("r413", "digitalocean",      "cat_subscription"),
+                Triple("r414", "timeweb",           "cat_subscription"),
+                Triple("r415", "beget",             "cat_subscription"),
+                // Продукты
+                Triple("r420", "мясокомбинат",      "cat_grocery"),
+                Triple("r421", "овощи и фрукты",    "cat_grocery"),
+                Triple("r422", "бристоль",          "cat_grocery"),
+                Triple("r423", "впрок",             "cat_grocery"),
+                // Еда и рестораны
+                Triple("r430", "пекарь",            "cat_food"),
+                Triple("r431", "пекарн",            "cat_food"),
+                Triple("r432", "блинная",           "cat_food"),
+                Triple("r433", "шаурма",            "cat_food"),
+                Triple("r434", "кулинария",         "cat_food"),
+                Triple("r435", "лакомка",           "cat_food"),
+                Triple("r436", "пироги",            "cat_food"),
+                Triple("r437", "столовая",          "cat_food"),
+                // Здоровье
+                Triple("r441", "планета здоровья",  "cat_health"),
+                Triple("r442", "медси",             "cat_health"),
+                // Прочее по мелочи
+                Triple("r450", "скалодром",         "cat_entertain"),
+                Triple("r460", "цветы",             "cat_shopping"),
+                Triple("r470", "wizz air",          "cat_travel"),
+                Triple("r471", "wizzair",           "cat_travel"),
             )
             insertRules(db, rules, priority = 0)
             insertRules(db, PRIORITY_RULES, priority = 1)
