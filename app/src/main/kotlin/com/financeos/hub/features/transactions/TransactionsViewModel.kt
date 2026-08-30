@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.financeos.hub.core.parser.MerchantNames
 import com.financeos.hub.core.classifier.CategoryClassifier
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
@@ -110,6 +111,10 @@ class TransactionsViewModel @Inject constructor(
                 else {
                     val q = query.trim().lowercase()
                     tx.merchant?.lowercase()?.contains(q) == true ||
+                    // И по разобранному имени тоже: в списке написано «Aeza», а в самой операции
+                    // лежит «Аеза VPS» кириллицей — искать по видимому слову и не находить ничего
+                    // хуже, чем не чистить название вовсе.
+                    MerchantNames.display(tx.merchant)?.lowercase()?.contains(q) == true ||
                     tx.description?.lowercase()?.contains(q) == true ||
                     catMap[tx.categoryId]?.lowercase()?.contains(q) == true
                 }

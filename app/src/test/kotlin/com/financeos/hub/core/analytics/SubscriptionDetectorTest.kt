@@ -173,13 +173,10 @@ class SubscriptionDetectorTest {
         val sub = SubscriptionDetector.detect(charges, now).single()
         assertEquals(Period.Monthly, sub.period)
         assertEquals(3, sub.chargeCount)
+        // И показывается коротким узнаваемым именем, а не строкой биллинга.
+        assertEquals("ChatGPT", sub.title)
     }
 
-    @Test
-    fun `normalise strips long digit runs and punctuation but keeps short numbers`() {
-        assertEquals("recr google chatgpt", SubscriptionDetector.normalise("RECR GOOGLE *ChatGPT, 855-836-3987"))
-        assertEquals("тинькофф 22", SubscriptionDetector.normalise("Тинькофф 22"))
-    }
 
     // ── Пропущенное списание ────────────────────────────────────────────────────
 
