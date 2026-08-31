@@ -1,6 +1,7 @@
 package com.financeos.hub.features.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,15 +19,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -35,11 +46,14 @@ import com.financeos.hub.core.calendar.EventConfidence
 import com.financeos.hub.core.calendar.EventDirection
 import com.financeos.hub.core.calendar.EventKind
 import com.financeos.hub.core.calendar.FreeMoney
+import com.financeos.hub.core.database.entities.PlannedPaymentEntity
+import com.financeos.hub.features.dashboard.accountSheetFieldColors
 import com.financeos.hub.ui.components.FosExplain
 import com.financeos.hub.ui.components.FosHairline
 import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.components.ParticleLayer
 import com.financeos.hub.ui.components.PawParticleLayer
+import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -64,6 +78,7 @@ import java.time.temporal.ChronoUnit
  * Арифметика показана построчно и НЕ спрятана за «?». Проза объясняет метод, а четыре строки,
  * которые складываются в заголовок, дают его проверить — это разные вещи, и вторая надёжнее.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(
     onBack: () -> Unit = {},
@@ -71,6 +86,11 @@ fun CalendarScreen(
 ) {
     val state   by vm.state.collectAsState()
     val shimmer = LocalShimmer.current
+
+    var editing     by remember { mutableStateOf<PlannedPaymentEntity?>(null) }
+    var reserveOpen by remember { mutableStateOf(false) }
+    var sheetOpen  by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(Modifier.fillMaxSize().background(FosColors.Background)) {
         // Кот-режим не наследуется экранами сам: он читается через LocalShimmer в каждом отдельно.
@@ -102,7 +122,7 @@ fun CalendarScreen(
             }
 
             state.free?.let { free ->
-                item { FreeMoneyCard(free) }
+                item { FreeMoneyCard(free) { reserveOpen = true } }
                 item { Timeline(state.upcoming, state.today, free.horizon) }
             }
 
@@ -115,7 +135,14 @@ fun CalendarScreen(
                             tone  = if (date.isBefore(state.today)) FosTone.Negative else FosTone.Neutral,
                         )
                     }
-                    items(events, key = { it.id }) { EventRow(it) }
+                    items(events, key = { it.id }) { event ->
+                        // Открыть на правку можно только объявленное: кредитку и подписку
+                        // приложение выводит само, и «править» там нечего.
+                        val editable = state.planned.firstOrNull {
+                            event.kind == EventKind.PLANNED && it.id == event.sourceId
+                        }
+                        EventRow(event, onClick = editable?.let { p -> { editing = p; sheetOpen = true } })
+                    }
                 }
             } else if (!state.isLoading) {
                 item {
@@ -175,13 +202,45 @@ fun CalendarScreen(
 
             item { Spacer(Modifier.height(80.dp)) }
         }
+
+        FloatingActionButton(
+            onClick        = { editing = null; sheetOpen = true },
+            containerColor = FosColors.Positive,
+            contentColor   = FosColors.Background,
+            shape          = CircleShape,
+            modifier       = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(FosDimens.ScreenPadding)
+                .size(56.dp),
+        ) {
+            Text("+", style = FosType.ScreenTitle, color = FosColors.Background)
+        }
+    }
+
+    if (reserveOpen) {
+        ReserveDialog(
+            current   = state.free?.reserveKopecks ?: 0L,
+            onDismiss = { reserveOpen = false },
+            onSave    = { vm.setReserve(it); reserveOpen = false },
+        )
+    }
+
+    if (sheetOpen) {
+        AddPlannedPaymentSheet(
+            sheetState = sheetState,
+            accounts   = state.accounts,
+            existing   = editing,
+            onDismiss  = { sheetOpen = false; editing = null },
+            onSave     = vm::save,
+            onDelete   = vm::deactivate,
+        )
     }
 }
 
 // ── Герой ────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown) {
+private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () -> Unit) {
     val tone = if (free.freeKopecks >= 0) FosTone.Positive else FosTone.Negative
     val accent = tone.accent ?: FosColors.TextPrimary
 
@@ -217,8 +276,24 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown) {
                 FosColors.Negative,
             )
         }
-        if (free.reserveKopecks > 0) {
-            Line("Резерв", "−" + FosFormatter.amount(free.reserveKopecks), FosColors.TextSecondary)
+        // Резерв правится прямо здесь, а не в настройках: он не значит ничего в отрыве от числа,
+        // на которое влияет, и менять его хочется ровно в тот момент, когда смотришь на это число.
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { onEditReserve() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (free.reserveKopecks > 0) "Резерв" else "Резерв не задан",
+                style = FosType.Body,
+                color = FosColors.TextSecondary,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                if (free.reserveKopecks > 0) "−" + FosFormatter.amount(free.reserveKopecks) else "указать",
+                style = FosType.SmallBold,
+                color = if (free.reserveKopecks > 0) FosColors.TextSecondary else FosColors.Info,
+            )
         }
 
         if (free.expectedIncomeKopecks > 0) {
@@ -311,7 +386,7 @@ private fun EventDot(event: CalendarEvent) {
 // ── Строки ───────────────────────────────────────────────────────────────────
 
 @Composable
-private fun EventRow(event: CalendarEvent) {
+private fun EventRow(event: CalendarEvent, onClick: (() -> Unit)? = null) {
     val tone = when {
         !event.affectsFree            -> FosTone.Info
         event.kind == EventKind.CREDIT_DUE -> FosTone.Warning
@@ -324,6 +399,7 @@ private fun EventRow(event: CalendarEvent) {
         modifier = Modifier
             .fillMaxWidth()
             .fosCardSurface(style, tone, FosDimens.RadiusCardSmall)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(FosDimens.CardPaddingSmall),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment     = Alignment.CenterVertically,
@@ -450,4 +526,49 @@ private fun pluralDays(n: Int): String {
         mod10 in 2..4    -> "$n дня"
         else             -> "$n дней"
     }
+}
+
+
+/**
+ * Неприкосновенный остаток.
+ *
+ * Это не цель: цель копят, чтобы однажды потратить, а резерв — пол, который не пробивают. По
+ * умолчанию ноль: приложение не решает за человека, сколько ему нужно на чёрный день.
+ */
+@Composable
+private fun ReserveDialog(current: Long, onDismiss: () -> Unit, onSave: (Long) -> Unit) {
+    var text by remember { mutableStateOf(FosFormatter.plainAmountInput(current)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor   = FosColors.Surface,
+        title = { Text("Резерв", style = FosType.BodySemi, color = FosColors.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Сумма, ниже которой «Свободно» опускаться не должно. Она вычитается из расчёта.",
+                    style = FosType.Micro,
+                    color = FosColors.TextSecondary,
+                )
+                OutlinedTextField(
+                    value                = text,
+                    onValueChange        = { text = FosFormatter.sanitizeAmountInput(it) },
+                    visualTransformation = AmountVisualTransformation,
+                    label                = { Text("Сумма, ₽", style = FosType.Label) },
+                    singleLine           = true,
+                    keyboardOptions      = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    colors               = accountSheetFieldColors(),
+                    modifier             = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(FosFormatter.parseAmountInput(text) ?: 0L) }) {
+                Text("Сохранить", color = FosColors.Info)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена", color = FosColors.TextSecondary) }
+        },
+    )
 }

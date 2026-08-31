@@ -10,6 +10,7 @@ import com.financeos.hub.core.calendar.PaymentDates
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.nearestInterestFreeWindow
+import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.PaymentDirection
 import com.financeos.hub.core.database.entities.PaymentSchedule
@@ -41,6 +42,10 @@ data class CalendarState(
     val settled    : List<CalendarEvent> = emptyList(),
     /** Найденные, но не подтверждённые подписки: «похоже на регулярный платёж». */
     val suggestions: List<SubscriptionDetector.Subscription> = emptyList(),
+    /** Свои счета — для формы: к какому счёту привязать обязательство. */
+    val accounts   : List<AccountEntity> = emptyList(),
+    /** Объявленные обязательства, чтобы открыть строку на редактирование по её sourceId. */
+    val planned    : List<PlannedPaymentEntity> = emptyList(),
     val today      : LocalDate = LocalDate.now(),
 )
 
@@ -140,7 +145,9 @@ class CalendarViewModel @Inject constructor(
             suggestions = subscriptions.filter { sub ->
                 sub.key !in planned.mapNotNull { it.autoSource } && !sub.isMissed
             },
-            today = today,
+            accounts = accounts,
+            planned  = planned,
+            today    = today,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CalendarState())
 
