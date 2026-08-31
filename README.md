@@ -73,7 +73,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
 5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword, «🧮 Калькулятор» in the header
 6. **Калькулятор** — three modes over one monthly simulation; fine-tuning panel; «ваш темп» and goal chips prefill from your own data; every figure is explicitly labelled an estimate
-7. **Календарь** — «Свободно» героем с разложенной арифметикой (счета − обязательства − резерв), полоса ближайших дат, список событий с пометкой источника (цифра банка / объявлено вами / найдено), подтверждение найденных подписок одним касанием, раздел «уже прошло» с возможностью отвязать
+7. **Календарь** — «Свободно» героем с разложенной арифметикой (счета − обязательства − резерв), два режима — полоса ближайших дат и сетка месяца (точки по видам событий, выбранный день фильтрует список), список событий с пометкой источника (цифра банка / объявлено вами / найдено), подтверждение найденных подписок одним касанием, раздел «уже прошло» с возможностью отвязать
 8. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
 9. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
 10. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates

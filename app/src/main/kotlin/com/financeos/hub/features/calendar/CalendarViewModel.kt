@@ -43,6 +43,14 @@ data class CalendarState(
     val free       : FreeMoney.FreeMoneyBreakdown? = null,
     /** События от сегодня до горизонта, по возрастанию даты. */
     val upcoming   : List<CalendarEvent> = emptyList(),
+    /**
+     * Всё окно построения — шире горизонта и в обе стороны от сегодня. Нужно сетке месяца: горизонт
+     * обычно короче месяца (до следующей зарплаты), и по [upcoming] сетка была бы пустой с середины.
+     */
+    val all        : List<CalendarEvent> = emptyList(),
+    /** Границы окна: дальше них у сетки просто нет данных, и листать туда нечего. */
+    val windowFrom : LocalDate = LocalDate.now(),
+    val windowTo   : LocalDate = LocalDate.now(),
     /** Уже закрытые обязательства за последний месяц — чтобы было видно, что сопоставление работает. */
     val settled    : List<CalendarEvent> = emptyList(),
     /** Найденные, но не подтверждённые подписки: «похоже на регулярный платёж». */
@@ -170,10 +178,9 @@ class CalendarViewModel @Inject constructor(
         // Окно начинается В ПРОШЛОМ. Просроченный платёж — это деньги, которые всё ещё должны
         // уйти; считая от сегодня, мы переставали их вычитать на следующий день после срока, и
         // «Свободно» само собой подрастало ровно тогда, когда человек задолжал.
-        val probe = CalendarBuilder.build(
-            planned, credit, subscriptions, goals,
-            today.minusDays(OVERDUE_LOOKBACK), today.plusDays(PROBE_DAYS), zone, claimed,
-        )
+        val from = today.minusDays(OVERDUE_LOOKBACK)
+        val to   = today.plusDays(PROBE_DAYS)
+        val probe = CalendarBuilder.build(planned, credit, subscriptions, goals, from, to, zone, claimed)
         val horizon = FreeMoney.defaultHorizon(probe, today)
 
         val upcoming = probe.filter { !it.date.isAfter(horizon) }
@@ -192,7 +199,10 @@ class CalendarViewModel @Inject constructor(
                 today             = today,
                 horizon           = horizon,
             ),
-            upcoming = upcoming.filter { !it.settled },
+            upcoming   = upcoming.filter { !it.settled },
+            all        = probe,
+            windowFrom = from,
+            windowTo   = to,
             // Закрытое за последний месяц: доказательство, что сопоставление сработало, и место,
             // где его можно отменить, если оно ошиблось.
             settled = CalendarBuilder
