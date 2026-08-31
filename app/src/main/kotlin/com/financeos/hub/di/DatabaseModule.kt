@@ -9,6 +9,7 @@ import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.MerchantRuleDao
+import com.financeos.hub.core.database.daos.PlannedPaymentDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import dagger.Module
@@ -42,6 +43,7 @@ object DatabaseModule {
                 FosDatabase.MIGRATION_12_13,
                 FosDatabase.MIGRATION_13_14,
                 FosDatabase.MIGRATION_14_15,
+                FosDatabase.MIGRATION_15_16,
             )
             .build()
 
@@ -53,4 +55,5 @@ object DatabaseModule {
     @Provides fun provideMerchantRuleDao(db: FosDatabase): MerchantRuleDao   = db.merchantRuleDao()
     @Provides fun provideCardDao(db: FosDatabase): CardDao                   = db.cardDao()
     @Provides fun provideTransferRouteDao(db: FosDatabase): TransferRouteDao = db.transferRouteDao()
+    @Provides fun providePlannedPaymentDao(db: FosDatabase): PlannedPaymentDao = db.plannedPaymentDao()
 }
