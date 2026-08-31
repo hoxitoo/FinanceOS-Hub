@@ -66,6 +66,7 @@ import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.fosHeroCard
 import com.financeos.hub.ui.theme.fosInset
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 
 /**
@@ -91,6 +92,22 @@ fun CalendarScreen(
     var reserveOpen by remember { mutableStateOf(false) }
     var sheetOpen  by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Режим по умолчанию — полоса: экран чаще всего открывают с вопросом «что дальше», и ответ на
+    // него полоса даёт сразу, а сетка заставляет искать сегодняшнюю клетку среди тридцати.
+    var mode        by remember { mutableStateOf(CalendarMode.Timeline) }
+    var shownMonth  by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
+
+    // Что попадает в список под шапкой. В режиме полосы — всё до горизонта; в режиме сетки — месяц,
+    // а с выбранным днём только он. Список один на оба режима: две копии одних и тех же строк
+    // разошлись бы при первой правке.
+    val listed = when (mode) {
+        CalendarMode.Timeline -> state.upcoming
+        CalendarMode.Grid     -> state.all
+            .filter { !it.settled && YearMonth.from(it.date) == shownMonth }
+            .filter { selectedDay == null || it.date == selectedDay }
+    }
 
     Box(Modifier.fillMaxSize().background(FosColors.Background)) {
         // Кот-режим не наследуется экранами сам: он читается через LocalShimmer в каждом отдельно.
@@ -123,11 +140,40 @@ fun CalendarScreen(
 
             state.free?.let { free ->
                 item { FreeMoneyCard(free) { reserveOpen = true } }
-                item { Timeline(state.upcoming, state.today, free.horizon) }
+                item {
+                    ModeSwitch(mode) {
+                        mode = it
+                        // Выбранный день — состояние сетки. Оставить его при уходе на полосу
+                        // значило бы вернуться в неожиданно отфильтрованный экран.
+                        if (it == CalendarMode.Timeline) selectedDay = null
+                    }
+                }
+                // Пустую полосу не рисуем — и решаем это СНАРУЖИ item: ранний return внутри
+                // композабла оставил бы в списке пустую ячейку с отступом от spacedBy.
+                if (mode == CalendarMode.Timeline && state.upcoming.isNotEmpty()) {
+                    item { Timeline(state.upcoming, state.today, free.horizon) }
+                }
+                if (mode == CalendarMode.Grid) {
+                    item {
+                        MonthGrid(
+                            month        = shownMonth,
+                            // Сетке нужны и закрытые: «аренда за август оплачена» — тоже ответ.
+                            events       = state.all.filter { YearMonth.from(it.date) == shownMonth },
+                            today        = state.today,
+                            selected     = selectedDay,
+                            // Листать можно только туда, где данные есть. Пустой месяц за границей
+                            // окна выглядел бы как «платежей нет», хотя мы их просто не строили.
+                            canGoBack    = !shownMonth.minusMonths(1).atEndOfMonth().isBefore(state.windowFrom),
+                            canGoForward = !shownMonth.plusMonths(1).atDay(1).isAfter(state.windowTo),
+                            onMonth      = { shownMonth = it; selectedDay = null },
+                            onSelect     = { selectedDay = it },
+                        )
+                    }
+                }
             }
 
-            if (state.upcoming.isNotEmpty()) {
-                val byDate = state.upcoming.groupBy { it.date }
+            if (listed.isNotEmpty()) {
+                val byDate = listed.groupBy { it.date }
                 byDate.forEach { (date, events) ->
                     item(key = "h_$date") {
                         FosSectionHeader(
@@ -150,11 +196,23 @@ fun CalendarScreen(
                         modifier            = Modifier.fillMaxWidth().fosCard(FosCardStyle.Outline, FosTone.Info),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text("Обязательств не запланировано", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                        // Пустой день и пустой календарь — разные новости, и обещать «добавьте
+                        // аренду» тому, кто просто ткнул в свободное 12-е число, незачем.
+                        val emptyDay = mode == CalendarMode.Grid && state.upcoming.isNotEmpty()
                         Text(
-                            "Пока календарь пуст, «Свободно» — это просто остаток за вычетом резерва. " +
-                                "Добавьте аренду и подтвердите найденные подписки — тогда число начнёт " +
-                                "показывать то, ради чего оно нужно.",
+                            if (emptyDay) "В этот период платежей нет" else "Обязательств не запланировано",
+                            style = FosType.BodySemi,
+                            color = FosColors.TextPrimary,
+                        )
+                        Text(
+                            if (emptyDay) {
+                                "Ничего не ждём — ни объявленного, ни найденного. Нажмите на день ещё " +
+                                    "раз, чтобы снять фильтр."
+                            } else {
+                                "Пока календарь пуст, «Свободно» — это просто остаток за вычетом резерва. " +
+                                    "Добавьте аренду и подтвердите найденные подписки — тогда число начнёт " +
+                                    "показывать то, ради чего оно нужно."
+                            },
                             style = FosType.Micro,
                             color = FosColors.TextSecondary,
                         )
@@ -315,6 +373,39 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () 
     }
 }
 
+// ── Режим ────────────────────────────────────────────────────────────────────
+
+/**
+ * Полоса или сетка.
+ *
+ * Это не два вида одного и того же: полоса отвечает «что дальше», сетка — «как устроен месяц».
+ * Полоса сжата к горизонту, поэтому ближайшая дата на ней читается первой; в сетке она одна из
+ * тридцати. Зато по сетке видно сгущение платежей, которого полоса не показывает вовсе.
+ */
+internal enum class CalendarMode(val label: String) {
+    Timeline("Полоса"),
+    Grid("Сетка"),
+}
+
+@Composable
+private fun ModeSwitch(current: CalendarMode, onSelect: (CalendarMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
+        CalendarMode.entries.forEach { candidate ->
+            val active = candidate == current
+            Text(
+                candidate.label,
+                style    = FosType.Label,
+                color    = if (active) FosColors.TextPrimary else FosColors.TextMuted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                    .then(if (active) Modifier.background(FosColors.Surface2) else Modifier)
+                    .clickable { onSelect(candidate) }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
 // ── Полоса времени ───────────────────────────────────────────────────────────
 
 /**
@@ -325,6 +416,8 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () 
  */
 @Composable
 private fun Timeline(events: List<CalendarEvent>, today: LocalDate, horizon: LocalDate) {
+    // Страховка, а не решение: показывать ли полосу, решает вызывающий снаружи item (инвариант
+    // про ранний return в LazyColumn).
     if (events.isEmpty()) return
     val span = ChronoUnit.DAYS.between(today, horizon).coerceAtLeast(1L).toFloat()
 
@@ -493,7 +586,7 @@ private fun Line(label: String, value: String, color: Color) {
 
 // ── Подписи ──────────────────────────────────────────────────────────────────
 
-private fun kindColor(event: CalendarEvent): Color = when {
+internal fun kindColor(event: CalendarEvent): Color = when {
     !event.affectsFree                      -> FosColors.Info
     event.kind == EventKind.CREDIT_DUE      -> FosColors.Warning
     event.direction == EventDirection.IN    -> FosColors.Positive

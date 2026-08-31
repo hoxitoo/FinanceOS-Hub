@@ -43,7 +43,7 @@ TextDark      = #3A4358
 
 ## Database Schema
 
-Room schema **version 16**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
+Room schema **version 17**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
 
 | Migration | Change |
 |-----------|--------|
@@ -59,6 +59,7 @@ Room schema **version 16**. Every migration is registered in `DatabaseModule.add
 | 13→14 | category `cat_subs` + **`UPDATE`** of six streaming rules onto it (see invariant #18) |
 | 14→15 | surgical category fixes for rows mis-labelled by the frozen model |
 | 15→16 | `planned_payments` table (calendar obligations) |
+| 16→17 | `planned_payments.rejected_tx_id` — какую операцию человек отверг кнопкой «Отвязать» |
 
 ### TransactionEntity
 ```
@@ -134,6 +135,7 @@ categoryId: String?
 autoSource: String?         ← subscription key this grew from; stops it being suggested twice
 lastMatchedTxId: String?    ← which operation closed it — one-way link, transaction untouched
 matchedThrough: Long?       ← closed up to and including this date
+rejectedTxId: String?       ← operation the user rejected via «Отвязать»; never matched again
 isActive: Boolean           ← soft delete: the row survives so autoSource keeps its claim
 ```
 
@@ -447,7 +449,8 @@ Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, n
 | `core/calendar/PaymentDates.kt` | когда обязательство наступит (шаг от якоря, не от прошлой даты) |
 | `core/calendar/CalendarBuilder.kt` | сведение событий из источников — чистые функции |
 | `core/calendar/FreeMoney.kt` | расчёт «Свободно» и выбор горизонта |
-| `core/calendar/ObligationMatcher.kt` | какая операция закрыла обязательство |
+| `core/calendar/ObligationMatcher.kt` | какая операция закрыла обязательство (чистые правила) |
+| `core/calendar/ObligationSyncer.kt` | `@Singleton`, стартует из `Application`, пишет отметку |
 | `features/calendar/` | экран, плитка на главной, лист добавления |
 
 ### Источники событий
@@ -462,6 +465,17 @@ Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, n
 
 Добавить источник = дописать `fromXxx(...)` и вызвать её в `build`. Ни модель события, ни расчёт
 «Свободно», ни экран при этом не трогаются — так и появится экран инвестиций.
+
+### Два режима
+Полоса отвечает «что дальше»: она сжата к горизонту, ближайшая дата читается первой. Сетка отвечает
+«как устроен месяц»: где сгущение платежей, где пусто. Одно другим не заменяется — на сетке глаз
+ищет сегодня среди тридцати клеток, а полоса вообще не показывает плотность.
+
+Сетка — это ФИЛЬТР: выбранный день оставляет в списке ниже только свои события, повторное нажатие
+снимает выбор. Собственного списка у неё нет, иначе одни и те же строки жили бы в двух местах.
+Данные она берёт из полного окна построения (`CalendarState.all`, today−60…today+90), а не из
+`upcoming`: горизонт обычно короче месяца, и сетка была бы пустой со своей середины. Листать можно
+только внутри окна — пустой месяц за его границей читался бы как «платежей нет».
 
 ### Горизонт
 По умолчанию — до **следующего ожидаемого поступления**: честный вопрос не «сколько до конца
@@ -483,10 +497,16 @@ Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, n
 если он указан, сумма ±15 %, дата в окне −5/+7 дней. Одна операция закрывает не больше одного
 обязательства.
 
-Запись живёт в `CalendarViewModel.syncMatches()` — отдельным сборщиком, а не внутри построения
-календаря: результат чистой функции исчезает вместе с экраном, а отметка нужна и плитке, и самому
-«Свободно». Связь односторонняя (`planned_payments.last_matched_tx_id`), операция не меняется, и
-«Отвязать» возвращает всё назад.
+Запись живёт в `ObligationSyncer` — `@Singleton`, который стартует из `Application`. Не внутри
+построения календаря: результат чистой функции исчезает вместе с экраном. И не во ViewModel: она
+привязана к своему `NavBackStackEntry`, у главной и у календаря они разные, и сборщик писал бы
+одно и то же в две руки.
+
+Связь односторонняя (`planned_payments.last_matched_tx_id`), операция не меняется. «Отвязать»
+записывает `rejected_tx_id` — без этого следа сборщик тут же вернул бы ту же операцию на место.
+
+Берётся БЛИЖАЙШАЯ к сроку операция, а не первая подходящая: список идёт по убыванию времени, и
+«первая» означает «самая свежая».
 
 ## Money input fields
 

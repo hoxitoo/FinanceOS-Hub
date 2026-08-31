@@ -37,7 +37,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -341,6 +341,19 @@ abstract class FosDatabase : RoomDatabase() {
                 """)
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_payments_is_active` ON `planned_payments`(`is_active`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_payments_anchor_date` ON `planned_payments`(`anchor_date`)")
+            }
+        }
+
+        /**
+         * v16 → v17: `planned_payments.rejected_tx_id`.
+         *
+         * Отдельным шагом, а не правкой CREATE TABLE выше: v16 уже ушла в `dev`, и переписанный
+         * задним числом CREATE оставил бы установки, где Room ждёт колонку, которой в базе нет.
+         * Дописать колонку дешевле, чем гадать, кто что успел поставить.
+         */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `rejected_tx_id` TEXT")
             }
         }
 

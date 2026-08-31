@@ -10,6 +10,7 @@ import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.TransactionDao
+import com.financeos.hub.core.database.daos.PlannedPaymentDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
@@ -22,6 +23,9 @@ import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.database.entities.TransferMatchType
+import com.financeos.hub.core.database.entities.PaymentDirection
+import com.financeos.hub.core.database.entities.PaymentSchedule
+import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransferRouteEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
@@ -47,6 +51,7 @@ class BackupManager @Inject constructor(
     private val goalDao         : GoalDao,
     private val budgetDao       : BudgetDao,
     private val transferRouteDao: TransferRouteDao,
+    private val plannedDao      : PlannedPaymentDao,
     private val transactionDao  : TransactionDao,
 ) {
     data class RestoreCounts(
@@ -56,9 +61,11 @@ class BackupManager @Inject constructor(
         val goals       : Int,
         val budgets     : Int,
         val routes      : Int,
+        val planned     : Int,
         val transactions: Int,
     ) {
-        val total: Int get() = accounts + cards + categories + goals + budgets + routes + transactions
+        val total: Int
+            get() = accounts + cards + categories + goals + budgets + routes + planned + transactions
     }
 
     // ─── Export ───────────────────────────────────────────────────────────────
@@ -83,6 +90,9 @@ class BackupManager @Inject constructor(
         root.put("goals",      JSONArray().apply { goalDao.getAllForBackup().forEach { put(it.toJson()) } })
         root.put("budgets",    JSONArray().apply { budgetDao.getAllActive().forEach { put(it.toJson()) } })
         root.put("routes",     JSONArray().apply { transferRouteDao.getAllActive().forEach { put(it.toJson()) } })
+        // Включая отключённые: `auto_source` отключённой строки — это память о том, что подписку
+        // уже подтверждали. Потеряв её, восстановленная копия предложит подтвердить всё заново.
+        root.put("planned",    JSONArray().apply { plannedDao.getAll().forEach { put(it.toJson()) } })
         root.put("transactions", JSONArray().apply { transactionDao.getAllForBackup().forEach { put(it.toJson()) } })
         return root.toString(2)
     }
@@ -110,6 +120,7 @@ class BackupManager @Inject constructor(
         val rawCards    = root.optArray("cards").map       { it.toCard() }
         val rawBudgets  = root.optArray("budgets").map     { it.toBudget() }
         val rawTxs      = root.optArray("transactions").map { it.toTransaction() }
+        val rawPlanned  = root.optArray("planned").map     { it.toPlanned() }
 
         // Room enforces foreign keys, so a child row pointing at a parent that isn't part of
         // this backup would abort the whole restore. Drop / null-out dangling references first.
@@ -117,6 +128,14 @@ class BackupManager @Inject constructor(
         val categoryIds = categories.map { it.id }.toHashSet()
         val cards   = rawCards.filter { it.accountId in accountIds }
         val budgets = rawBudgets.filter { it.categoryId in categoryIds }
+        // Ссылки на счёт и категорию только сужают сопоставление, поэтому висячую можно обнулить:
+        // обязательство останется рабочим, просто перестанет требовать конкретный счёт.
+        val planned = rawPlanned.map { p ->
+            p.copy(
+                accountId  = p.accountId?.takeIf { it in accountIds },
+                categoryId = p.categoryId?.takeIf { it in categoryIds },
+            )
+        }
         val transactions = rawTxs.map { tx ->
             tx.copy(
                 accountId  = tx.accountId?.takeIf { it in accountIds },
@@ -133,12 +152,13 @@ class BackupManager @Inject constructor(
             cards.forEach    { cardDao.insert(it) }
             budgets.forEach  { budgetDao.upsert(it) }
             routes.forEach   { transferRouteDao.insert(it) }
+            planned.forEach  { plannedDao.upsert(it) }
             transactionDao.insertAll(transactions)
         }
 
         return RestoreCounts(
             accounts.size, cards.size, categories.size,
-            goals.size, budgets.size, routes.size, transactions.size,
+            goals.size, budgets.size, routes.size, planned.size, transactions.size,
         )
     }
 
@@ -191,6 +211,18 @@ class BackupManager @Inject constructor(
     private fun TransferRouteEntity.toJson() = JSONObject().apply {
         put("id", id); put("goalId", goalId); put("matchType", matchType.name)
         put("matchValue", matchValue); put("isActive", isActive); put("createdAt", createdAt)
+    }
+
+    private fun PlannedPaymentEntity.toJson() = JSONObject().apply {
+        put("id", id); put("title", title); put("amountKopecks", amountKopecks)
+        put("currency", currency); put("direction", direction.name); put("schedule", schedule.name)
+        put("anchorDate", anchorDate)
+        putNullable("dayOfMonth", dayOfMonth)
+        putNullable("accountId", accountId); putNullable("categoryId", categoryId)
+        putNullable("autoSource", autoSource)
+        putNullable("lastMatchedTxId", lastMatchedTxId); putNullable("matchedThrough", matchedThrough)
+        putNullable("rejectedTxId", rejectedTxId)
+        put("isActive", isActive); put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
 
     private fun TransactionEntity.toJson() = JSONObject().apply {
@@ -279,6 +311,26 @@ class BackupManager @Inject constructor(
         matchValue = getString("matchValue"),
         isActive = optBoolean("isActive", true),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
+    )
+
+    private fun JSONObject.toPlanned() = PlannedPaymentEntity(
+        id = getString("id"), title = getString("title"),
+        amountKopecks = getLong("amountKopecks"),
+        currency = optString("currency", "RUB"),
+        direction = runCatching { PaymentDirection.valueOf(optString("direction", "OUT")) }
+            .getOrDefault(PaymentDirection.OUT),
+        schedule = runCatching { PaymentSchedule.valueOf(optString("schedule", "MONTHLY")) }
+            .getOrDefault(PaymentSchedule.MONTHLY),
+        anchorDate = getLong("anchorDate"),
+        dayOfMonth = optIntOrNull("dayOfMonth"),
+        accountId = optStringOrNull("accountId"), categoryId = optStringOrNull("categoryId"),
+        autoSource = optStringOrNull("autoSource"),
+        lastMatchedTxId = optStringOrNull("lastMatchedTxId"),
+        matchedThrough = optLongOrNull("matchedThrough"),
+        rejectedTxId = optStringOrNull("rejectedTxId"),
+        isActive = optBoolean("isActive", true),
+        createdAt = optLong("createdAt", System.currentTimeMillis()),
+        updatedAt = optLong("updatedAt", System.currentTimeMillis()),
     )
 
     private fun JSONObject.toTransaction() = TransactionEntity(

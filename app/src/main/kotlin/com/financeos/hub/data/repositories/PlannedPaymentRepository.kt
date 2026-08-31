@@ -34,6 +34,9 @@ class PlannedPaymentRepository @Inject constructor(
     suspend fun markMatched(id: String, txId: String?, throughEpochMillis: Long?) =
         dao.markMatched(id, txId, throughEpochMillis, System.currentTimeMillis())
 
-    /** Отвязать найденную операцию: обязательство снова считается незакрытым. */
-    suspend fun unmatch(id: String) = markMatched(id, null, null)
+    /**
+     * Отвязать найденную операцию: обязательство снова считается незакрытым, а отвергнутая операция
+     * запоминается — иначе сборщик тут же вернул бы её на место.
+     */
+    suspend fun unmatch(id: String) = dao.unmatch(id, System.currentTimeMillis())
 }

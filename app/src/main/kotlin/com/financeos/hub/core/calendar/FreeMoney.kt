@@ -40,6 +40,12 @@ object FreeMoney {
         /** Незакрытые обязательства до горизонта, которые двигают деньги. */
         val obligationsKopecks    : Long,
         val reserveKopecks        : Long,
+        /**
+         * Сколько обязательств попало в [obligationsKopecks]. Считается ЗДЕСЬ, а не на экране:
+         * посчитанные отдельно, число и сумма разъезжаются — «учтено 2 платежа на 0 ₽», если одно
+         * из них в другой валюте.
+         */
+        val obligationCount       : Int,
         /** Ожидаемые поступления. Показываются, но в [freeKopecks] НЕ входят. */
         val expectedIncomeKopecks : Long,
         val horizon               : LocalDate,
@@ -75,9 +81,8 @@ object FreeMoney {
     ): FreeMoneyBreakdown {
         val live = events.filter { it.affectsFree && !it.settled && !it.date.isAfter(horizon) }
 
-        val obligations = live
-            .filter { it.direction == EventDirection.OUT && it.currency == currency }
-            .sumOf { it.amountKopecks }
+        val due = live.filter { it.direction == EventDirection.OUT && it.currency == currency }
+        val obligations = due.sumOf { it.amountKopecks }
 
         val expectedIncome = live
             .filter { it.direction == EventDirection.IN && it.currency == currency }
@@ -98,6 +103,7 @@ object FreeMoney {
             onAccountsKopecks     = onAccountsKopecks,
             obligationsKopecks    = obligations,
             reserveKopecks        = reserveKopecks,
+            obligationCount       = due.size,
             expectedIncomeKopecks = expectedIncome,
             horizon               = horizon,
             daysLeft              = days,
@@ -114,7 +120,11 @@ object FreeMoney {
      */
     fun defaultHorizon(events: List<CalendarEvent>, today: LocalDate): LocalDate {
         events
-            .filter { it.direction == EventDirection.IN && it.date.isAfter(today) }
+            // Закрытые исключаются ровно так же, как в [compute]. Зарплата, сопоставленная на пару
+            // дней раньше срока, иначе схлопывала бы горизонт на свою же дату: из расчёта выпадал
+            // бы весь остаток месяца, и «Свободно» показывало бы завышенное число — сразу после
+            // получки, когда на счёте максимум и тратить хочется больше всего.
+            .filter { it.direction == EventDirection.IN && !it.settled && it.date.isAfter(today) }
             .minByOrNull { it.date }
             ?.let { return it.date }
 

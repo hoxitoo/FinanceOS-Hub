@@ -36,13 +36,11 @@ import com.financeos.hub.ui.theme.fosCardSurface
  * без обязательств «Свободно» вырождается в «остаток минус резерв», то есть в нетто-капитал
  * строчкой выше под другим именем.
  *
- * @param payments сколько обязательств учтено — считает вызывающий, по тем же событиям.
  */
 @Composable
 fun FreeMoneyTile(
-    free    : FreeMoney.FreeMoneyBreakdown,
-    payments: Int,
-    onClick : () -> Unit,
+    free   : FreeMoney.FreeMoneyBreakdown,
+    onClick: () -> Unit,
 ) {
     val tone   = if (free.freeKopecks >= 0) FosTone.Positive else FosTone.Negative
     val accent = tone.accent ?: FosColors.TextPrimary
@@ -84,7 +82,7 @@ fun FreeMoneyTile(
         Spacer(Modifier.height(4.dp))
 
         Text(
-            "Учтено ${pluralPayments(payments)} на ${FosFormatter.compact(free.obligationsKopecks)}",
+            "Учтено ${pluralPayments(free.obligationCount)} на ${FosFormatter.compact(free.obligationsKopecks)}",
             style = FosType.MicroNum,
             color = FosColors.TextMuted,
         )

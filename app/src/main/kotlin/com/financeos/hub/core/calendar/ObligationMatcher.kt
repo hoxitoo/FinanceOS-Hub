@@ -48,6 +48,9 @@ object ObligationMatcher {
      * больше чем одной операцией за период: иначе один платёж по аренде мог бы закрыть три месяца
      * сразу и «Свободно» ушло бы в фантазию.
      *
+     * Операция, которую человек отверг кнопкой «Отвязать», больше не рассматривается для этого
+     * обязательства: иначе отвязывание было бы кнопкой, после которой всё возвращается назад.
+     *
      * @param dueDates какие даты обязательства нас интересуют (обычно — ближайшая незакрытая).
      */
     fun match(
@@ -65,9 +68,14 @@ object ObligationMatcher {
 
         for (payment in ordered) {
             val due = dueDates[payment.id] ?: continue
-            val hit = transactions.firstOrNull { tx ->
-                tx.id !in used && fits(payment, due, tx, zone)
-            } ?: continue
+            // БЛИЖАЙШАЯ к сроку, а не первая подходящая. Список приходит по убыванию времени, и
+            // «первая» означала бы «самая свежая»: у недельного обязательства платёж следующей
+            // недели закрывал бы предыдущую, а свой собственный период после этого не закрылся бы
+            // уже никогда.
+            val hit = transactions
+                .filter { it.id !in used && it.id != payment.rejectedTxId && fits(payment, due, it, zone) }
+                .minByOrNull { abs(ChronoUnit.DAYS.between(due, dateOf(it, zone))) }
+                ?: continue
             used += hit.id
             out  += Match(payment, hit, due)
         }
@@ -106,6 +114,9 @@ object ObligationMatcher {
         }.toMap()
     }
 
+    private fun dateOf(tx: TransactionEntity, zone: ZoneId): LocalDate =
+        Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
+
     /** Подходит ли операция под обязательство. Все условия обязательны. */
     fun fits(
         payment: PlannedPaymentEntity,
@@ -129,8 +140,7 @@ object ObligationMatcher {
         if (target <= 0L) return false
         if (abs(amount - target).toDouble() > target * AMOUNT_TOLERANCE) return false
 
-        val txDate = Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
-        val delta  = ChronoUnit.DAYS.between(dueDate, txDate)
+        val delta = ChronoUnit.DAYS.between(dueDate, dateOf(tx, zone))
         return delta in -DAYS_BEFORE..DAYS_AFTER
     }
 }

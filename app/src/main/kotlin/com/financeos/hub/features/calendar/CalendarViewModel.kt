@@ -6,8 +6,6 @@ import com.financeos.hub.core.analytics.SubscriptionDetector
 import com.financeos.hub.core.calendar.CalendarBuilder
 import com.financeos.hub.core.calendar.CalendarEvent
 import com.financeos.hub.core.calendar.FreeMoney
-import com.financeos.hub.core.calendar.ObligationMatcher
-import com.financeos.hub.core.calendar.PaymentDates
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.nearestInterestFreeWindow
@@ -26,7 +24,6 @@ import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
@@ -43,6 +40,14 @@ data class CalendarState(
     val free       : FreeMoney.FreeMoneyBreakdown? = null,
     /** События от сегодня до горизонта, по возрастанию даты. */
     val upcoming   : List<CalendarEvent> = emptyList(),
+    /**
+     * Всё окно построения — шире горизонта и в обе стороны от сегодня. Нужно сетке месяца: горизонт
+     * обычно короче месяца (до следующей зарплаты), и по [upcoming] сетка была бы пустой с середины.
+     */
+    val all        : List<CalendarEvent> = emptyList(),
+    /** Границы окна: дальше них у сетки просто нет данных, и листать туда нечего. */
+    val windowFrom : LocalDate = LocalDate.now(),
+    val windowTo   : LocalDate = LocalDate.now(),
     /** Уже закрытые обязательства за последний месяц — чтобы было видно, что сопоставление работает. */
     val settled    : List<CalendarEvent> = emptyList(),
     /** Найденные, но не подтверждённые подписки: «похоже на регулярный платёж». */
@@ -58,54 +63,12 @@ data class CalendarState(
 class CalendarViewModel @Inject constructor(
     private val plannedRepo: PlannedPaymentRepository,
     private val prefs      : UserPreferences,
-    private val txRepo     : TransactionRepository,
     accountRepo            : AccountRepository,
+    txRepo                 : TransactionRepository,
     goalRepo               : GoalRepository,
 ) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
-
-    init {
-        syncMatches()
-    }
-
-    /**
-     * Отмечает обязательства закрытыми, когда в истории появляется подходящая операция.
-     *
-     * Это **запись**, и поэтому она живёт отдельно от [state]. Считать сопоставление внутри
-     * построения календаря нельзя: там чистая функция от данных, её результат исчезает вместе с
-     * экраном, и обязательство осталось бы незакрытым до тех пор, пока на календарь кто-нибудь не
-     * посмотрит. Отметка нужна и виджету, и плитке на главной, и самому «Свободно».
-     *
-     * Цикл «запись → перечитывание → запись» здесь конечный: закрытая дата уходит из
-     * [ObligationMatcher.openDueDates], следующий проход не находит для неё кандидата и ничего не
-     * пишет. Уже занятые операции исключаются заранее, иначе один платёж закрывал бы соседние
-     * обязательства по кругу.
-     */
-    private fun syncMatches() = viewModelScope.launch(Dispatchers.Default) {
-        combine(plannedRepo.observeActive(), txRepo.observeAll()) { planned, txList ->
-            planned to txList
-        }.collectLatest { (planned, txList) ->
-            val today = LocalDate.now()
-            val since = System.currentTimeMillis() - MATCH_WINDOW_MS
-            val taken = planned.mapNotNullTo(HashSet()) { it.lastMatchedTxId }
-
-            val matches = ObligationMatcher.match(
-                payments     = planned,
-                dueDates     = ObligationMatcher.openDueDates(planned, today, zone, OVERDUE_LOOKBACK),
-                transactions = txList.filter { it.timestamp >= since && it.id !in taken },
-                zone         = zone,
-            )
-            for (m in matches) {
-                if (m.payment.lastMatchedTxId == m.transaction.id) continue
-                plannedRepo.markMatched(
-                    id                 = m.payment.id,
-                    txId               = m.transaction.id,
-                    throughEpochMillis = m.dueDate.atStartOfDay(zone).toInstant().toEpochMilli(),
-                )
-            }
-        }
-    }
 
     val state = combine(
         plannedRepo.observeActive(),
@@ -140,6 +103,7 @@ class CalendarViewModel @Inject constructor(
             .map { account ->
                 val accountTx = txList.filter { it.accountId == account.id }
                 val cycle = creditCycle(account.statementDay, account.dueDays, today)
+                val statementDebt = statementDueDebt(account, accountTx, cycle, zone)
                 CalendarBuilder.CreditObligation(
                     accountId = account.id,
                     title     = account.name,
@@ -151,7 +115,7 @@ class CalendarViewModel @Inject constructor(
                         // Тот же расчёт, что и на экране кредитки. Взять здесь весь текущий долг
                         // значило бы показать в календаре одну сумму к оплате, а на карте — другую,
                         // и обе выдать за платёж по одной и той же выписке.
-                        statementDebtKopecks  = statementDueDebt(account, accountTx, cycle, zone),
+                        statementDebtKopecks  = statementDebt,
                         today                 = today,
                     ),
                     interestFree = nearestInterestFreeWindow(
@@ -160,6 +124,9 @@ class CalendarViewModel @Inject constructor(
                         today            = today,
                         zone             = zone,
                     ),
+                    // Долг по выписке закрыт — платить нечего, даже если напоминание банка ещё не
+                    // протухло. Оставить событие живым значило бы вычитать уже уплаченное.
+                    settled = statementDebt <= 0L,
                 )
             }
 
@@ -170,10 +137,9 @@ class CalendarViewModel @Inject constructor(
         // Окно начинается В ПРОШЛОМ. Просроченный платёж — это деньги, которые всё ещё должны
         // уйти; считая от сегодня, мы переставали их вычитать на следующий день после срока, и
         // «Свободно» само собой подрастало ровно тогда, когда человек задолжал.
-        val probe = CalendarBuilder.build(
-            planned, credit, subscriptions, goals,
-            today.minusDays(OVERDUE_LOOKBACK), today.plusDays(PROBE_DAYS), zone, claimed,
-        )
+        val from = today.minusDays(OVERDUE_LOOKBACK)
+        val to   = today.plusDays(PROBE_DAYS)
+        val probe = CalendarBuilder.build(planned, credit, subscriptions, goals, from, to, zone, claimed)
         val horizon = FreeMoney.defaultHorizon(probe, today)
 
         val upcoming = probe.filter { !it.date.isAfter(horizon) }
@@ -192,7 +158,10 @@ class CalendarViewModel @Inject constructor(
                 today             = today,
                 horizon           = horizon,
             ),
-            upcoming = upcoming.filter { !it.settled },
+            upcoming   = upcoming.filter { !it.settled },
+            all        = probe,
+            windowFrom = from,
+            windowTo   = to,
             // Закрытое за последний месяц: доказательство, что сопоставление сработало, и место,
             // где его можно отменить, если оно ошиблось.
             settled = CalendarBuilder
@@ -252,10 +221,6 @@ class CalendarViewModel @Inject constructor(
         )
     }
 
-    /** Ближайшая дата обязательства — нужна форме редактирования и сопоставлению. */
-    fun nextDate(payment: PlannedPaymentEntity): LocalDate? =
-        PaymentDates.nextOccurrence(payment, LocalDate.now(), zone)
-
     private companion object {
         /** Пока всё в рублях: курса у приложения нет, а «Свободно» обязано быть в одной валюте. */
         const val BASE_CURRENCY = "RUB"
@@ -265,10 +230,5 @@ class CalendarViewModel @Inject constructor(
         const val PROBE_DAYS = 90L
         /** Насколько далеко назад ищем непогашенные просроченные обязательства. */
         const val OVERDUE_LOOKBACK = 60L
-        /**
-         * Какие операции вообще рассматриваются как закрывающие. Шире окна поиска дат: операция
-         * может прийти на неделю позже срока, и запас нужен с обеих сторон.
-         */
-        const val MATCH_WINDOW_MS = (OVERDUE_LOOKBACK + 14L) * 24 * 60 * 60 * 1000
     }
 }
