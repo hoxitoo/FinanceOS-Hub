@@ -178,6 +178,66 @@ class ObligationMatcherTest {
         assertEquals("tied", matches.single().payment.id)
     }
 
+    @Test
+    fun `the transaction nearest the due date wins, not the newest`() {
+        // Список приходит по убыванию времени. Взяв первую подходящую, недельное обязательство
+        // закрывалось бы платежом СЛЕДУЮЩЕЙ недели, а свой собственный период после этого не
+        // закрылся бы уже никогда.
+        val later   = tx(-35_000_00L, due.plusDays(6), id = "later")
+        val onTime  = tx(-35_000_00L, due,             id = "onTime")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(rent()),
+            dueDates     = mapOf("rent" to due),
+            transactions = listOf(later, onTime),
+            zone         = zone,
+        )
+        assertEquals("onTime", matches.single().transaction.id)
+    }
+
+    @Test
+    fun `a rejected transaction is never matched again`() {
+        // Иначе «Отвязать» — кнопка, после которой всё возвращается на место: сборщик находит ту же
+        // операцию на следующем же проходе.
+        val one     = tx(-35_000_00L, due, id = "t1")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(rent().copy(rejectedTxId = "t1")),
+            dueDates     = mapOf("rent" to due),
+            transactions = listOf(one),
+            zone         = zone,
+        )
+        assertTrue(matches.isEmpty())
+    }
+
+    @Test
+    fun `the transaction nearest the due date wins, not the newest`() {
+        // Список приходит по убыванию времени. Взяв первую подходящую, недельное обязательство
+        // закрывалось бы платежом СЛЕДУЮЩЕЙ недели, а свой собственный период после этого не
+        // закрылся бы уже никогда.
+        val later   = tx(-35_000_00L, due.plusDays(6), id = "later")
+        val onTime  = tx(-35_000_00L, due,             id = "onTime")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(rent()),
+            dueDates     = mapOf("rent" to due),
+            transactions = listOf(later, onTime),
+            zone         = zone,
+        )
+        assertEquals("onTime", matches.single().transaction.id)
+    }
+
+    @Test
+    fun `a rejected transaction is never matched again`() {
+        // Иначе «Отвязать» — кнопка, после которой всё возвращается на место: сборщик находит ту же
+        // операцию на следующем же проходе.
+        val one     = tx(-35_000_00L, due, id = "t1")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(rent().copy(rejectedTxId = "t1")),
+            dueDates     = mapOf("rent" to due),
+            transactions = listOf(one),
+            zone         = zone,
+        )
+        assertTrue(matches.isEmpty())
+    }
+
     // ── Какие даты вообще предлагаются к закрытию ────────────────────────────────
 
     @Test

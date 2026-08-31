@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.financeos.hub.core.analytics.AnalyticsWorker
+import com.financeos.hub.core.calendar.ObligationSyncer
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.core.update.UpdateCheckWorker
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -15,6 +16,7 @@ class FinanceOsApplication : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory      : HiltWorkerFactory
     @Inject lateinit var notificationHelper : NotificationHelper
+    @Inject lateinit var obligationSyncer   : ObligationSyncer
 
     override fun onCreate() {
         super.onCreate()
@@ -22,6 +24,9 @@ class FinanceOsApplication : Application(), Configuration.Provider {
         notificationHelper.createChannels()
         AnalyticsWorker.schedule(this)
         UpdateCheckWorker.schedule(this)
+        // Сопоставление обязательств — работа приложения, а не открытого календаря: отметка нужна
+        // плитке на главной и «Свободно» даже тогда, когда на календарь никто не заходил.
+        obligationSyncer.start()
     }
 
     override val workManagerConfiguration: Configuration

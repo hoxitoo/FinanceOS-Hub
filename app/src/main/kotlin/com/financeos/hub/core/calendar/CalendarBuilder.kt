@@ -32,6 +32,15 @@ object CalendarBuilder {
         val title       : String,
         val duePayment  : DuePayment?,
         val interestFree: InterestFreeWindow?,
+        /**
+         * Долг по выписке уже погашен.
+         *
+         * Отдельный флаг, потому что [duePayment] этого не знает: присланную банком сумму он честно
+         * держит до истечения срока напоминания, а сообщения «вы заплатили» банк не присылает —
+         * приложение видит только сам перевод. Без флага погашенный платёж вычитался бы из
+         * «Свободно» ещё полтора месяца после оплаты, то есть деньги списывались бы дважды.
+         */
+        val settled     : Boolean = false,
     )
 
     fun build(
@@ -113,6 +122,7 @@ object CalendarBuilder {
                             affectsFree   = true,
                             accountId     = card.accountId,
                             sourceId      = card.accountId,
+                            settled       = card.settled,
                         )
                     )
                 }

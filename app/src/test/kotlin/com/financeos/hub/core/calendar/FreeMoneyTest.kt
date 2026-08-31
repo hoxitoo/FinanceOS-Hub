@@ -157,6 +157,37 @@ class FreeMoneyTest {
     }
 
     @Test
+    fun `an income already matched does not collapse the horizon`() {
+        // Зарплату сопоставили за пару дней до срока. Горизонт, схлопнутый на её дату, выбросил бы
+        // из расчёта весь остаток месяца — и «Свободно» показало бы завышенное число сразу после
+        // получки, когда на счёте максимум и тратить хочется больше всего.
+        val paidSalary = event(LocalDate.of(2026, 9, 7), 80_000_00L, EventDirection.IN, settled = true)
+        assertEquals(
+            LocalDate.of(2026, 8, 31),
+            FreeMoney.defaultHorizon(listOf(paidSalary), today),
+        )
+    }
+
+    @Test
+    fun `the obligation count matches the sum it explains`() {
+        // Считанные порознь, число и сумма разъезжаются: «учтено 2 платежа на 0 ₽».
+        val result = FreeMoney.compute(
+            currency          = "RUB",
+            onAccountsKopecks = 100_000_00L,
+            events            = listOf(
+                event(LocalDate.of(2026, 9, 1), 35_000_00L),
+                event(LocalDate.of(2026, 9, 2), 10_00L, currency = "USD"),
+                event(LocalDate.of(2026, 9, 3), 5_000_00L, affects = false),
+            ),
+            reserveKopecks    = 0L,
+            today             = today,
+            horizon           = LocalDate.of(2026, 9, 30),
+        )
+        assertEquals(1, result.obligationCount)
+        assertEquals(35_000_00L, result.obligationsKopecks)
+    }
+
+    @Test
     fun `without expected income the horizon is the end of the month`() {
         assertEquals(
             LocalDate.of(2026, 8, 31),

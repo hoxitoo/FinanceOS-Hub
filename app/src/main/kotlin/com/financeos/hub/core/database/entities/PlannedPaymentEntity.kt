@@ -68,6 +68,18 @@ data class PlannedPaymentEntity(
     /** Докуда уже закрыто: дата периода, для которого нашлась операция. */
     @ColumnInfo(name = "matched_through") val matchedThrough: Long? = null,
 
+    /**
+     * Операция, которую человек ОТВЕРГ кнопкой «Отвязать».
+     *
+     * Без этой памяти отвязывание было бы бесполезной кнопкой: сборщик на следующем же проходе
+     * находит ту же самую операцию (она снова свободна и по-прежнему подходит) и закрывает
+     * обязательство опять. Человек нажимает «Отвязать», строка мигает и возвращается.
+     *
+     * Хранится одна, а не список: смысл действия — «нет, это не она», после чего искать надо
+     * ДРУГУЮ. Следующая подходящая операция закроет период как обычно.
+     */
+    @ColumnInfo(name = "rejected_tx_id") val rejectedTxId: String? = null,
+
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),

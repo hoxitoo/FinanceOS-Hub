@@ -78,8 +78,10 @@ fun DashboardScreen(
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
-    // Календарь считает «Свободно» один раз для всего приложения: плитка на главной и сам экран
-    // обязаны показывать одно и то же число.
+    // Отдельный экземпляр CalendarViewModel — у главной и у календаря разные NavBackStackEntry,
+    // и общим он не станет. Число тем не менее одно: обе копии считают его одной и той же функцией
+    // по одним и тем же данным. Дублировать расчёт в DashboardViewModel было бы хуже — вот тогда
+    // две формулы и разошлись бы.
     val calendarVm: CalendarViewModel = hiltViewModel()
     val calendar by calendarVm.state.collectAsState()
     // Один раз на список, а не на каждую строку — см. тот же приём на экране операций.
@@ -158,17 +160,11 @@ fun DashboardScreen(
         // «Свободно» — прямо под кредиткой, по той же причине: одна точка вставки на все три
         // варианта героя. Условие снаружи `item`, а не внутри плитки: пустая ячейка всё равно
         // получила бы отступ от `spacedBy` и оставила на главной дыру без содержимого.
+        // Условие — «есть что вычитать», а не «есть события»: срок цели событием является, но
+        // денег не двигает, и плитка с «учтено 0 платежей» повторяла бы нетто-капитал строчкой выше.
         calendar.free
-            ?.takeIf { calendar.upcoming.isNotEmpty() }
-            ?.let { free ->
-                item {
-                    FreeMoneyTile(
-                        free     = free,
-                        payments = calendar.upcoming.count { it.affectsFree },
-                        onClick  = onCalendarClick,
-                    )
-                }
-            }
+            ?.takeIf { it.obligationCount > 0 }
+            ?.let { free -> item { FreeMoneyTile(free = free, onClick = onCalendarClick) } }
 
         // Accounts section — grouped by bank
         item {

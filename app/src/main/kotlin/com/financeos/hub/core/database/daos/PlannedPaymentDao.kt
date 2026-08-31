@@ -49,4 +49,23 @@ interface PlannedPaymentDao {
         """
     )
     suspend fun markMatched(id: String, txId: String?, through: Long?, now: Long)
+
+    /**
+     * Снять отметку и запомнить отвергнутую операцию, чтобы сборщик не поставил её обратно.
+     *
+     * Одним запросом: отдельные «сбросить» и «запомнить» дали бы окно, в котором обязательство
+     * открыто и запрет ещё не записан — а сборщик слушает ту же таблицу и просыпается именно от
+     * первой записи.
+     */
+    @Query(
+        """
+        UPDATE planned_payments
+        SET rejected_tx_id = last_matched_tx_id,
+            last_matched_tx_id = NULL,
+            matched_through = NULL,
+            updated_at = :now
+        WHERE id = :id
+        """
+    )
+    suspend fun unmatch(id: String, now: Long)
 }
