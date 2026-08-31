@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v16
+- **DB schema:** Room v17
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -45,7 +45,8 @@ app/
 │   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
 │   ├── finance/      (SavingsMath — накопления: прогноз, срок, требуемый взнос)
-│   ├── calendar/     (CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher)
+│   ├── calendar/     (CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher,
+│   │                  ObligationSyncer)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
 │   ├── ml/           (ModelLoader, TextFeatureExtractor, MLCategoryClassifier,
@@ -278,7 +279,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Interpreter calls are `Mutex`-guarded (TFLite `Interpreter` is not thread-safe)
 
 ## Platform
-- [x] Backup/restore — 8 tables → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
+- [x] Backup/restore — 9 tables (включая `planned_payments`) → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
 - [x] Notifications — 4 channels, allowlisted deep-links, permission-guarded
 - [x] Biometric lock (fail-open, device-PIN escape hatch), 2×2 home-screen widget
 - [x] In-app self-update + `UpdateCheckWorker` (12 h) + `release-apk.yml` pipeline
@@ -399,6 +400,14 @@ rowid). Дубликат паттерна с новым id встанет поз
 даты: денег в этот день никуда не уходит. Вычесть беспроцентный период отдельной строкой значило бы
 посчитать один и тот же долг дважды — он уже сидит в платеже по карте.
 
+Горизонт отбрасывает ЗАКРЫТЫЕ поступления так же, как и расчёт. Зарплата, сопоставленная на пару
+дней раньше срока, иначе схлопывала бы окно на свою же дату: весь остаток месяца выпадал из расчёта,
+и «Свободно» завышалось ровно после получки, когда на счёте максимум.
+
+Платёж по кредитке гасится отдельным флагом, а не сам собой: `duePayment` честно держит присланную
+банком сумму 45 дней, а сообщения «вы заплатили» банк не шлёт. Без флага оплаченная карта вычиталась
+бы из «Свободно» ещё полтора месяца — те же деньги дважды.
+
 Ожидаемые поступления считаются, но НЕ прибавляются: неполученная зарплата, посчитанная тратимой, —
 прямой путь к перерасходу, а «Свободно» существует ровно для того, чтобы его не было. Валюты не
 смешиваются (курса у офлайн-приложения нет), но чужая валюта и не выбрасывается — иначе долларовая
@@ -413,7 +422,18 @@ rowid). Дубликат паттерна с новым id встанет поз
 `ObligationMatcher` — чистая функция, и посчитать её внутри построения календаря соблазнительно.
 Но её результат исчезает вместе с экраном: обязательство остаётся незакрытым, пока на календарь
 кто-нибудь не посмотрит, а отметка нужна и плитке на главной, и самому «Свободно».
-`CalendarViewModel.syncMatches()` — отдельный сборщик, который пишет `matched_through`.
+`ObligationSyncer` — `@Singleton` со стартом из `Application`, который пишет `matched_through`.
+Во ViewModel ему не место и по второй причине: VM привязана к своему `NavBackStackEntry`, у главной
+и у календаря они разные, и сборщик запускался бы дважды, записывая одно и то же в две руки.
+
+«Отвязать» обязано оставлять след (`rejected_tx_id`). Без него сборщик на следующем же проходе
+находит ту же операцию — она снова свободна и по-прежнему подходит — и закрывает обязательство
+опять: кнопка, после которой всё возвращается назад. Помнится одна отвергнутая операция, а не
+список: смысл действия — «нет, это не она», дальше ищем ДРУГУЮ.
+
+Матчер берёт БЛИЖАЙШУЮ к сроку операцию, а не первую подходящую: список приходит по убыванию
+времени, и «первая» значит «самая свежая» — у недельного обязательства платёж следующей недели
+закрывал бы предыдущую, а свой период после этого не закрывался бы уже никогда.
 
 Ошибки здесь несимметричны: жадное сопоставление завышает «Свободно» и делает человека беднее,
 строгое — занижает и делает осторожнее. При сомнении обязательство остаётся открытым.
