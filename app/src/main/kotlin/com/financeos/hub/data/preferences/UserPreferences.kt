@@ -56,6 +56,14 @@ class UserPreferences @Inject constructor(
         val BUDGET_ALERT_COUNT        = stringPreferencesKey("budget_alert_count")
         /** CSV of "<budgetId>:<YYYY-MM>" already alerted, so one budget alerts once per month. */
         val BUDGET_ALERTED_KEYS       = stringPreferencesKey("budget_alerted_keys")
+        /**
+         * Неприкосновенный остаток: ниже него «Свободно» не должно опускаться.
+         *
+         * Это НЕ цель. Цель — то, что вы копите и однажды потратите; резерв — пол, который не
+         * пробивают. Строкой, как и остальные числа в настройках: копейки в Long тут не нужны, а
+         * тип ключа один на все «числа как текст».
+         */
+        val FREE_MONEY_RESERVE         = stringPreferencesKey("free_money_reserve_kopecks")
         val ML_CLASSIFICATION_ENABLED  = booleanPreferencesKey("ml_classification_enabled")
         val PUSH_LISTENER_ENABLED      = booleanPreferencesKey("push_listener_enabled")
         val SMS_REALTIME_ENABLED       = booleanPreferencesKey("sms_realtime_enabled")
@@ -91,6 +99,10 @@ class UserPreferences @Inject constructor(
 
     val budgetAlertThreshold: Flow<Int> = prefs
         .map { it[BUDGET_ALERT_THRESHOLD]?.toIntOrNull() ?: 80 }
+
+    /** Резерв в копейках. По умолчанию 0 — приложение не выдумывает за человека, сколько ему нужно. */
+    val freeMoneyReserve: Flow<Long> = prefs
+        .map { it[FREE_MONEY_RESERVE]?.toLongOrNull() ?: 0L }
 
     val mlClassificationEnabled: Flow<Boolean> = prefs
         .map { it[ML_CLASSIFICATION_ENABLED] ?: false }
@@ -176,6 +188,10 @@ class UserPreferences @Inject constructor(
             // Keep the list bounded — only the current month's keys matter.
             it[BUDGET_ALERTED_KEYS] = state.alertedKeys.take(50).joinToString("|")
         }
+    }
+
+    suspend fun setFreeMoneyReserve(kopecks: Long) {
+        context.dataStore.edit { it[FREE_MONEY_RESERVE] = kopecks.coerceAtLeast(0L).toString() }
     }
 
     suspend fun setMlClassificationEnabled(enabled: Boolean) {

@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
+import com.financeos.hub.features.calendar.CalendarViewModel
+import com.financeos.hub.features.calendar.FreeMoneyTile
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.FORECAST_EXPLANATION
@@ -72,9 +74,14 @@ import com.financeos.hub.ui.theme.bankBrand
 fun DashboardScreen(
     onSettingsClick: () -> Unit = {},
     onCreditClick  : () -> Unit = {},
+    onCalendarClick: () -> Unit = {},
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    // Календарь считает «Свободно» один раз для всего приложения: плитка на главной и сам экран
+    // обязаны показывать одно и то же число.
+    val calendarVm: CalendarViewModel = hiltViewModel()
+    val calendar by calendarVm.state.collectAsState()
     // Один раз на список, а не на каждую строку — см. тот же приём на экране операций.
     val creditAccountIds = remember(state.accounts) {
         state.accounts.filter { it.kind == AccountKind.CREDIT }.map { it.id }.toSet()
@@ -147,6 +154,21 @@ fun DashboardScreen(
         state.credit?.let { credit ->
             item { CreditSummaryTile(credit = credit, onClick = onCreditClick) }
         }
+
+        // «Свободно» — прямо под кредиткой, по той же причине: одна точка вставки на все три
+        // варианта героя. Условие снаружи `item`, а не внутри плитки: пустая ячейка всё равно
+        // получила бы отступ от `spacedBy` и оставила на главной дыру без содержимого.
+        calendar.free
+            ?.takeIf { calendar.upcoming.isNotEmpty() }
+            ?.let { free ->
+                item {
+                    FreeMoneyTile(
+                        free     = free,
+                        payments = calendar.upcoming.count { it.affectsFree },
+                        onClick  = onCalendarClick,
+                    )
+                }
+            }
 
         // Accounts section — grouped by bank
         item {

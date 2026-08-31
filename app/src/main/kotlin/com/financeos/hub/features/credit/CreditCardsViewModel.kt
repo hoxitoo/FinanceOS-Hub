@@ -16,6 +16,7 @@ import com.financeos.hub.core.credit.nearestInterestFreeWindow
 import com.financeos.hub.core.credit.accruedInterest
 import com.financeos.hub.core.credit.minPaymentKopecks
 import com.financeos.hub.core.credit.minimumPaymentOutlook
+import com.financeos.hub.core.credit.statementDueDebt
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
@@ -124,32 +125,16 @@ class CreditCardsViewModel @Inject constructor(
                 today            = today,
             )
 
-            // Roll the current balance back to the statement close: everything booked after it
-            // belongs to the next bill. This is an inference from the transaction log, not a figure
-            // the bank told us — a manual balance edit in between will throw it off, which is why
-            // the screen labels it as the statement amount rather than "the bank says".
-            //
-            // Spending and repayments are kept APART. Netting them made the amount due immune to
-            // being paid: a repayment raised the balance and the rolled-back sum by the same
-            // figure, so after settling the bill in full the card still asked for it — and the
-            // repayment sheet prefilled that stale figure, inviting the user to pay twice.
-            val sinceStatement = cycle?.let { c ->
+            // Сумма по последней выписке и остаток к оплате — общая функция с календарём.
+            // Две копии этого расчёта разошлись бы, и человек увидел бы на двух экранах разные
+            // суммы одного платежа.
+            val stillDue = statementDueDebt(account, accountTx, cycle, ZoneId.systemDefault())
+            val purchasesSince = cycle?.let { c ->
                 val cutoff = c.statementDate.plusDays(1)
                     .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                accountTx.filter { it.timestamp >= cutoff }
-            }.orEmpty()
-            val purchasesSince  = -sinceStatement.filter { it.amountKopecks < 0 }.sumOf { it.amountKopecks }
-            val repaymentsSince =  sinceStatement.filter { it.amountKopecks > 0 }.sumOf { it.amountKopecks }
-
-            // balanceAtStatement = now − everything since; debt is its negation, floored at 0.
-            val signedSince   = repaymentsSince - purchasesSince
-            val statementDebt = if (cycle == null) account.debtKopecks
-            else (-(account.balanceKopecks - signedSince)).coerceAtLeast(0L)
-            // What is actually left to pay of that statement, after money already sent to it.
-            // Capped by the live debt so an over-payment can never leave a phantom balance owing.
-            val stillDue = (statementDebt - repaymentsSince)
-                .coerceAtLeast(0L)
-                .coerceAtMost(account.debtKopecks)
+                -accountTx.filter { it.timestamp >= cutoff && it.amountKopecks < 0 }
+                    .sumOf { it.amountKopecks }
+            } ?: 0L
 
             val due = duePayment(
                 reportedAmountKopecks = account.duePaymentKopecks,
