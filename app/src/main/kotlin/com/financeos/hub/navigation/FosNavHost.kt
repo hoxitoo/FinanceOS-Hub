@@ -31,6 +31,7 @@ import androidx.navigation.compose.rememberNavController
 import com.financeos.hub.features.analytics.AnalyticsScreen
 import com.financeos.hub.features.budget.BudgetScreen
 import com.financeos.hub.features.calculator.CalculatorScreen
+import com.financeos.hub.features.calendar.CalendarScreen
 import com.financeos.hub.features.categories.CategoriesScreen
 import com.financeos.hub.features.credit.CreditCardsScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
@@ -112,6 +113,7 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                 DashboardScreen(
                     onSettingsClick = { navController.navigate(FosRoute.Settings.route) },
                     onCreditClick   = { navController.navigate(FosRoute.CreditCards.route) },
+                    onCalendarClick = { navController.navigate(FosRoute.Calendar.route) },
                 )
             }
             composable(
@@ -134,6 +136,9 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                 GoalsScreen(
                     onCalculatorClick = { navController.navigate(FosRoute.Calculator.route) },
                 )
+            }
+            composable(FosRoute.Calendar.route) {
+                CalendarScreen(onBack = { navController.popBackStack() })
             }
             composable(FosRoute.Calculator.route) {
                 CalculatorScreen(onBack = { navController.popBackStack() })

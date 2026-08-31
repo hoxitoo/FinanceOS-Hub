@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
+import com.financeos.hub.features.calendar.FreeMoneyTile
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.FORECAST_EXPLANATION
@@ -72,6 +73,7 @@ import com.financeos.hub.ui.theme.bankBrand
 fun DashboardScreen(
     onSettingsClick: () -> Unit = {},
     onCreditClick  : () -> Unit = {},
+    onCalendarClick: () -> Unit = {},
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -147,6 +149,11 @@ fun DashboardScreen(
         state.credit?.let { credit ->
             item { CreditSummaryTile(credit = credit, onClick = onCreditClick) }
         }
+
+        // «Свободно» — прямо под кредиткой, по той же причине: одна точка вставки на все три
+        // варианта героя. Плитка сама решает, показываться ли: без обязательств это число
+        // вырождается в остаток минус резерв и дублирует нетто-капитал строчкой выше.
+        item { FreeMoneyTile(onClick = onCalendarClick) }
 
         // Accounts section — grouped by bank
         item {
