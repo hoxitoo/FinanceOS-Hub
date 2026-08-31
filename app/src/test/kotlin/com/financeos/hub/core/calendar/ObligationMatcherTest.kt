@@ -36,6 +36,7 @@ class ObligationMatcherTest {
         currency      = currency,
         direction     = direction,
         anchorDate    = due.atStartOfDay(zone).toInstant().toEpochMilli(),
+        accountId     = account,
     )
 
     private fun tx(
