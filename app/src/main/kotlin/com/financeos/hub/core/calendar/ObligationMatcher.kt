@@ -74,6 +74,38 @@ object ObligationMatcher {
         return out
     }
 
+    /**
+     * Какую дату каждого обязательства сейчас имеет смысл закрывать.
+     *
+     * Берётся САМАЯ РАННЯЯ ещё не закрытая — не ближайшая будущая. Иначе неоплаченный прошлый месяц
+     * молча пропускался бы: отметка [PlannedPaymentEntity.matchedThrough] перепрыгнула бы через
+     * него, и «Свободно» перестало бы вычитать долг, который никто не платил.
+     *
+     * Верхняя граница — `today + DAYS_BEFORE`: списать раньше срока можно, но не более чем на то же
+     * окно, в котором [fits] вообще согласится сопоставить.
+     *
+     * @param lookbackDays насколько далеко назад искать незакрытые даты у обязательства, которое
+     *        никогда не сопоставлялось. Без ограничения годовая подписка тянула бы за собой всю
+     *        историю с момента якоря.
+     */
+    fun openDueDates(
+        payments    : List<PlannedPaymentEntity>,
+        today       : LocalDate,
+        zone        : ZoneId = ZoneId.systemDefault(),
+        lookbackDays: Long = 60L,
+    ): Map<String, LocalDate> {
+        val floor = today.minusDays(lookbackDays)
+        val to    = today.plusDays(DAYS_BEFORE)
+        return payments.mapNotNull { p ->
+            val settledThrough = p.matchedThrough
+                ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
+            val from = maxOf(floor, settledThrough?.plusDays(1) ?: floor)
+            PaymentDates.occurrencesIn(p, from, to, zone)
+                .firstOrNull()
+                ?.let { p.id to it }
+        }.toMap()
+    }
+
     /** Подходит ли операция под обязательство. Все условия обязательны. */
     fun fits(
         payment: PlannedPaymentEntity,

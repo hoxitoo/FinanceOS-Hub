@@ -112,10 +112,19 @@ object FreeMoney {
      * до конца месяца», а «на сколько должно хватить до следующих денег». Если поступлений в
      * календаре нет, откатываемся к концу текущего месяца — это хотя бы понятный человеку рубеж.
      */
-    fun defaultHorizon(events: List<CalendarEvent>, today: LocalDate): LocalDate =
+    fun defaultHorizon(events: List<CalendarEvent>, today: LocalDate): LocalDate {
         events
             .filter { it.direction == EventDirection.IN && it.date.isAfter(today) }
             .minByOrNull { it.date }
-            ?.date
-            ?: today.withDayOfMonth(today.lengthOfMonth())
+            ?.let { return it.date }
+
+        // Конец текущего месяца — но только пока он ВПЕРЕДИ. Тридцать первого числа он совпадает с
+        // сегодня, окно схлопывается в один день, все обязательства выпадают из расчёта, и
+        // «Свободно» разово показывает весь остаток. Раз в месяц, и именно в тот день, когда
+        // платежей больше всего.
+        val endOfThis = today.withDayOfMonth(today.lengthOfMonth())
+        if (endOfThis.isAfter(today)) return endOfThis
+        val next = today.plusMonths(1)
+        return next.withDayOfMonth(next.lengthOfMonth())
+    }
 }

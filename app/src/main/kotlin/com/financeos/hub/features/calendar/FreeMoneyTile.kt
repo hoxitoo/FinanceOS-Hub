@@ -11,12 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.calendar.FreeMoney
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -28,23 +26,24 @@ import com.financeos.hub.ui.theme.fosCardSurface
 /**
  * «Свободно» на главном экране — вход в календарь.
  *
- * Берёт [CalendarViewModel] через `hiltViewModel()`, а не считает заново: два места, считающие одно
- * и то же число разными путями, рано или поздно начинают расходиться, и объяснить человеку, какому
- * из них верить, будет нечем. Экраны не бывают открыты одновременно, поэтому лишней работы нет.
+ * Данные приходят снаружи, из того же [CalendarViewModel], что питает календарь: два места,
+ * считающие одно и то же число разными путями, рано или поздно расходятся, и объяснить человеку,
+ * какому из них верить, будет нечем.
  *
- * Плитка НЕ показывается, пока календарь пуст. Без обязательств «Свободно» вырождается в «остаток
- * минус резерв» — то же самое, что человек уже видит в нетто-капитале строчкой выше, только под
- * другим именем. Показывать одно число дважды хуже, чем не показывать вовсе.
+ * Решение «показывать ли плитку» принимает ВЫЗЫВАЮЩИЙ, а не она сама. Ранний `return` внутри
+ * композиции не убирает `item {}` из списка — остаётся пустая ячейка, а `spacedBy` добавляет к ней
+ * отступ, и на главной появляется необъяснимая дыра. Плитка не показывается, пока календарь пуст:
+ * без обязательств «Свободно» вырождается в «остаток минус резерв», то есть в нетто-капитал
+ * строчкой выше под другим именем.
+ *
+ * @param payments сколько обязательств учтено — считает вызывающий, по тем же событиям.
  */
 @Composable
 fun FreeMoneyTile(
-    onClick: () -> Unit,
-    vm     : CalendarViewModel = hiltViewModel(),
+    free    : FreeMoney.FreeMoneyBreakdown,
+    payments: Int,
+    onClick : () -> Unit,
 ) {
-    val state by vm.state.collectAsState()
-    val free = state.free ?: return
-    if (state.upcoming.isEmpty()) return
-
     val tone   = if (free.freeKopecks >= 0) FosTone.Positive else FosTone.Negative
     val accent = tone.accent ?: FosColors.TextPrimary
 
@@ -76,7 +75,7 @@ fun FreeMoneyTile(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "≈ ${FosFormatter.compact(perDay)} в день",
-                    style = FosType.Micro,
+                    style = FosType.MicroNum,
                     color = FosColors.TextSecondary,
                 )
             }
@@ -85,9 +84,8 @@ fun FreeMoneyTile(
         Spacer(Modifier.height(4.dp))
 
         Text(
-            "Учтено ${pluralPayments(state.upcoming.count { it.affectsFree })} " +
-                "на ${FosFormatter.compact(free.obligationsKopecks)}",
-            style = FosType.Micro,
+            "Учтено ${pluralPayments(payments)} на ${FosFormatter.compact(free.obligationsKopecks)}",
+            style = FosType.MicroNum,
             color = FosColors.TextMuted,
         )
     }

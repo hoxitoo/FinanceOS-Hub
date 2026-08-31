@@ -42,10 +42,16 @@ object CalendarBuilder {
         from         : LocalDate,
         to           : LocalDate,
         zone         : ZoneId = ZoneId.systemDefault(),
+        /**
+         * Ключи подписок, уже подтверждённых как обязательства — включая удалённые. Считать их по
+         * активным строкам недостаточно: удалённое обязательство иначе всплывает обратно и как
+         * предложение, и как выведенное событие.
+         */
+        claimed      : Set<String> = emptySet(),
     ): List<CalendarEvent> =
         (fromPlanned(planned, from, to, zone) +
             fromCredit(credit, from, to) +
-            fromSubscriptions(subscriptions, planned, from, to, zone) +
+            fromSubscriptions(subscriptions, claimed, from, to, zone) +
             fromGoals(goals, from, to, zone))
             .sortedWith(compareBy({ it.date }, { it.kind.ordinal }, { -it.amountKopecks }))
 
@@ -143,12 +149,11 @@ object CalendarBuilder {
      */
     fun fromSubscriptions(
         subscriptions: List<SubscriptionDetector.Subscription>,
-        planned      : List<PlannedPaymentEntity>,
+        claimed      : Set<String>,
         from         : LocalDate,
         to           : LocalDate,
         zone         : ZoneId = ZoneId.systemDefault(),
     ): List<CalendarEvent> {
-        val claimed = planned.mapNotNullTo(HashSet()) { it.autoSource }
         return subscriptions
             .filter { it.key !in claimed && !it.isMissed }
             .mapNotNull { sub ->

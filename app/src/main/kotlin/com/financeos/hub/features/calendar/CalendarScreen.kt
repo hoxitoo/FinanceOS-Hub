@@ -258,7 +258,7 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () 
         free.dailyAllowanceKopecks?.let { perDay ->
             Text(
                 "≈ ${FosFormatter.compact(perDay)} в день на ${pluralDays(free.daysLeft)}",
-                style = FosType.Micro,
+                style = FosType.MicroNum,
                 color = FosColors.TextSecondary,
             )
         }
@@ -300,7 +300,7 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () 
             Text(
                 "Ждём поступлений на ${FosFormatter.compact(free.expectedIncomeKopecks)} — " +
                     "в расчёт не входят",
-                style = FosType.Micro,
+                style = FosType.MicroNum,
                 color = FosColors.TextMuted,
             )
         }
@@ -308,7 +308,7 @@ private fun FreeMoneyCard(free: FreeMoney.FreeMoneyBreakdown, onEditReserve: () 
             Text(
                 "Плюс обязательства на ${FosFormatter.compact(amount, FosFormatter.currencySymbol(currency))} — " +
                     "другая валюта, в расчёт не входят",
-                style = FosType.Micro,
+                style = FosType.MicroNum,
                 color = FosColors.TextMuted,
             )
         }
@@ -449,7 +449,7 @@ private fun SuggestionRow(title: String, amount: String, subtitle: String, onAdd
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = FosType.BodySemi, color = FosColors.TextPrimary, maxLines = 1)
-            Text("$amount · $subtitle", style = FosType.Micro, color = FosColors.TextSecondary, maxLines = 1)
+            Text("$amount · $subtitle", style = FosType.MicroNum, color = FosColors.TextSecondary, maxLines = 1)
         }
         TextButton(onClick = onAdd) {
             Text("В календарь", style = FosType.Label, color = FosColors.Info)

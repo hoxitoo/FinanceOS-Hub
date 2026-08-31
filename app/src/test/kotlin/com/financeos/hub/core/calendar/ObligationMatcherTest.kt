@@ -178,6 +178,48 @@ class ObligationMatcherTest {
         assertEquals("tied", matches.single().payment.id)
     }
 
+    // ── Какие даты вообще предлагаются к закрытию ────────────────────────────────
+
+    @Test
+    fun `the oldest unsettled occurrence comes first, not the nearest future one`() {
+        // Аренду не платили два месяца. Взяв ближайшую будущую дату, отметка перепрыгнула бы через
+        // неоплаченные месяцы, и «Свободно» перестало бы вычитать реальный долг.
+        val today = LocalDate.of(2026, 5, 21)
+        val dues  = ObligationMatcher.openDueDates(listOf(rent()), today, zone, lookbackDays = 90)
+        assertEquals(LocalDate.of(2026, 3, 20), dues["rent"])
+    }
+
+    @Test
+    fun `a settled period is not offered again`() {
+        val today   = LocalDate.of(2026, 5, 21)
+        val settled = rent().copy(
+            matchedThrough = LocalDate.of(2026, 4, 20).atStartOfDay(zone).toInstant().toEpochMilli(),
+        )
+        val dues = ObligationMatcher.openDueDates(listOf(settled), today, zone, lookbackDays = 90)
+        assertEquals(LocalDate.of(2026, 5, 20), dues["rent"])
+    }
+
+    @Test
+    fun `nothing is offered while the date is still far ahead`() {
+        // 20 мая ещё далеко: списать раньше срока можно, но не на месяц вперёд. Предложив эту дату,
+        // мы позволили бы случайной покупке закрыть будущий месяц.
+        val today = LocalDate.of(2026, 4, 25)
+        val paid  = rent().copy(
+            matchedThrough = LocalDate.of(2026, 4, 20).atStartOfDay(zone).toInstant().toEpochMilli(),
+        )
+        assertTrue(ObligationMatcher.openDueDates(listOf(paid), today, zone).isEmpty())
+    }
+
+    @Test
+    fun `the search does not reach back past the lookback window`() {
+        // Обязательство не сопоставлялось три года. Без ограничения оно предложило бы дату 2026
+        // года, и «закрывать» пришлось бы месяц за месяцем всю историю. Берём только то, что
+        // человек ещё может узнать: последние 60 дней.
+        val today = LocalDate.of(2029, 3, 20)
+        val dues  = ObligationMatcher.openDueDates(listOf(rent()), today, zone, lookbackDays = 60)
+        assertEquals(LocalDate.of(2029, 1, 20), dues["rent"])
+    }
+
     @Test
     fun `an obligation without a due date in scope is skipped`() {
         val matches = ObligationMatcher.match(
