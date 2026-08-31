@@ -31,8 +31,10 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
+| **Календарь и «Свободно»** | Главное число экрана — не остаток и не прогноз, а «сколько можно потратить, ничего не сломав»: деньги на счетах минус незакрытые обязательства до горизонта минус ваш резерв. Горизонт по умолчанию — до **следующего поступления**, а не до конца месяца. Ожидаемая зарплата показывается, но НЕ прибавляется. Источники: объявленные платежи, платёж по кредитке, конец беспроцентного периода, найденные подписки, дедлайны целей |
+| **Закрытие обязательств** | Когда в истории появляется подходящая операция (та же валюта, то же направление, ±15 % по сумме, окно −5/+7 дней, счёт если указан), обязательство помечается оплаченным и перестаёт вычитаться из «Свободно». Сопоставление намеренно осторожное: при сомнении обязательство остаётся открытым, а любую отметку можно снять кнопкой «Отвязать» |
 | **Savings calculator** | Отдельный экран с тремя режимами: что накопится за срок, за сколько наберётся нужная сумма, сколько для этого откладывать. Капитализация (месяц/квартал/год/без), взнос в начале или конце месяца, ежегодная индексация взноса, инфляция → «в сегодняшних деньгах», НДФЛ 13 %, эффективная ставка, разбивка «своё / проценты» столбиками и таблицей по годам, и **точка перелома** — год, когда проценты начинают приносить больше ваших взносов. Подставляет ваш собственный темп накопления и суммы ваших целей |
-| **Backup / restore** | Full 8-table export to a `.fose` file, AES-GCM-256 encrypted via Android Keystore; restore is additive, idempotent and FK-safe |
+| **Backup / restore** | Full 9-table export to a `.fose` file, AES-GCM-256 encrypted via Android Keystore; restore is additive, idempotent and FK-safe |
 | **Notifications** | Budget alerts, weekly summaries, critical insights, update-available (4 channels) |
 | **Deep-links** | Notification taps navigate directly to the relevant screen (allowlisted routes) |
 | **Settings** | Hero variant, animations/atmosphere/cat mode, budget alert threshold, biometric lock, ML toggle, SMS opt-in, categories CRUD, backup, updates |
@@ -61,7 +63,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 ## Screens
 
-1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), accounts with volumetric bank cards, clickable recent transactions
+1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (появляется, только когда в календаре есть обязательства), accounts with volumetric bank cards, clickable recent transactions
 2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, "↑ CSV" export, "↓ PDF" import
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
@@ -71,10 +73,11 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
 5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword, «🧮 Калькулятор» in the header
 6. **Калькулятор** — three modes over one monthly simulation; fine-tuning panel; «ваш темп» and goal chips prefill from your own data; every figure is explicitly labelled an estimate
-7. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
-8. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
-9. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
-10. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
+7. **Календарь** — «Свободно» героем с разложенной арифметикой (счета − обязательства − резерв), два режима — полоса ближайших дат и сетка месяца (точки по видам событий, выбранный день фильтрует список), список событий с пометкой источника (цифра банка / объявлено вами / найдено), подтверждение найденных подписок одним касанием, раздел «уже прошло» с возможностью отвязать
+8. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
+9. **Subscriptions** — auto-detected recurring expenses, missed-payment alerts
+10. **Settings** — hero variant, customization (animations / atmosphere / cat mode), SMS opt-in + 90-day import, bank push listener, ML toggle, budget alert threshold, biometric, categories CRUD, backup/restore, updates
+11. **Onboarding** — explicit choice between "импортировать из SMS за 90 дней" and "добавлю вручную"
 
 ## Tech Stack
 
@@ -93,7 +96,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v14 — 18 categories, ~183 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v17 — 18 categories, ~183 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import), PushNotificationListener
@@ -101,6 +104,7 @@ app/
 │   ├── credit/         # CreditMath (debt, free limit, cycle, min payment, interest), CreditNoticeApplier
 │   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
 │   ├── finance/        # SavingsMath (прогноз накоплений, срок до цели, требуемый взнос)
+│   ├── calendar/       # CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher, ObligationSyncer
 │   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer, NarrativeEngine
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
 │   ├── pdf/            # PdfImporter, PdfTransactionParser
@@ -111,7 +115,7 @@ app/
 │   ├── repositories/   # Tx, Account, Card, Category, Budget, Goal, TransferRoute
 │   └── preferences/    # UserPreferences (DataStore)
 ├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule
-├── features/           # dashboard, transactions, analytics, budget, goals, calculator, subscriptions, categories, credit, onboarding, settings
+├── features/           # dashboard, transactions, analytics, budget, goals, calculator, calendar, subscriptions, categories, credit, onboarding, settings
 ├── navigation/         # FosNavHost, FosRoutes, bottom nav
 ├── widget/             # BalanceWidget
 └── ui/

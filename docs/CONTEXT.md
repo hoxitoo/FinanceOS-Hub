@@ -43,7 +43,7 @@ TextDark      = #3A4358
 
 ## Database Schema
 
-Room schema **version 10**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
+Room schema **version 17**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
 
 | Migration | Change |
 |-----------|--------|
@@ -54,6 +54,12 @@ Room schema **version 10**. Every migration is registered in `DatabaseModule.add
 | 7→8 | `transactions.currency` (`NOT NULL DEFAULT 'RUB'`) |
 | 8→9 | `transactions.raw_text` (captured message body, for diagnostics) |
 | 9→10 | re-seed (`cat_betting` + marketplace/bookmaker rules) |
+| 10→12 | `accounts.kind` + credit terms (limit, APR, statement day, due days, interest-free days) |
+| 12→13 | credit payment notice: `accounts.due_payment_kopecks`, `accounts.due_payment_at` |
+| 13→14 | category `cat_subs` + **`UPDATE`** of six streaming rules onto it (see invariant #18) |
+| 14→15 | surgical category fixes for rows mis-labelled by the frozen model |
+| 15→16 | `planned_payments` table (calendar obligations) |
+| 16→17 | `planned_payments.rejected_tx_id` — какую операцию человек отверг кнопкой «Отвязать» |
 
 ### TransactionEntity
 ```
@@ -113,6 +119,24 @@ id, name, emoji
 targetKopecks, savedKopecks: Long
 deadlineAt: Long?
 isCompleted: Boolean
+```
+
+### PlannedPaymentEntity (`planned_payments`)
+```
+id, title
+amountKopecks: Long        ← always positive; direction is a separate field
+currency: String
+direction: PaymentDirection (OUT | IN)
+schedule: PaymentSchedule   (ONCE | WEEKLY | MONTHLY | QUARTERLY | YEARLY)
+anchorDate: Long            ← first occurrence, epoch ms
+dayOfMonth: Int?            ← INTENDED day, kept apart from anchorDate (see PaymentDates)
+accountId: String?          ← optional; when set, matching also requires the account
+categoryId: String?
+autoSource: String?         ← subscription key this grew from; stops it being suggested twice
+lastMatchedTxId: String?    ← which operation closed it — one-way link, transaction untouched
+matchedThrough: Long?       ← closed up to and including this date
+rejectedTxId: String?       ← operation the user rejected via «Отвязать»; never matched again
+isActive: Boolean           ← soft delete: the row survives so autoSource keeps its claim
 ```
 
 ## Default Categories (18)
@@ -261,6 +285,7 @@ dimmed (α .16). `FosColors.Negative` is deliberately never used for a slice —
 onboarding → dashboard (after onboarding_complete = true)
 dashboard | transactions | analytics | budget | goals   ← bottom nav
 settings | categories | subscriptions | credit          ← pushed routes
+calendar                                                ← pushed from the dashboard tile
 calculator                                              ← pushed from goals
 transactions?categoryId=<id>                            ← optional pre-filter (subscription deep-link)
 ```
@@ -282,6 +307,7 @@ ml_classification_enabled: Boolean
 push_listener_enabled: Boolean
 sms_realtime_enabled: Boolean    (default FALSE — SMS reading is opt-in)
 animations_enabled / atmosphere_enabled / cards_variant_b / cat_mode_enabled
+free_money_reserve_kopecks: String   ← «неприкосновенный» остаток, вычитается из «Свободно»
 update_notifications_enabled: Boolean (default true)
 last_notified_version: String
 ```
@@ -403,6 +429,84 @@ Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, n
 `listSaver`; перечисления сохраняются именами, не `ordinal`. Имена параметров конструктора
 намеренно отличаются от имён свойств (`startMode` → `mode`) — `var mode by mutableStateOf(mode)`
 читается двусмысленно.
+
+## Screen: Календарь (`features/calendar`)
+
+Вход — плитка «Свободно» на главной, под кредиткой. Экран отвечает на вопрос, которого в приложении
+не было: **сколько можно потратить, ничего не сломав.**
+
+```
+Свободно = деньги на CASH-счетах − незакрытые обязательства до горизонта − резерв
+```
+
+Остаток отвечает «сколько есть», прогноз — «сколько потрачу к концу месяца». В магазине не годится
+ни то, ни другое: нужно знать, что уже обещано другим.
+
+### Слои
+| Файл | Роль |
+|---|---|
+| `core/calendar/CalendarEvent.kt` | модель события: вид, надёжность, флаг `affectsFree` |
+| `core/calendar/PaymentDates.kt` | когда обязательство наступит (шаг от якоря, не от прошлой даты) |
+| `core/calendar/CalendarBuilder.kt` | сведение событий из источников — чистые функции |
+| `core/calendar/FreeMoney.kt` | расчёт «Свободно» и выбор горизонта |
+| `core/calendar/ObligationMatcher.kt` | какая операция закрыла обязательство (чистые правила) |
+| `core/calendar/ObligationSyncer.kt` | `@Singleton`, стартует из `Application`, пишет отметку |
+| `features/calendar/` | экран, плитка на главной, лист добавления |
+
+### Источники событий
+| `EventKind` | Откуда | `affectsFree` |
+|---|---|---|
+| `PLANNED` | `planned_payments` — объявлено человеком | да |
+| `CREDIT_DUE` | `duePayment()` — цифра банка или расчёт по циклу | да |
+| `CREDIT_GRACE` | `nearestInterestFreeWindow()` | **нет** — это срок, а не платёж |
+| `SUBSCRIPTION` | `SubscriptionDetector` — найдено, но не подтверждено | да |
+| `GOAL` | дедлайн цели | **нет** — деньги никуда не уходят |
+| `INVESTMENT` | зарезервировано под будущий экран инвестиций | — |
+
+Добавить источник = дописать `fromXxx(...)` и вызвать её в `build`. Ни модель события, ни расчёт
+«Свободно», ни экран при этом не трогаются — так и появится экран инвестиций.
+
+### Два режима
+Полоса отвечает «что дальше»: она сжата к горизонту, ближайшая дата читается первой. Сетка отвечает
+«как устроен месяц»: где сгущение платежей, где пусто. Одно другим не заменяется — на сетке глаз
+ищет сегодня среди тридцати клеток, а полоса вообще не показывает плотность.
+
+Сетка — это ФИЛЬТР: выбранный день оставляет в списке ниже только свои события, повторное нажатие
+снимает выбор. Собственного списка у неё нет, иначе одни и те же строки жили бы в двух местах.
+Данные она берёт из полного окна построения (`CalendarState.all`, today−60…today+90), а не из
+`upcoming`: горизонт обычно короче месяца, и сетка была бы пустой со своей середины. Листать можно
+только внутри окна — пустой месяц за его границей читался бы как «платежей нет».
+
+### Горизонт
+По умолчанию — до **следующего ожидаемого поступления**: честный вопрос не «сколько до конца
+месяца», а «на сколько должно хватить до следующих денег». Поступлений нет — конец текущего месяца,
+а если он уже сегодня, то конец следующего (иначе окно схлопывалось бы в один день ровно тогда,
+когда платежей больше всего).
+
+Ожидаемые поступления **не прибавляются** к свободным: считать неполученную зарплату тратимой —
+прямой путь к перерасходу. Сумма показывается отдельной строкой.
+
+Валюты не смешиваются — курса у офлайн-приложения нет. Обязательства в другой валюте уходят в
+`foreignObligations` и показываются отдельно, а не выбрасываются: молча проигнорировать долларовую
+подписку значило бы завысить свободные деньги.
+
+### Сопоставление
+`ObligationMatcher` консервативен намеренно: жадное сопоставление завышает «Свободно» и делает
+человека беднее, строгое — занижает и делает осторожнее. При сомнении обязательство остаётся
+открытым. Условия: та же валюта, то же направление (ПЕРЕВОД не закрывает ничего), совпадение счёта
+если он указан, сумма ±15 %, дата в окне −5/+7 дней. Одна операция закрывает не больше одного
+обязательства.
+
+Запись живёт в `ObligationSyncer` — `@Singleton`, который стартует из `Application`. Не внутри
+построения календаря: результат чистой функции исчезает вместе с экраном. И не во ViewModel: она
+привязана к своему `NavBackStackEntry`, у главной и у календаря они разные, и сборщик писал бы
+одно и то же в две руки.
+
+Связь односторонняя (`planned_payments.last_matched_tx_id`), операция не меняется. «Отвязать»
+записывает `rejected_tx_id` — без этого следа сборщик тут же вернул бы ту же операцию на место.
+
+Берётся БЛИЖАЙШАЯ к сроку операция, а не первая подходящая: список идёт по убыванию времени, и
+«первая» означает «самая свежая».
 
 ## Money input fields
 

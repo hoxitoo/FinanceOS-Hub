@@ -12,6 +12,7 @@ import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.MerchantRuleDao
+import com.financeos.hub.core.database.daos.PlannedPaymentDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import com.financeos.hub.core.database.entities.AccountEntity
@@ -20,6 +21,7 @@ import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.core.database.entities.MerchantRuleEntity
+import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransferRouteEntity
 
@@ -33,8 +35,9 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         MerchantRuleEntity::class,
         CardEntity::class,
         TransferRouteEntity::class,
+        PlannedPaymentEntity::class,
     ],
-    version = 15,
+    version = 17,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -47,6 +50,7 @@ abstract class FosDatabase : RoomDatabase() {
     abstract fun merchantRuleDao(): MerchantRuleDao
     abstract fun cardDao(): CardDao
     abstract fun transferRouteDao(): TransferRouteDao
+    abstract fun plannedPaymentDao(): PlannedPaymentDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -298,6 +302,58 @@ abstract class FosDatabase : RoomDatabase() {
                       AND (TRIM(merchant) LIKE '%прок' OR TRIM(merchant) LIKE '%ПРОК')
                     """.trimIndent()
                 )
+            }
+        }
+
+        /**
+         * Обязательства — платежи, которые ещё не случились.
+         *
+         * Отдельная таблица, а не флаг на транзакции. Операция — свершившийся факт с точной суммой;
+         * обязательство — намерение, у которого сумма может оказаться другой, а дата съехать.
+         * В одной таблице «Свободно» считалось бы по деньгам, которых не было, а история засорилась
+         * бы записями о непроисходившем.
+         *
+         * Только CREATE TABLE: существующие данные не трогаются вообще, откат к предыдущей версии
+         * приложения ничего не теряет (таблица просто останется неиспользованной).
+         */
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `planned_payments` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `amount_kopecks` INTEGER NOT NULL,
+                        `currency` TEXT NOT NULL,
+                        `direction` TEXT NOT NULL,
+                        `schedule` TEXT NOT NULL,
+                        `anchor_date` INTEGER NOT NULL,
+                        `day_of_month` INTEGER,
+                        `account_id` TEXT,
+                        `category_id` TEXT,
+                        `auto_source` TEXT,
+                        `last_matched_tx_id` TEXT,
+                        `matched_through` INTEGER,
+                        `is_active` INTEGER NOT NULL DEFAULT 1,
+                        `created_at` INTEGER NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_payments_is_active` ON `planned_payments`(`is_active`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_payments_anchor_date` ON `planned_payments`(`anchor_date`)")
+            }
+        }
+
+        /**
+         * v16 → v17: `planned_payments.rejected_tx_id`.
+         *
+         * Отдельным шагом, а не правкой CREATE TABLE выше: v16 уже ушла в `dev`, и переписанный
+         * задним числом CREATE оставил бы установки, где Room ждёт колонку, которой в базе нет.
+         * Дописать колонку дешевле, чем гадать, кто что успел поставить.
+         */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `rejected_tx_id` TEXT")
             }
         }
 

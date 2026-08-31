@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v14
+- **DB schema:** Room v17
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -45,6 +45,8 @@ app/
 │   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
 │   ├── finance/      (SavingsMath — накопления: прогноз, срок, требуемый взнос)
+│   ├── calendar/     (CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher,
+│   │                  ObligationSyncer)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
 │   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
 │   ├── ml/           (ModelLoader, TextFeatureExtractor, MLCategoryClassifier,
@@ -57,7 +59,7 @@ app/
 │   ├── repositories/ (Tx, Account, Card, Category, Budget, Goal, TransferRoute)
 │   └── preferences/  (UserPreferences via DataStore)
 ├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
-├── features/         (dashboard, transactions, analytics, budget, goals, calculator,
+├── features/         (dashboard, transactions, analytics, budget, goals, calculator, calendar,
 │                      subscriptions, categories, credit, onboarding, settings)
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
@@ -255,6 +257,11 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Калькулятор накоплений — `features/calculator`, вход из «Целей» (🧮). Три режима, тонкая
       настройка, разбивка «своё / проценты», столбики и таблица по годам. Подставляет ваш темп
       (средний остаток за 3 закрытых месяца) и суммы ваших целей.
+- [x] Календарь и «Свободно» — `features/calendar`, вход плиткой на главной под кредиткой.
+      Полоса ближайших дат + список событий + подтверждение найденных подписок + раздел «уже
+      прошло». Источники: объявленные платежи, платёж по кредитке, конец беспроцентного периода,
+      найденные подписки, дедлайны целей. Два режима: полоса и **сетка месяца** — сетка работает
+      фильтром, выбранный день оставляет в списке только свои события.
 - [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
       + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного периода,
       ставка, утилизация, история операций, лист редактирования условий)
@@ -272,7 +279,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Interpreter calls are `Mutex`-guarded (TFLite `Interpreter` is not thread-safe)
 
 ## Platform
-- [x] Backup/restore — 8 tables → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
+- [x] Backup/restore — 9 tables (включая `planned_payments`) → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
 - [x] Notifications — 4 channels, allowlisted deep-links, permission-guarded
 - [x] Biometric lock (fail-open, device-PIN escape hatch), 2×2 home-screen widget
 - [x] In-app self-update + `UpdateCheckWorker` (12 h) + `release-apk.yml` pipeline
@@ -305,6 +312,8 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **UI system** | `FosSurface` — огранка карточек по роли (Raised/Rail/Sunken/Outline/Plain) + тон по правилам цвета; `FosSectionHeader`; `fosCardEdge` для карточек с артом на всю площадь; пояснение прогноза трат |
 | **Подписки + калькулятор** | Категория «Подписки» (v13→v14) с переводом старых правил стриминга через UPDATE; словарь стал приоритетнее замороженной модели; `SavingsMath` + экран калькулятора накоплений |
 
+| **Календарь** | `planned_payments` (v15→v16), `CalendarEvent`/`PaymentDates`/`CalendarBuilder`/`FreeMoney`/`ObligationMatcher`, экран календаря, плитка «Свободно» на главной, подтверждение найденных подписок |
+
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
 *Hard-won invariants* above; the rest are visible in `git log`.
 
@@ -319,6 +328,8 @@ Everything below is **implemented and shipped** unless marked otherwise.
 ---
 
 # Next Steps
+- **Инвестиции** — `AccountKind.INVESTMENT` + `EventKind.INVESTMENT` (место в календаре уже
+  зарезервировано: нужна одна функция `fromInvestments(...)` в `CalendarBuilder`).
 - Polish: localization review, dark-mode visual QA
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
 - Consider: encrypt the backup with a user PIN (the key is device-scoped, no extra auth today)
@@ -384,7 +395,58 @@ rowid). Дубликат паттерна с новым id встанет поз
 строку нужно переписывать `UPDATE`, как это делает `MIGRATION_13_14` для шести правил стриминга.
 Историю это не трогает: категория лежит в самой транзакции, правила влияют только на будущий разбор.
 
-### 19. Калькулятор считает симуляцией, а не формулой
+### 19. «Свободно» — это не остаток, и не всякое событие календаря его двигает
+`CalendarEvent.affectsFree` отделяет ПЛАТЁЖ от СРОКА. Конец беспроцентного периода и дедлайн цели —
+даты: денег в этот день никуда не уходит. Вычесть беспроцентный период отдельной строкой значило бы
+посчитать один и тот же долг дважды — он уже сидит в платеже по карте.
+
+Горизонт отбрасывает ЗАКРЫТЫЕ поступления так же, как и расчёт. Зарплата, сопоставленная на пару
+дней раньше срока, иначе схлопывала бы окно на свою же дату: весь остаток месяца выпадал из расчёта,
+и «Свободно» завышалось ровно после получки, когда на счёте максимум.
+
+Платёж по кредитке гасится отдельным флагом, а не сам собой: `duePayment` честно держит присланную
+банком сумму 45 дней, а сообщения «вы заплатили» банк не шлёт. Без флага оплаченная карта вычиталась
+бы из «Свободно» ещё полтора месяца — те же деньги дважды.
+
+Ожидаемые поступления считаются, но НЕ прибавляются: неполученная зарплата, посчитанная тратимой, —
+прямой путь к перерасходу, а «Свободно» существует ровно для того, чтобы его не было. Валюты не
+смешиваются (курса у офлайн-приложения нет), но чужая валюта и не выбрасывается — иначе долларовая
+подписка молча завысила бы свободные деньги.
+
+Горизонт по умолчанию — до следующего поступления, а не до конца месяца. Откат на конец месяца
+обязан проверять, что тот ещё ВПЕРЕДИ: 31-го числа окно схлопывалось бы в один день, все
+обязательства выпадали из расчёта, и раз в месяц — именно в день с наибольшим числом платежей —
+показывался бы весь остаток.
+
+### 20. Сопоставление обязательства с операцией — это ЗАПИСЬ, и она живёт отдельно от экрана
+`ObligationMatcher` — чистая функция, и посчитать её внутри построения календаря соблазнительно.
+Но её результат исчезает вместе с экраном: обязательство остаётся незакрытым, пока на календарь
+кто-нибудь не посмотрит, а отметка нужна и плитке на главной, и самому «Свободно».
+`ObligationSyncer` — `@Singleton` со стартом из `Application`, который пишет `matched_through`.
+Во ViewModel ему не место и по второй причине: VM привязана к своему `NavBackStackEntry`, у главной
+и у календаря они разные, и сборщик запускался бы дважды, записывая одно и то же в две руки.
+
+«Отвязать» обязано оставлять след (`rejected_tx_id`). Без него сборщик на следующем же проходе
+находит ту же операцию — она снова свободна и по-прежнему подходит — и закрывает обязательство
+опять: кнопка, после которой всё возвращается назад. Помнится одна отвергнутая операция, а не
+список: смысл действия — «нет, это не она», дальше ищем ДРУГУЮ.
+
+Матчер берёт БЛИЖАЙШУЮ к сроку операцию, а не первую подходящую: список приходит по убыванию
+времени, и «первая» значит «самая свежая» — у недельного обязательства платёж следующей недели
+закрывал бы предыдущую, а свой период после этого не закрывался бы уже никогда.
+
+Ошибки здесь несимметричны: жадное сопоставление завышает «Свободно» и делает человека беднее,
+строгое — занижает и делает осторожнее. При сомнении обязательство остаётся открытым.
+`openDueDates` берёт САМУЮ РАННЮЮ незакрытую дату, а не ближайшую будущую: иначе отметка
+перепрыгивала бы неоплаченные месяцы. Цикл «запись → перечитывание» конечен, потому что закрытая
+дата уходит из выдачи, а занятые операции исключаются заранее.
+
+### 21. Ранний `return` в композабле не убирает `item {}` из списка
+Плитка, решающая внутри себя не показываться, оставляет в `LazyColumn` пустую ячейку — и `spacedBy`
+честно добавляет ей отступ. На главной появляется дыра без содержимого. Решение «показывать ли»
+принимает ВЫЗЫВАЮЩИЙ, снаружи `item`. Та же ловушка у полосы календаря в пустом месяце.
+
+### 22. Калькулятор считает симуляцией, а не формулой
 `SavingsMath.simulate` идёт по месяцам. Замкнутая формула аннуитета короче ровно до первого
 реального требования: капитализация раз в квартал, взнос в начале месяца, ежегодная индексация
 взноса — каждое ломает формулу и не ломает симуляцию.

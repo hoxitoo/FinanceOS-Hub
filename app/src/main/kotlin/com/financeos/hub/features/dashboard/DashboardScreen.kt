@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
+import com.financeos.hub.features.calendar.CalendarViewModel
+import com.financeos.hub.features.calendar.FreeMoneyTile
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.ui.components.AnimatedAmount
 import com.financeos.hub.ui.components.FORECAST_EXPLANATION
@@ -72,9 +74,16 @@ import com.financeos.hub.ui.theme.bankBrand
 fun DashboardScreen(
     onSettingsClick: () -> Unit = {},
     onCreditClick  : () -> Unit = {},
+    onCalendarClick: () -> Unit = {},
     vm             : DashboardViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    // Отдельный экземпляр CalendarViewModel — у главной и у календаря разные NavBackStackEntry,
+    // и общим он не станет. Число тем не менее одно: обе копии считают его одной и той же функцией
+    // по одним и тем же данным. Дублировать расчёт в DashboardViewModel было бы хуже — вот тогда
+    // две формулы и разошлись бы.
+    val calendarVm: CalendarViewModel = hiltViewModel()
+    val calendar by calendarVm.state.collectAsState()
     // Один раз на список, а не на каждую строку — см. тот же приём на экране операций.
     val creditAccountIds = remember(state.accounts) {
         state.accounts.filter { it.kind == AccountKind.CREDIT }.map { it.id }.toSet()
@@ -147,6 +156,15 @@ fun DashboardScreen(
         state.credit?.let { credit ->
             item { CreditSummaryTile(credit = credit, onClick = onCreditClick) }
         }
+
+        // «Свободно» — прямо под кредиткой, по той же причине: одна точка вставки на все три
+        // варианта героя. Условие снаружи `item`, а не внутри плитки: пустая ячейка всё равно
+        // получила бы отступ от `spacedBy` и оставила на главной дыру без содержимого.
+        // Условие — «есть что вычитать», а не «есть события»: срок цели событием является, но
+        // денег не двигает, и плитка с «учтено 0 платежей» повторяла бы нетто-капитал строчкой выше.
+        calendar.free
+            ?.takeIf { it.obligationCount > 0 }
+            ?.let { free -> item { FreeMoneyTile(free = free, onClick = onCalendarClick) } }
 
         // Accounts section — grouped by bank
         item {

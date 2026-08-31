@@ -330,6 +330,44 @@ fun nearestInterestFreeWindow(
     )
 }
 
+/**
+ * Сколько ещё осталось заплатить по последней выписке.
+ *
+ * Текущий баланс откатывается к моменту закрытия выписки: всё, что списано после, относится уже к
+ * следующему счёту. Это ВЫВОД из истории операций, а не цифра банка — ручная правка баланса между
+ * делом собьёт его, поэтому экран и называет это суммой по выписке, а не «банк сказал».
+ *
+ * Покупки и погашения считаются РАЗДЕЛЬНО. При зачёте друг против друга сумма к оплате становилась
+ * невосприимчивой к тому, что её оплатили: погашение поднимало и баланс, и откат на одну и ту же
+ * величину, поэтому после полной оплаты карта продолжала просить те же деньги, а лист погашения
+ * подставлял их снова (инвариант #16).
+ *
+ * Вынесено сюда из экрана кредиток, потому что тем же числом пользуется календарь: две копии этого
+ * расчёта разошлись бы, и человек увидел бы на двух экранах разные суммы одного платежа.
+ */
+fun statementDueDebt(
+    account     : AccountEntity,
+    transactions: List<TransactionEntity>,
+    cycle       : CreditCycle?,
+    zone        : ZoneId = ZoneId.systemDefault(),
+): Long {
+    val liveDebt = account.debtKopecks
+    val sinceStatement = cycle?.let { c ->
+        val cutoff = c.statementDate.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        transactions.filter { it.timestamp >= cutoff }
+    }.orEmpty()
+
+    val purchasesSince  = -sinceStatement.filter { it.amountKopecks < 0 }.sumOf { it.amountKopecks }
+    val repaymentsSince =  sinceStatement.filter { it.amountKopecks > 0 }.sumOf { it.amountKopecks }
+    val signedSince     = repaymentsSince - purchasesSince
+
+    val statementDebt = if (cycle == null) liveDebt
+    else (-(account.balanceKopecks - signedSince)).coerceAtLeast(0L)
+
+    // Ограничено живым долгом: переплата не должна оставить призрачную задолженность.
+    return (statementDebt - repaymentsSince).coerceAtLeast(0L).coerceAtMost(liveDebt)
+}
+
 fun accruedInterest(debtKopecks: Long, aprBp: Int?, days: Int): Long? {
     val apr = aprBp?.takeIf { it > 0 } ?: return null
     if (debtKopecks <= 0L || days <= 0) return 0L
