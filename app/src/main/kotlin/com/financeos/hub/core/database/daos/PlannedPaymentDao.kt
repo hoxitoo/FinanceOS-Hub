@@ -18,8 +18,15 @@ interface PlannedPaymentDao {
     @Query("SELECT * FROM planned_payments WHERE id = :id")
     suspend fun getById(id: String): PlannedPaymentEntity?
 
-    /** Уже подтверждённые подписки — чтобы не предлагать подтвердить то же самое второй раз. */
-    @Query("SELECT auto_source FROM planned_payments WHERE auto_source IS NOT NULL")
+    /**
+     * Подписки, подтверждённые СЕЙЧАС — чтобы не предлагать подтвердить то же самое второй раз.
+     *
+     * Только активные. Считать и удалённые казалось правильным («не всплывало бы обратно»), но это
+     * ровно наоборот: удалив обязательство, человек либо ошибся при подтверждении, либо передумал,
+     * и подписка обязана вернуться в предложения. Иначе она исчезает отовсюду навсегда — строки
+     * больше нет, предложение скрыто, и вернуть её нечем.
+     */
+    @Query("SELECT auto_source FROM planned_payments WHERE auto_source IS NOT NULL AND is_active = 1")
     suspend fun claimedAutoSources(): List<String>
 
     /**

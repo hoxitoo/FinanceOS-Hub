@@ -21,6 +21,10 @@ class PaymentDatesTest {
         anchor  : LocalDate,
         schedule: PaymentSchedule = PaymentSchedule.MONTHLY,
         day     : Int? = null,
+        // Обязательство не описывает время до своего появления, поэтому в тестах про даты оно
+        // «рождается» вместе с якорем. Оставив здесь `now` по умолчанию, мы бы проверяли отсечку
+        // по дате создания, а не расчёт повторений.
+        bornOn  : LocalDate = anchor,
     ) = PlannedPaymentEntity(
         id            = "p1",
         title         = "Аренда",
@@ -28,7 +32,19 @@ class PaymentDatesTest {
         schedule      = schedule,
         anchorDate    = anchor.atStartOfDay(zone).toInstant().toEpochMilli(),
         dayOfMonth    = day,
+        createdAt     = bornOn.atStartOfDay(zone).toInstant().toEpochMilli(),
     )
+
+    // ── Отсечка по дате появления ───────────────────────────────────────────────
+
+    @Test
+    fun `an obligation has no dates before it existed`() {
+        // Подтвердив подписку сегодня, человек не просил следить за прошлым месяцем. Без отсечки
+        // старые периоды всплывали как «ПРОСРОЧЕНО» — долг, которого нет.
+        val p = payment(LocalDate.of(2026, 1, 15), bornOn = LocalDate.of(2026, 3, 10))
+        val dates = PaymentDates.occurrencesIn(p, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 4, 30), zone)
+        assertEquals(listOf(LocalDate.of(2026, 3, 15), LocalDate.of(2026, 4, 15)), dates)
+    }
 
     // ── Та самая ловушка ────────────────────────────────────────────────────────
 

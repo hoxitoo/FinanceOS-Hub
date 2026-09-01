@@ -132,8 +132,19 @@ fun CalendarScreen(
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {
                     Text("Календарь", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
-                    TextButton(onClick = onBack) {
-                        Text("← Назад", style = FosType.Label, color = FosColors.TextSecondary)
+                    // Выход должен читаться как кнопка, а не как подпись: приглушённый текст в углу
+                    // теряется, и с экрана, открытого одной плиткой, становится некуда деться.
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                            .background(FosColors.Surface2)
+                            .clickable(onClick = onBack)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("←", style = FosType.BodySemi, color = FosColors.TextPrimary)
+                        Text("Главная", style = FosType.Label, color = FosColors.TextPrimary)
                     }
                 }
             }
