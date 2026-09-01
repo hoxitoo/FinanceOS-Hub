@@ -20,55 +20,45 @@ object TransferPatterns {
     // "бесплатными переводАМИ" must not register as "Перевод" (that false-positive booked a phantom
     // 163 000 ₽ transfer from a T-Bank credit-card offer). `\s` after a stem already provides the
     // boundary; the lookahead covers the bare-noun and trailing-inflection cases.
-    private val OUTGOING = Regex(
-        """(?:Перевод(?![А-Яа-яёЁ])|Перевели(?![А-Яа-яёЁ])|Перечислен|Отправлен\s+перевод|Списание[^.]*перевод|Забросил[аи]?\s+деньги|(?<![А-Яа-яёЁ])СБП(?![А-Яа-яёЁ]))""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val OUTGOING = ciRegex(
+        """(?:Перевод(?![А-Яа-яёЁ])|Перевели(?![А-Яа-яёЁ])|Перечислен|Отправлен\s+перевод|Списание[^.]*перевод|Забросил[аи]?\s+деньги|(?<![А-Яа-яёЁ])СБП(?![А-Яа-яёЁ]))""")
 
     // Keywords that signal an INCOMING transfer (money arriving on this account).
-    private val INCOMING = Regex(
-        """(?:Зачисление\s+перевода|Поступление[^.]*перевод|Перевод\s+от|Входящий\s+перевод|Вам\s+перевод)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val INCOMING = ciRegex(
+        """(?:Зачисление\s+перевода|Поступление[^.]*перевод|Перевод\s+от|Входящий\s+перевод|Вам\s+перевод)""")
 
     // Destination card / account last-4: "на карту *1234", "на счёт •• 1234", "на карту 1234",
     // and the card-network-prefixed form "на счёт 4*3583" (a leading network digit before the
     // masking glyph). The optional `(?:\d\s*)?` consumes that prefix digit; regex backtracking
     // still lets a bare "на счёт 1234" capture all four digits.
-    private val DEST_MASK = Regex(
-        """на\s+(?:карту|счёт|счет|карте|счёте|счете)\s*(?:\d\s*)?[*•·]{0,2}\s*(\d{4})""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val DEST_MASK = ciRegex(
+        """на\s+(?:карту|счёт|счет|карте|счёте|счете)\s*(?:\d\s*)?[*•·]{0,2}\s*(\d{4})""")
 
     // Amount somewhere in the body, with optional currency suffix.
     // Explicitly enumerate horizontal-whitespace separators (space, tab, NBSP U+00A0, narrow NBSP
     // U+202F) instead of using \s, which matches \n and would let the digit span bleed across
     // line boundaries in multiline push bodies → toDoubleOrNull returning null → transfer dropped.
     // Allow 1 or 2 decimal places — some Alfa pushes emit "-468,7 ₽" (one digit).
-    private val AMOUNT = Regex(
-        "([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)[ \\t]*(?:RUB|₽|руб|р)",
-        RegexOption.IGNORE_CASE,
-    )
+    private val AMOUNT = ciRegex(
+        "([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)[ \\t]*(?:RUB|₽|руб|р)")
 
     // Source card mask in common Russian push/SMS formats:
     //   "со счёта 4*1139" / "с карты *1139" (transfer source — listed FIRST so it wins as the
     //   leftmost match over a trailing destination mask), VISA/MIR + 4 digits (Sberbank),
     //   Карта *NNNN or Карта NNNN (Tbank/Alfa SMS), ••NNNN / *NNNN at end of line (Alfa push).
-    private val SOURCE_CARD = Regex(
+    private val SOURCE_CARD = ciRegex(
         "(?:со?\\s+(?:счёта|счета|карты|карте)\\s*(?:\\d\\s*)?[*•·]{0,2}\\s*(\\d{4})" +
             "|(?:VISA|MIR|МИР|MC|MASTERCARD)\\s*(\\d{4})" +
             "|Карта\\s+[*•·]{0,2}\\s*(\\d{4})" +
             "|[*•·]{1,2}\\s*(\\d{4})\\s*$)",
-        setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+        RegexOption.MULTILINE,
     )
 
     // Post-operation balance: "Остаток: 16 000 ₽", "Доступно: 5000,00 RUB", "Баланс: 1 234р",
     // "В запасе: 8 001,89 ₽" (Sberbank push format).
     // Same horizontal-whitespace-only restriction as AMOUNT to prevent cross-line capture.
-    private val BALANCE = Regex(
-        "(?:Остаток|Доступно|Баланс|В\\s+запасе):?[ \\t]*([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)",
-        RegexOption.IGNORE_CASE,
-    )
+    private val BALANCE = ciRegex(
+        "(?:Остаток|Доступно|Баланс|В\\s+запасе):?[ \\t]*([\\d][\\d \\t\\u00A0\\u202F]*(?:[.,]\\d{1,2})?)")
 
     data class Result(
         val amountKopecks: Long,

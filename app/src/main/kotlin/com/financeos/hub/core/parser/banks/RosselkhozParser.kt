@@ -5,6 +5,7 @@ import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import com.financeos.hub.core.parser.TransferPatterns
+import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
 
 class RosselkhozParser @Inject constructor() : BankParser {
@@ -12,22 +13,16 @@ class RosselkhozParser @Inject constructor() : BankParser {
     override val senderPatterns = listOf(Regex("RSHB|РСХБ|ROSSELKHOZ|РОССЕЛЬХОЗ"))
 
     // "RSHB: Покупка 1 500.00 руб по карте *1234. МАГАЗИН. Баланс: 5 000.00 руб."
-    private val expense1 = Regex(
-        """(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)[.\s]+(?:по\s+)?(?:карт[еу]\s+)?\*(\d{4})[.\s]+(.+?)[.\s]+(?:Баланс|Остаток|Доступно)[:.\s]+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val expense1 = ciRegex(
+        """(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)[.\s]+(?:по\s+)?(?:карт[еу]\s+)?\*(\d{4})[.\s]+(.+?)[.\s]+(?:Баланс|Остаток|Доступно)[:.\s]+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)""")
 
     // "РСХБ: Покупка на 1 500,00 р. Карта *1234. Магазин МАГАЗИН. Баланс 5 000,00 р."
-    private val expense2 = Regex(
-        """(?:Покупка|Оплата).*?(?:на\s+)?([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)[.\s]+Карта\s+\*(\d{4})[.\s]+(?:Магазин|Торговец)?\s*(.+?)[.\s]+(?:Баланс|Остаток|Доступно)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val expense2 = ciRegex(
+        """(?:Покупка|Оплата).*?(?:на\s+)?([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)[.\s]+Карта\s+\*(\d{4})[.\s]+(?:Магазин|Торговец)?\s*(.+?)[.\s]+(?:Баланс|Остаток|Доступно)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р)""")
 
     // "RSHB: Зачисление 10 000.00 руб на счет *1234"
-    private val income = Regex(
-        """(?:Зачисление|Пополнение|Поступление)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р).*?\*(\d{4})""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val income = ciRegex(
+        """(?:Зачисление|Пополнение|Поступление)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:руб|RUB|₽|р).*?\*(\d{4})""")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"

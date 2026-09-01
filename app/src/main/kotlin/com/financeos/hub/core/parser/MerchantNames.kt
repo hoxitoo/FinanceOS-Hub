@@ -114,10 +114,8 @@ object MerchantNames {
      * умолчанию складывает регистр ТОЛЬКО у латиницы, поэтому на «НА 550,00 РУБ» флаг бы не помог,
      * а «RUB» он приводит к общему виду корректно — его и оставляем на латинские коды валют.
      */
-    private val AMOUNT_TAIL = Regex(
-        """\s+[нН][аА]\s+[\d\s.,]+\s*(RUB|USD|EUR|KGS|[рР][уУ][бБ]\.?)\s*$""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val AMOUNT_TAIL = ciRegex(
+        """\s+[нН][аА]\s+[\d\s.,]+\s*(RUB|USD|EUR|KGS|[рР][уУ][бБ]\.?)\s*$""")
 
     private val SEPARATORS = Regex("""[\s,;:*#/\\_+()\[\]«»"']+""")
     private val DIGIT_RUN  = Regex("""\d{3,}""")

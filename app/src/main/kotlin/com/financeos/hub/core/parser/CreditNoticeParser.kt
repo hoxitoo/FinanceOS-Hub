@@ -38,22 +38,18 @@ object CreditNoticeParser {
     )
 
     /** Only messages that are clearly about a credit card — never a loan or a regular account. */
-    private val CREDIT_CONTEXT = Regex(
-        "кредитн[а-яё]*\\s+карт[а-яё]*",
-        RegexOption.IGNORE_CASE,
-    )
+    private val CREDIT_CONTEXT = ciRegex(
+        "кредитн[а-яё]*\\s+карт[а-яё]*")
 
     /**
      * «Внесите платёж 373,98р до 31.08.26», also «внести 1 200 ₽ до 05.09.2026».
      * The amount allows the bare «р» suffix Сбер uses here, not just «₽».
      */
-    private val PAYMENT = Regex(
+    private val PAYMENT = ciRegex(
         "внес(?:ите|ти)\\s+(?:платёж|платеж|)\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*(?:₽|руб[а-яё]*|р)(?![а-яё])" +
-            "[^\\d]{0,40}?до\\s+(\\d{2}\\.\\d{2}\\.(?:\\d{4}|\\d{2}))",
-        RegexOption.IGNORE_CASE,
-    )
+            "[^\\d]{0,40}?до\\s+(\\d{2}\\.\\d{2}\\.(?:\\d{4}|\\d{2}))")
 
-    private val SENDERS = Regex("SBERBANK|900|СБЕРБАНК", RegexOption.IGNORE_CASE)
+    private val SENDERS = ciRegex("SBERBANK|900|СБЕРБАНК")
 
     fun parse(sender: String, body: String, zone: ZoneId = ZoneId.systemDefault()): CreditNotice? {
         if (!SENDERS.containsMatchIn(sender)) return null
