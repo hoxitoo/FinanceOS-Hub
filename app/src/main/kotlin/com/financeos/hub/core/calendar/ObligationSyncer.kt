@@ -55,9 +55,10 @@ class ObligationSyncer @Inject constructor(
             }.collectLatest { (planned, txList) ->
                 val today = LocalDate.now()
                 val since = System.currentTimeMillis() - MATCH_WINDOW_MS
-                // Занятыми считаются операции ЛЮБОГО обязательства, включая отключённые: иначе
-                // выключенная строка отпускала бы свою операцию, и та закрывала бы чужой период.
-                val taken = plannedRepo.getAll().mapNotNullTo(HashSet()) { it.lastMatchedTxId }
+                // Занятыми считаются операции только ЖИВЫХ обязательств. Держать их за удалёнными
+                // значило бы, что подтверждённая заново подписка не может закрыться той самой
+                // операцией, которой закрывалась раньше: удалённая строка стерегла бы её вечно.
+                val taken = planned.mapNotNullTo(HashSet()) { it.lastMatchedTxId }
 
                 val matches = ObligationMatcher.match(
                     payments     = planned,
