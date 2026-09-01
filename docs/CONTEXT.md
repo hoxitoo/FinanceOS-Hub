@@ -207,6 +207,22 @@ The classifier does **not** learn from manual category edits. Correcting a trans
 changes only that row; to teach the app a new merchant, add a merchant rule (the ML model
 would need offline retraining + a new `.tflite`).
 
+## Регистр и границы слов в паттернах
+
+На JVM это два независимых подвоха, и оба ASCII-only:
+
+| Приём | Что делает | Кириллица |
+|---|---|---|
+| `RegexOption.IGNORE_CASE` | `Pattern.CASE_INSENSITIVE` | **не сворачивает** |
+| `ciRegex()` (`(?u)` + IGNORE_CASE) | + `UNICODE_CASE` | сворачивает |
+| `\b`, `\w` | границы/слово по ASCII | **не работают** |
+| `(?![А-Яа-яёЁ])`, `(?<![\p{L}\p{N}])` | явные lookaround'ы | работают |
+| SQLite `LIKE` | регистронезависим по ASCII | **не сворачивает** — писать оба регистра |
+
+Проверено на JDK 21: `"Покупка"` с `CASE_INSENSITIVE` не совпадает с `"ПОКУПКА"`, тогда как
+`"Purchase"` с `"PURCHASE"` совпадает. Для приложения, читающего русские СМС, это молчаливая потеря
+операции — парсер возвращает `null`, ошибки нет, платежа в истории нет.
+
 ## Ingestion pipeline (SMS · push · PDF · manual)
 
 Each `BankParser` declares `senderPatterns: List<Regex>`.

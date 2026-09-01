@@ -15,7 +15,7 @@ package com.financeos.hub.core.parser
  */
 object PromoFilter {
 
-    private val MARKERS = Regex(
+    private val MARKERS = ciRegex(
         listOf(
             "одобрил[аи]\\s+(?:кредитк|карт|кредит|заявк)",
             "одобрен[аоы]?\\s+(?:кредитк|карт|кредит)",
@@ -36,9 +36,7 @@ object PromoFilter {
             "подключите\\b",
             "успейте\\b",
             "вклад\\w*\\s+под\\s+\\d",
-        ).joinToString("|"),
-        RegexOption.IGNORE_CASE,
-    )
+        ).joinToString("|"))
 
     fun isPromo(body: String): Boolean = MARKERS.containsMatchIn(body)
 }

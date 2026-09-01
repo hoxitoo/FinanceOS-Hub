@@ -2,6 +2,7 @@ package com.financeos.hub.core.pdf
 
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.AmountParser
+import com.financeos.hub.core.parser.ciRegex
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -44,10 +45,8 @@ object PdfTransactionParser {
 
     // Posting amount — account column. COMMA decimal + currency suffix uniquely identifies it,
     // separating it from inner dot-decimal "на сумму: 40.00 RUR" values.
-    private val ACCOUNT_AMOUNT_RE = Regex(
-        """([−\-]?)\s*(\d{1,3}(?:[\s  ]\d{3})*,\d{2})\s*(?:₽|RUB|RUR|руб\.?)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val ACCOUNT_AMOUNT_RE = ciRegex(
+        """([−\-]?)\s*(\d{1,3}(?:[\s  ]\d{3})*,\d{2})\s*(?:₽|RUB|RUR|руб\.?)""")
 
     // Fallback 1: any comma-decimal amount, currency suffix optional.
     private val ANY_COMMA_AMOUNT_RE = Regex(
@@ -55,10 +54,8 @@ object PdfTransactionParser {
     )
 
     // Fallback 2 (dot-decimal banks): rightmost dot amount WITH a currency suffix.
-    private val DOT_AMOUNT_SUFFIX_RE = Regex(
-        """([−\-]?)\s*(\d{1,3}(?:[\s  ]\d{3})*\.\d{2})\s*(?:₽|RUB|RUR|руб\.?)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val DOT_AMOUNT_SUFFIX_RE = ciRegex(
+        """([−\-]?)\s*(\d{1,3}(?:[\s  ]\d{3})*\.\d{2})\s*(?:₽|RUB|RUR|руб\.?)""")
 
     // Unique per-transaction operation code → ideal dedup key.
     private val OP_CODE_RE = Regex(
@@ -67,12 +64,12 @@ object PdfTransactionParser {
     )
 
     // Card rows carry the human-readable merchant after this marker.
-    private val PLACE_RE      = Regex("""место совершения операции:\s*(.+)$""", RegexOption.IGNORE_CASE)
+    private val PLACE_RE      = ciRegex("""место совершения операции:\s*(.+)$""")
     private val MCC_RE        = Regex("""\s*MCC\s*\d+\s*""", RegexOption.IGNORE_CASE)
     private val LOC_PREFIX_RE = Regex("""^\d+i[A-Za-z]+?i""")                       // "38830849iRUPermi"
-    private val CARD_OP_RE    = Regex("""Операция по карте:\s*[\d+]+,?""", RegexOption.IGNORE_CASE)
-    private val INNER_SUM_RE  = Regex("""на сумму:\s*[\d\s.,]+(?:₽|RUB|RUR|руб\.?)?,?""", RegexOption.IGNORE_CASE)
-    private val INNER_DATE_RE = Regex("""дата совершения операции:\s*[\d.]+,?""", RegexOption.IGNORE_CASE)
+    private val CARD_OP_RE    = ciRegex("""Операция по карте:\s*[\d+]+,?""")
+    private val INNER_SUM_RE  = ciRegex("""на сумму:\s*[\d\s.,]+(?:₽|RUB|RUR|руб\.?)?,?""")
+    private val INNER_DATE_RE = ciRegex("""дата совершения операции:\s*[\d.]+,?""")
     private val LONG_REF_RE   = Regex("""\b[CBD]\d{12,}\b""")
     private val MULTISPACE_RE = Regex("""\s{2,}""")
 

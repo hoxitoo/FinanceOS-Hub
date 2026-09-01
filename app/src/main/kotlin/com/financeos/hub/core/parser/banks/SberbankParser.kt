@@ -5,6 +5,7 @@ import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import com.financeos.hub.core.parser.TransferPatterns
+import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
 
 class SberbankParser @Inject constructor() : BankParser {
@@ -15,18 +16,14 @@ class SberbankParser @Inject constructor() : BankParser {
     // "Счёт карты MIR-1238 21:07 Покупка 100р SPORTLOTEREI_SP Баланс: 15 351.89р"
     // [-\s]* handles both "MIR-1238" (dash) and "MIR1234" (no separator) forms.
     // (?:[\d.]+\s+)? makes the date prefix optional (some SMS omit DD.MM.YY, show only HH:MM).
-    private val expenseRu = Regex(
-        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Оплата|Покупка|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+(?:Баланс|Остаток):\s*([\d\s]+(?:[.,]\d{2})?)\s*р""",
-        RegexOption.IGNORE_CASE
-    )
+    private val expenseRu = ciRegex(
+        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Оплата|Покупка|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+(?:Баланс|Остаток):\s*([\d\s]+(?:[.,]\d{2})?)\s*р""")
 
     // "VISA1234 18.06.25 12:34 Зачисление 10 000р"
     // NOTE: "Перевод" intentionally excluded — a transfer SMS is frequently OUTGOING and
     // would be misclassified as income (sign inversion), corrupting analytics.
-    private val incomeRu = Regex(
-        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Зачисление|Пополнение)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
-        RegexOption.IGNORE_CASE
-    )
+    private val incomeRu = ciRegex(
+        """(?:VISA|MASTERCARD|МИР|MIR)[-\s]*(\d{4})\s+(?:[\d.]+\s+)?[\d:]+\s+(?:Зачисление|Пополнение)\s+([\d\s]+(?:[.,]\d{2})?)\s*р""")
 
     // English-locale Sberbank notifications
     private val expenseEn = Regex(
@@ -45,25 +42,19 @@ class SberbankParser @Inject constructor() : BankParser {
     // What the number MEANS still depends on the account, not on the label: on a credit card
     // «Баланс» is the free limit, not money owned. That translation lives in AccountLinker, which
     // knows the account kind — the parser only reports what the bank printed.
-    private val pushBalRe  = Regex(
-        "(?:В\\s+запасе|Баланс|Остаток|Доступно):\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽",
-        RegexOption.IGNORE_CASE,
-    )
+    private val pushBalRe  = ciRegex(
+        "(?:В\\s+запасе|Баланс|Остаток|Доступно):\\s*([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽")
 
     // Leading operation word in a push title ("Покупка DNS" → "DNS"). Left in place the merchant
     // would be "Покупка DNS", which no merchant rule matches and which reads as the operation type
     // rather than the shop.
-    private val pushOpPrefix = Regex(
-        "^(?:Покупка|Оплата|Списание|Зачисление|Пополнение|Перевод|Платёж|Платеж)(?![А-Яа-яёЁ])[\\s:—–-]*",
-        RegexOption.IGNORE_CASE,
-    )
+    private val pushOpPrefix = ciRegex(
+        "^(?:Покупка|Оплата|Списание|Зачисление|Пополнение|Перевод|Платёж|Платеж)(?![А-Яа-яёЁ])[\\s:—–-]*")
     private val pushAmtRe  = Regex("([\\d][\\d \\u00A0\\u202F]*(?:[.,]\\d{1,2})?)\\s*₽")
     // "Карта •1234", "СЧЁТ • 4102", or bare "•1234"
-    private val pushCardRe = Regex(
-        "(?:Карта|СЧЁТ|СЧЕТ)\\s*[*•·]{1,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})(?!\\d)",
-        RegexOption.IGNORE_CASE,
-    )
-    private val pushIncomeKw = Regex("(?:Зачисление|Пополнение)", RegexOption.IGNORE_CASE)
+    private val pushCardRe = ciRegex(
+        "(?:Карта|СЧЁТ|СЧЕТ)\\s*[*•·]{1,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})(?!\\d)")
+    private val pushIncomeKw = ciRegex("(?:Зачисление|Пополнение)")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"

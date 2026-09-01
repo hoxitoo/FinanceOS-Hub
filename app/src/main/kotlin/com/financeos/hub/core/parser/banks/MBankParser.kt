@@ -5,6 +5,7 @@ import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import com.financeos.hub.core.parser.TransferPatterns
+import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
 
 /**
@@ -29,8 +30,8 @@ class MBankParser @Inject constructor() : BankParser {
     // Currency suffix shared by amount + balance (ISO codes and Russian/symbol forms).
     private val cur = "USD|KGS|EUR|RUB|сом|руб|₽|€"
 
-    private val expenseKw = Regex("Покупка|Оплата|Списание|Снятие", RegexOption.IGNORE_CASE)
-    private val incomeKw  = Regex("Пополнение|Зачисление|Поступление|Возврат", RegexOption.IGNORE_CASE)
+    private val expenseKw = ciRegex("Покупка|Оплата|Списание|Снятие")
+    private val incomeKw  = ciRegex("Пополнение|Зачисление|Поступление|Возврат")
 
     // Digit-grouping (regular/NBSP/narrow-NBSP spaces) plus at most ONE decimal group, so a
     // stray second separator (e.g. a "." thousands separator) can't poison toDoubleOrNull → 0.
@@ -38,8 +39,8 @@ class MBankParser @Inject constructor() : BankParser {
     // Group 2 captures the currency token so it can be carried onto the transaction (else a USD/сом
     // charge is stored fine on the account but the operation row renders ₽ — the reported bug).
     private val amountToken = Regex("($number)\\s*($cur)", RegexOption.IGNORE_CASE)
-    private val balanceRe   = Regex("Доступно:?\\s*($number)\\s*(?:$cur)", RegexOption.IGNORE_CASE)
-    private val cardRe      = Regex("Карта:?\\s*\\*?\\s*(\\d{4})", RegexOption.IGNORE_CASE)
+    private val balanceRe   = ciRegex("Доступно:?\\s*($number)\\s*(?:$cur)")
+    private val cardRe      = ciRegex("Карта:?\\s*\\*?\\s*(\\d{4})")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"

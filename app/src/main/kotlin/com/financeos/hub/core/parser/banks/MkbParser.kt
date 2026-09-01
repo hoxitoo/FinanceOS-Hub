@@ -5,6 +5,7 @@ import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import com.financeos.hub.core.parser.TransferPatterns
+import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
 
 /**
@@ -22,20 +23,14 @@ class MkbParser @Inject constructor() : BankParser {
     override val bankId = "mkb"
     override val senderPatterns = listOf(Regex("MKB|МКБ|MKBMOBILE|MKREDIT"))
 
-    private val expense = Regex(
-        """Карта\s+\*(\d{4})\s+(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р""",
-        RegexOption.IGNORE_CASE
-    )
+    private val expense = ciRegex(
+        """Карта\s+\*(\d{4})\s+(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*р\s+(.+?)\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р""")
 
-    private val income = Regex(
-        """Карта\s+\*(\d{4})\s+(?:Пополнение|Зачисление)\s+([\d\s]+(?:[.,]\d{2})?)\s*р(?:\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р)?""",
-        RegexOption.IGNORE_CASE
-    )
+    private val income = ciRegex(
+        """Карта\s+\*(\d{4})\s+(?:Пополнение|Зачисление)\s+([\d\s]+(?:[.,]\d{2})?)\s*р(?:\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р)?""")
 
-    private val atm = Regex(
-        """Карта\s+\*(\d{4})\s+Снятие\s+([\d\s]+(?:[.,]\d{2})?)\s*р(?:\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р)?""",
-        RegexOption.IGNORE_CASE
-    )
+    private val atm = ciRegex(
+        """Карта\s+\*(\d{4})\s+Снятие\s+([\d\s]+(?:[.,]\d{2})?)\s*р(?:\s+Остаток\s+([\d\s]+(?:[.,]\d{2})?)\s*р)?""")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
