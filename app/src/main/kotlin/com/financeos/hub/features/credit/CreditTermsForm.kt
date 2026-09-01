@@ -81,6 +81,24 @@ class CreditTermsState(account: AccountEntity?) {
     val dueDaysValue          : Int? get() = dueDays.toIntOrNull()?.takeIf { it in 1..90 }
     val cashFeeBpValue        : Int? get() = FosFormatter.parseAmountInput(cashFeePct)?.toInt()
     val cashFeeFixedKopecks   : Long? get() = FosFormatter.parseAmountInput(cashFeeFixed)
+
+    /**
+     * Отличается ли форма от того, что сейчас записано у карты.
+     *
+     * Живёт здесь, а не в листе: полей десять, и разъехавшийся список «что сравнивать» дал бы
+     * молчаливую дыру — поле, правку которого лист не считает изменением и теряет без вопроса.
+     */
+    fun differsFrom(account: AccountEntity?): Boolean =
+        limit            != account?.creditLimitKopecks.toAmountText() ||
+        apr              != account?.aprBp.toPercentText() ||
+        penaltyApr       != account?.penaltyAprBp.toPercentText() ||
+        minPaymentPct    != account?.minPaymentBp.toPercentText() ||
+        minPaymentFloor  != account?.minPaymentFloorKopecks.toAmountText() ||
+        interestFreeDays != account?.interestFreeDays?.toString().orEmpty() ||
+        statementDay     != account?.statementDay?.toString().orEmpty() ||
+        dueDays          != account?.dueDays?.toString().orEmpty() ||
+        cashFeePct       != account?.cashFeeBp.toPercentText() ||
+        cashFeeFixed     != account?.cashFeeFixedKopecks.toAmountText()
 }
 
 private fun Long?.toAmountText(): String = this?.let { FosFormatter.amountInput(it) } ?: ""

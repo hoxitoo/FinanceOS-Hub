@@ -22,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,9 +73,7 @@ fun CreditCardsScreen(
 ) {
     val state by vm.state.collectAsState()
     var editing by remember { mutableStateOf<AccountEntity?>(null) }
-    val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var repaying by remember { mutableStateOf<String?>(null) }
-    val repaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
         modifier            = Modifier
@@ -162,7 +159,6 @@ fun CreditCardsScreen(
             RepaySheet(
                 card       = card,
                 payFrom    = state.payFrom,
-                sheetState = repaySheetState,
                 onDismiss  = { repaying = null },
                 onConfirm  = { sourceId, amount -> vm.repay(card.account.id, sourceId, amount) },
             )
@@ -172,7 +168,6 @@ fun CreditCardsScreen(
     editing?.let { account ->
         CreditTermsSheet(
             account    = account,
-            sheetState = editSheetState,
             onDismiss  = { editing = null },
             onSave     = { debt, terms -> vm.saveCard(account, debt, terms) },
         )

@@ -26,7 +26,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -91,7 +90,6 @@ fun CalendarScreen(
     var editing     by remember { mutableStateOf<PlannedPaymentEntity?>(null) }
     var reserveOpen by remember { mutableStateOf(false) }
     var sheetOpen  by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Режим по умолчанию — полоса: экран чаще всего открывают с вопросом «что дальше», и ответ на
     // него полоса даёт сразу, а сетка заставляет искать сегодняшнюю клетку среди тридцати.
@@ -296,7 +294,6 @@ fun CalendarScreen(
 
     if (sheetOpen) {
         AddPlannedPaymentSheet(
-            sheetState = sheetState,
             accounts   = state.accounts,
             existing   = editing,
             onDismiss  = { sheetOpen = false; editing = null },

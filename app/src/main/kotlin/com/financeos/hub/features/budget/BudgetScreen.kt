@@ -21,7 +21,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,7 +51,6 @@ fun BudgetScreen(
 ) {
     val state        by vm.state.collectAsState()
     var showAddSheet  by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         containerColor = FosColors.Background,
@@ -128,7 +126,6 @@ fun BudgetScreen(
 
     if (showAddSheet) {
         AddBudgetSheet(
-            sheetState = addSheetState,
             categories = state.categories,
             onDismiss  = { showAddSheet = false },
             onSave     = { catId, limitKopecks, period ->

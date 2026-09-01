@@ -18,6 +18,8 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Repayment** | «Погасить» books a **TRANSFER** off one of your accounts, never an expense (the purchases were already counted). Two rows, one per account, so deleting either undoes its own side. Money arriving on a credit card is classified as repayment, not income |
 | **Interest estimate** | «Переплата сейчас» — an exact **zero** inside the interest-free period, an estimate once the deadline passes. «Если платить только минимум» simulates the real cost of carrying a balance. Both are labelled estimates; both are hidden without a rate |
 | **Multi-currency** | RUB / USD / EUR / KGS (сом) per account **and per transaction**; hero shows each currency on its own line |
+| **Защита ввода** | Смахнуть заполненную форму вниз больше нельзя молча: приложение спросит, выйти ли без сохранения. Пустая или не тронутая форма закрывается сразу — вопрос на каждое закрытие приучал бы отвечать «да» не глядя. Работает во всех формах: операция, цель, категория, бюджет, счёт, условия кредитки, погашение, обязательство |
+| **Выбор счёта** | Двухшаговый: карточка банка → её счета с маской и остатком. Один и тот же выбор в ручной операции и в обязательстве |
 | **Manual entry** | Add (bank→account picker, income presets, Расход/Доход/**Перевод**), edit, delete; transfers credit the destination account too |
 | **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
 | **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
