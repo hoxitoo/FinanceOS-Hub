@@ -91,12 +91,10 @@ fun DashboardScreen(
     val shimmer = LocalShimmer.current
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
-    val addAccountSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedBank         by remember { mutableStateOf<String?>(null) }
     val bankSheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTx           by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
     var showForecastInfo     by remember { mutableStateOf(false) }
-    val txSheetState         = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LazyColumn(
         modifier = Modifier
@@ -248,7 +246,6 @@ fun DashboardScreen(
 
     if (showAddAccountSheet) {
         AddAccountSheet(
-            sheetState = addAccountSheetState,
             onDismiss  = { showAddAccountSheet = false },
             onSave     = { draft -> vm.createAccount(draft) },
         )
@@ -282,7 +279,6 @@ fun DashboardScreen(
             categories        = state.categoryEntities,
             categoryName      = state.categoryName(tx.categoryId),
             linkedAccountName = state.accounts.firstOrNull { it.id == tx.accountId }?.name,
-            sheetState        = txSheetState,
             onDismiss         = { selectedTx = null },
             onSave            = { type, merchant, catId, note ->
                 vm.updateTransaction(tx, type, merchant, catId, note)
