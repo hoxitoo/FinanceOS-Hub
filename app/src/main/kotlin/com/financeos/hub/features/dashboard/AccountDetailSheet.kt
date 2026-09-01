@@ -29,7 +29,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -189,9 +188,7 @@ fun AccountDetailSheet(
 
     // Add account sheet for this bank
     if (showAddAccount) {
-        val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         AddAccountSheet(
-            sheetState  = addSheetState,
             initialBank = bank,
             onDismiss   = { showAddAccount = false },
             onSave      = { draft ->

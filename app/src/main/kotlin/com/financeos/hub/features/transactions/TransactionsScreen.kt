@@ -66,11 +66,9 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
     }
     val context    = LocalContext.current
     var showAddSheet  by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedTx   by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
     var showPdfSheet by remember { mutableStateOf(false) }
-    val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pdfSheetState    = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
@@ -270,7 +268,6 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
 
         if (showAddSheet) {
             AddTransactionSheet(
-                sheetState = addSheetState,
                 categories = state.categories,
                 accounts   = state.accounts,
                 cards      = state.cards,
@@ -287,7 +284,6 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
                 categories   = state.categories,
                 categoryName = state.categoryName(tx.categoryId),
                 linkedAccountName = state.accounts.firstOrNull { it.id == tx.accountId }?.name,
-                sheetState   = detailSheetState,
                 onDismiss    = { selectedTx = null },
                 onSave       = { type, merchant, catId, note ->
                     vm.updateTransaction(tx, type, merchant, catId, note)

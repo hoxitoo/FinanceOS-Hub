@@ -8,18 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +29,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.features.dashboard.accountSheetFieldColors
+import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -55,7 +51,6 @@ import com.financeos.hub.ui.theme.FosType
 fun RepaySheet(
     card       : CreditCardState,
     payFrom    : List<AccountEntity>,
-    sheetState : SheetState,
     onDismiss  : () -> Unit,
     onConfirm  : (sourceAccountId: String, amountKopecks: Long) -> Unit,
 ) {
@@ -73,100 +68,93 @@ fun RepaySheet(
     // record a payment the user really made would leave the numbers wrong on purpose.
     val overdraws = source != null && amount > source.balanceKopecks
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = FosColors.Surface,
-        contentColor     = FosColors.TextPrimary,
+    // Сумма и счёт подставлены за человека, поэтому изменением считается именно отличие от
+    // подставленного: закрывать вопросом лист, который открыли и сразу передумали, незачем.
+    val prefilled = if (suggested > 0L) FosFormatter.amountInput(suggested) else ""
+    val dirty = { amountText != prefilled || sourceId != payFrom.firstOrNull()?.id }
+
+    FosFormSheet(
+        onDismiss  = onDismiss,
+        hasChanges = dirty,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = FosDimens.ScreenPadding)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
-        ) {
-            Text("Погашение", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
-            Text(
-                "${card.account.name} · долг ${FosFormatter.amount(card.debt)}",
-                style = FosType.Micro,
-                color = FosColors.TextMuted,
-            )
+        Text("Погашение", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+        Text(
+            "${card.account.name} · долг ${FosFormatter.amount(card.debt)}",
+            style = FosType.Micro,
+            color = FosColors.TextMuted,
+        )
 
-            OutlinedTextField(
-                value                = amountText,
-                onValueChange        = { amountText = FosFormatter.sanitizeAmountInput(it, allowNegative = false) },
-                visualTransformation = AmountVisualTransformation,
-                label                = {
-                    Text("Сумма, ${FosFormatter.currencySymbol(card.account.currency)}", style = FosType.Label)
-                },
-                supportingText       = {
-                    Text(
-                        card.duePayment?.let { "Банк просит ${FosFormatter.amount(it.amountKopecks)}" }
-                            ?: "Подставлен весь текущий долг",
-                        style = FosType.Micro,
-                        color = FosColors.TextMuted,
-                    )
-                },
-                singleLine           = true,
-                keyboardOptions      = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-                colors               = accountSheetFieldColors(),
-                modifier             = Modifier.fillMaxWidth(),
-            )
-
-            Text("Откуда", style = FosType.SectionCap, color = FosColors.TextMuted)
-            if (payFrom.isEmpty()) {
+        OutlinedTextField(
+            value                = amountText,
+            onValueChange        = { amountText = FosFormatter.sanitizeAmountInput(it, allowNegative = false) },
+            visualTransformation = AmountVisualTransformation,
+            label                = {
+                Text("Сумма, ${FosFormatter.currencySymbol(card.account.currency)}", style = FosType.Label)
+            },
+            supportingText       = {
                 Text(
-                    "Нет счёта, с которого можно списать. Добавьте обычный счёт на главной.",
-                    style = FosType.Body,
+                    card.duePayment?.let { "Банк просит ${FosFormatter.amount(it.amountKopecks)}" }
+                        ?: "Подставлен весь текущий долг",
+                    style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )
-            } else {
-                payFrom.forEach { account ->
-                    SourceRow(
-                        account  = account,
-                        selected = account.id == sourceId,
-                        onClick  = { sourceId = account.id },
-                    )
-                }
-            }
+            },
+            singleLine           = true,
+            keyboardOptions      = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            colors               = accountSheetFieldColors(),
+            modifier             = Modifier.fillMaxWidth(),
+        )
 
-            if (overdraws) {
-                Text(
-                    "На счёте меньше этой суммы — платёж всё равно запишется, баланс уйдёт в минус.",
-                    style = FosType.Micro,
-                    color = FosColors.Warning,
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            Button(
-                onClick  = {
-                    val id = sourceId ?: return@Button
-                    onConfirm(id, amount)
-                    onDismiss()
-                },
-                enabled  = canPay,
-                modifier = Modifier.fillMaxWidth(),
-                shape    = RoundedCornerShape(FosDimens.RadiusCard),
-                colors   = ButtonDefaults.buttonColors(
-                    containerColor = FosColors.Positive,
-                    contentColor   = FosColors.Background,
-                ),
-            ) {
-                Text("Записать погашение", style = FosType.BodySemi)
-            }
-
+        Text("Откуда", style = FosType.SectionCap, color = FosColors.TextMuted)
+        if (payFrom.isEmpty()) {
             Text(
-                "Приложение не переводит деньги — оно записывает платёж, который вы делаете " +
-                    "в банке, чтобы цифры сходились.",
-                style = FosType.Micro,
+                "Нет счёта, с которого можно списать. Добавьте обычный счёт на главной.",
+                style = FosType.Body,
                 color = FosColors.TextMuted,
             )
+        } else {
+            payFrom.forEach { account ->
+                SourceRow(
+                    account  = account,
+                    selected = account.id == sourceId,
+                    onClick  = { sourceId = account.id },
+                )
+            }
         }
+
+        if (overdraws) {
+            Text(
+                "На счёте меньше этой суммы — платёж всё равно запишется, баланс уйдёт в минус.",
+                style = FosType.Micro,
+                color = FosColors.Warning,
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Button(
+            onClick  = {
+                val id = sourceId ?: return@Button
+                onConfirm(id, amount)
+                onDismiss()
+            },
+            enabled  = canPay,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(FosDimens.RadiusCard),
+            colors   = ButtonDefaults.buttonColors(
+                containerColor = FosColors.Positive,
+                contentColor   = FosColors.Background,
+            ),
+        ) {
+            Text("Записать погашение", style = FosType.BodySemi)
+        }
+
+        Text(
+            "Приложение не переводит деньги — оно записывает платёж, который вы делаете " +
+                "в банке, чтобы цифры сходились.",
+            style = FosType.Micro,
+            color = FosColors.TextMuted,
+        )
     }
 }
 

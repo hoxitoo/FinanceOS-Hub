@@ -59,7 +59,6 @@ fun GoalsScreen(
 ) {
     val state       by vm.state.collectAsState()
     var showAddSheet by remember { mutableStateOf(false) }
-    val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var contributeTarget by remember { mutableStateOf<GoalEntity?>(null) }
     var contributeText   by remember { mutableStateOf("") }
@@ -67,10 +66,8 @@ fun GoalsScreen(
     var withdrawMode     by remember { mutableStateOf(false) }
 
     var editTarget    by remember { mutableStateOf<GoalEntity?>(null) }
-    val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var linkTarget    by remember { mutableStateOf<GoalEntity?>(null) }
-    val linkSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var historyTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val historySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -159,7 +156,6 @@ fun GoalsScreen(
 
     if (showAddSheet) {
         AddGoalSheet(
-            sheetState = addSheetState,
             accounts   = state.accounts,
             onDismiss  = { showAddSheet = false },
             onSave     = { name, emoji, targetKopecks, deadline, linkedAccountId ->
@@ -171,7 +167,6 @@ fun GoalsScreen(
     // Edit existing goal
     editTarget?.let { goal ->
         AddGoalSheet(
-            sheetState = editSheetState,
             existing   = goal,
             accounts   = state.accounts,
             onDismiss  = { editTarget = null },
@@ -306,7 +301,6 @@ fun GoalsScreen(
     linkTarget?.let { goal ->
         LinkTransferRouteSheet(
             goal           = goal,
-            sheetState     = linkSheetState,
             routes         = state.routes,
             cardMasks      = state.cardMasks,
             accounts       = state.accounts,

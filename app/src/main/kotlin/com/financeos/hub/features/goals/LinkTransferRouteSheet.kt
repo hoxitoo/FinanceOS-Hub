@@ -11,19 +11,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +35,7 @@ import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.core.database.entities.TransferMatchType
 import com.financeos.hub.core.database.entities.TransferRouteEntity
+import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosType
@@ -53,7 +49,6 @@ import com.financeos.hub.ui.theme.FosType
 @Composable
 fun LinkTransferRouteSheet(
     goal          : GoalEntity,
-    sheetState    : SheetState,
     routes        : List<TransferRouteEntity>,
     cardMasks     : List<String>,
     accounts      : List<AccountEntity> = emptyList(),
@@ -67,214 +62,200 @@ fun LinkTransferRouteSheet(
     var cardInput  by remember { mutableStateOf("") }
     val goalRoutes = routes.filter { it.goalId == goal.id }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = FosColors.Surface,
-        contentColor     = FosColors.TextPrimary,
+    val dirty = { keyword.isNotBlank() || cardInput.isNotBlank() }
+
+    FosFormSheet(
+        onDismiss  = onDismiss,
+        hasChanges = dirty,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Sheet content can exceed the screen; without verticalScroll everything
-                // below the fold — including «Сохранить» — is unreachable. imePadding is
-                // required because the app is edge-to-edge, so adjustResize does not shrink
-                // the window and the keyboard would cover the focused field.
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = FosDimens.ScreenPadding)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
-        ) {
-            Text(
-                "Авто-пополнение цели «${goal.name}»",
-                style = FosType.ScreenTitle,
-                color = FosColors.TextPrimary,
-            )
-            Text(
-                "Переводы на привязанный счёт добавляют к цели; переводы с него — вычитают.",
-                style = FosType.Body,
-                color = FosColors.TextSecondary,
-            )
+        Text(
+            "Авто-пополнение цели «${goal.name}»",
+            style = FosType.ScreenTitle,
+            color = FosColors.TextPrimary,
+        )
+        Text(
+            "Переводы на привязанный счёт добавляют к цели; переводы с него — вычитают.",
+            style = FosType.Body,
+            color = FosColors.TextSecondary,
+        )
 
-            // Bank accounts — bidirectional routing
-            if (accounts.isNotEmpty()) {
-                Text("СЧЁТ В БАНКЕ", style = FosType.SectionCap, color = FosColors.TextMuted)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement   = Arrangement.spacedBy(8.dp),
-                ) {
-                    accounts.forEach { acc ->
-                        val linked = goalRoutes.any {
-                            it.matchType == TransferMatchType.ACCOUNT && it.matchValue == acc.id
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                                .background(
-                                    if (linked) FosColors.Positive.copy(alpha = 0.12f) else FosColors.Surface2
-                                )
-                                .border(
-                                    1.dp,
-                                    if (linked) FosColors.Positive else FosColors.BorderStrong,
-                                    RoundedCornerShape(FosDimens.RadiusButton),
-                                )
-                                .clickable(enabled = !linked) { onLinkAccount(acc.id) }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            Column {
-                                Text(
-                                    acc.name,
-                                    style = FosType.Label,
-                                    color = if (linked) FosColors.Positive else FosColors.TextPrimary,
-                                )
-                                if (acc.cardMask != null) {
-                                    Text(
-                                        "•• ${acc.cardMask}",
-                                        style = FosType.Micro,
-                                        color = if (linked) FosColors.Positive.copy(alpha = 0.7f) else FosColors.TextMuted,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Card last-4 — outgoing transfers; chips from known accounts + free-text entry
-            Text("КАРТА НАЗНАЧЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
-            if (cardMasks.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement   = Arrangement.spacedBy(8.dp),
-                ) {
-                    cardMasks.forEach { mask ->
-                        val linked = goalRoutes.any {
-                            it.matchType == TransferMatchType.CARD && it.matchValue.equals(mask, ignoreCase = true)
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                                .background(
-                                    if (linked) FosColors.Info.copy(alpha = 0.15f) else FosColors.Surface2
-                                )
-                                .border(
-                                    1.dp,
-                                    if (linked) FosColors.Info else FosColors.BorderStrong,
-                                    RoundedCornerShape(FosDimens.RadiusButton),
-                                )
-                                .clickable(enabled = !linked) { onLinkCard(mask) }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                "•• $mask",
-                                style = FosType.Label,
-                                color = if (linked) FosColors.Info else FosColors.TextPrimary,
-                            )
-                        }
-                    }
-                }
-            }
-            // Manual entry — type 4 digits when the card isn't in the account list
-            Row(
-                verticalAlignment     = Alignment.CenterVertically,
+        // Bank accounts — bidirectional routing
+        if (accounts.isNotEmpty()) {
+            Text("СЧЁТ В БАНКЕ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement   = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
-                    value         = cardInput,
-                    onValueChange = { cardInput = it.filter { c -> c.isDigit() }.take(4) },
-                    label         = { Text("Последние 4 цифры", style = FosType.Label) },
-                    singleLine    = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction    = ImeAction.Done,
-                    ),
-                    colors   = sheetFieldColors(),
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        if (cardInput.length == 4) {
-                            onLinkCard(cardInput)
-                            cardInput = ""
-                        }
-                    },
-                    enabled = cardInput.length == 4,
-                    shape   = RoundedCornerShape(FosDimens.RadiusButton),
-                    colors  = ButtonDefaults.buttonColors(
-                        containerColor = FosColors.Info,
-                        contentColor   = FosColors.Background,
-                    ),
-                ) {
-                    Text("Добавить", style = FosType.Label)
-                }
-            }
-
-            // Keyword
-            Text("СЛОВО В СМС", style = FosType.SectionCap, color = FosColors.TextMuted)
-            Row(
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value           = keyword,
-                    onValueChange   = { keyword = it },
-                    label           = { Text("например: вклад", style = FosType.Label) },
-                    singleLine      = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    colors          = sheetFieldColors(),
-                    modifier        = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        if (keyword.isNotBlank()) {
-                            onLinkKeyword(keyword)
-                            keyword = ""
-                        }
-                    },
-                    enabled = keyword.isNotBlank(),
-                    shape   = RoundedCornerShape(FosDimens.RadiusButton),
-                    colors  = ButtonDefaults.buttonColors(
-                        containerColor = FosColors.Positive,
-                        contentColor   = FosColors.Background,
-                    ),
-                ) {
-                    Text("Добавить", style = FosType.Label)
-                }
-            }
-
-            // Existing routes
-            if (goalRoutes.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text("ПРИВЯЗКИ", style = FosType.SectionCap, color = FosColors.TextMuted)
-                goalRoutes.forEach { route ->
+                accounts.forEach { acc ->
+                    val linked = goalRoutes.any {
+                        it.matchType == TransferMatchType.ACCOUNT && it.matchValue == acc.id
+                    }
                     Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .fillMaxWidth()
                             .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                            .background(FosColors.Surface2)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically,
+                            .background(
+                                if (linked) FosColors.Positive.copy(alpha = 0.12f) else FosColors.Surface2
+                            )
+                            .border(
+                                1.dp,
+                                if (linked) FosColors.Positive else FosColors.BorderStrong,
+                                RoundedCornerShape(FosDimens.RadiusButton),
+                            )
+                            .clickable(enabled = !linked) { onLinkAccount(acc.id) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        val label = when (route.matchType) {
-                            TransferMatchType.CARD    -> "карта •• ${route.matchValue}"
-                            TransferMatchType.KEYWORD -> "слово «${route.matchValue}»"
-                            TransferMatchType.ACCOUNT -> {
-                                val acc = accounts.find { it.id == route.matchValue }
-                                "счёт ${acc?.name ?: route.matchValue}"
+                        Column {
+                            Text(
+                                acc.name,
+                                style = FosType.Label,
+                                color = if (linked) FosColors.Positive else FosColors.TextPrimary,
+                            )
+                            if (acc.cardMask != null) {
+                                Text(
+                                    "•• ${acc.cardMask}",
+                                    style = FosType.Micro,
+                                    color = if (linked) FosColors.Positive.copy(alpha = 0.7f) else FosColors.TextMuted,
+                                )
                             }
                         }
-                        Text(label, style = FosType.Body, color = FosColors.TextPrimary)
+                    }
+                }
+            }
+        }
+
+        // Card last-4 — outgoing transfers; chips from known accounts + free-text entry
+        Text("КАРТА НАЗНАЧЕНИЯ", style = FosType.SectionCap, color = FosColors.TextMuted)
+        if (cardMasks.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement   = Arrangement.spacedBy(8.dp),
+            ) {
+                cardMasks.forEach { mask ->
+                    val linked = goalRoutes.any {
+                        it.matchType == TransferMatchType.CARD && it.matchValue.equals(mask, ignoreCase = true)
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                            .background(
+                                if (linked) FosColors.Info.copy(alpha = 0.15f) else FosColors.Surface2
+                            )
+                            .border(
+                                1.dp,
+                                if (linked) FosColors.Info else FosColors.BorderStrong,
+                                RoundedCornerShape(FosDimens.RadiusButton),
+                            )
+                            .clickable(enabled = !linked) { onLinkCard(mask) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
                         Text(
-                            "× Отвязать",
-                            style    = FosType.Label,
-                            color    = FosColors.Negative,
-                            modifier = Modifier.clickable { onUnlink(route.id) },
+                            "•• $mask",
+                            style = FosType.Label,
+                            color = if (linked) FosColors.Info else FosColors.TextPrimary,
                         )
                     }
+                }
+            }
+        }
+        // Manual entry — type 4 digits when the card isn't in the account list
+        Row(
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value         = cardInput,
+                onValueChange = { cardInput = it.filter { c -> c.isDigit() }.take(4) },
+                label         = { Text("Последние 4 цифры", style = FosType.Label) },
+                singleLine    = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction    = ImeAction.Done,
+                ),
+                colors   = sheetFieldColors(),
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = {
+                    if (cardInput.length == 4) {
+                        onLinkCard(cardInput)
+                        cardInput = ""
+                    }
+                },
+                enabled = cardInput.length == 4,
+                shape   = RoundedCornerShape(FosDimens.RadiusButton),
+                colors  = ButtonDefaults.buttonColors(
+                    containerColor = FosColors.Info,
+                    contentColor   = FosColors.Background,
+                ),
+            ) {
+                Text("Добавить", style = FosType.Label)
+            }
+        }
+
+        // Keyword
+        Text("СЛОВО В СМС", style = FosType.SectionCap, color = FosColors.TextMuted)
+        Row(
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value           = keyword,
+                onValueChange   = { keyword = it },
+                label           = { Text("например: вклад", style = FosType.Label) },
+                singleLine      = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                colors          = sheetFieldColors(),
+                modifier        = Modifier.weight(1f),
+            )
+            Button(
+                onClick = {
+                    if (keyword.isNotBlank()) {
+                        onLinkKeyword(keyword)
+                        keyword = ""
+                    }
+                },
+                enabled = keyword.isNotBlank(),
+                shape   = RoundedCornerShape(FosDimens.RadiusButton),
+                colors  = ButtonDefaults.buttonColors(
+                    containerColor = FosColors.Positive,
+                    contentColor   = FosColors.Background,
+                ),
+            ) {
+                Text("Добавить", style = FosType.Label)
+            }
+        }
+
+        // Existing routes
+        if (goalRoutes.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text("ПРИВЯЗКИ", style = FosType.SectionCap, color = FosColors.TextMuted)
+            goalRoutes.forEach { route ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                        .background(FosColors.Surface2)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    val label = when (route.matchType) {
+                        TransferMatchType.CARD    -> "карта •• ${route.matchValue}"
+                        TransferMatchType.KEYWORD -> "слово «${route.matchValue}»"
+                        TransferMatchType.ACCOUNT -> {
+                            val acc = accounts.find { it.id == route.matchValue }
+                            "счёт ${acc?.name ?: route.matchValue}"
+                        }
+                    }
+                    Text(label, style = FosType.Body, color = FosColors.TextPrimary)
+                    Text(
+                        "× Отвязать",
+                        style    = FosType.Label,
+                        color    = FosColors.Negative,
+                        modifier = Modifier.clickable { onUnlink(route.id) },
+                    )
                 }
             }
         }

@@ -10,23 +10,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -55,7 +51,6 @@ fun TransactionDetailSheet(
     categories  : List<CategoryEntity>,
     categoryName: String,
     linkedAccountName: String? = null,
-    sheetState  : SheetState,
     onDismiss   : () -> Unit,
     onSave      : (type: TransactionType, merchant: String, categoryId: String?, note: String?) -> Unit,
 ) {
@@ -82,172 +77,165 @@ fun TransactionDetailSheet(
         TransactionType.EXPENSE  -> FosFormatter.signedAmount(-mag, sym)
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = FosColors.Surface,
-        contentColor     = FosColors.TextPrimary,
+    // Правка: изменением считается отличие от самой операции, а не любой ввод — карточку часто
+    // открывают просто посмотреть, и вопрос на выходе из неё был бы шумом.
+    val dirty = {
+        merchant != (transaction.merchant ?: "") ||
+            note != (transaction.description ?: "") ||
+            categoryId != transaction.categoryId ||
+            selectedType != transaction.type
+    }
+
+    FosFormSheet(
+        onDismiss  = onDismiss,
+        hasChanges = dirty,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Sheet content can exceed the screen; without verticalScroll everything
-                // below the fold — including «Сохранить» — is unreachable. imePadding is
-                // required because the app is edge-to-edge, so adjustResize does not shrink
-                // the window and the keyboard would cover the focused field.
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = FosDimens.ScreenPadding)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
+        // Amount header
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
         ) {
-            // Amount header
-            Row(
-                modifier              = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(
-                        text  = amtText,
-                        style = FosType.HeroAmount,
-                        color = amtColor,
-                    )
-                    Text(
-                        text  = FosFormatter.dayLabelYear(transaction.timestamp),
-                        style = FosType.Micro,
-                        color = FosColors.TextMuted,
-                    )
-                }
-                when (transaction.source) {
-                    com.financeos.hub.core.database.entities.TransactionSource.MANUAL ->
-                        Text("вручную", style = FosType.Micro, color = FosColors.TextMuted)
-                    com.financeos.hub.core.database.entities.TransactionSource.PUSH ->
-                        Text("push", style = FosType.Micro, color = FosColors.Info)
-                    com.financeos.hub.core.database.entities.TransactionSource.PDF ->
-                        Text("PDF", style = FosType.Micro, color = FosColors.TextMuted)
-                    else ->
-                        Text("SMS", style = FosType.Micro, color = FosColors.Info)
-                }
-            }
-
-            // Merchant field
-            OutlinedTextField(
-                value           = merchant,
-                onValueChange   = { merchant = it },
-                label           = { Text("Получатель / магазин", style = FosType.Label) },
-                singleLine      = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                colors          = addSheetTextFieldColors(),
-                modifier        = Modifier.fillMaxWidth(),
-            )
-
-            // Account requisites — which account the money left / arrived at, parsed from the
-            // bank SMS/push. Only meaningful for ingested transactions; manual entries skip it.
-            val src = transaction.source
-            if (src == com.financeos.hub.core.database.entities.TransactionSource.SMS ||
-                src == com.financeos.hub.core.database.entities.TransactionSource.PUSH
-            ) {
-                AccountMaskRow("Счёт списания", transaction.sourceMask)
-                AccountMaskRow("Счёт зачисления", transaction.counterpartyMask)
-                // Diagnostics: did the parsed card mask resolve to one of your accounts, and did the
-                // bank message carry a balance? These pinpoint whether a stuck balance is a linking
-                // problem (mask present but "не привязан") or a capture problem ("остаток не пойман").
-                DiagRow(
-                    "Привязан к счёту",
-                    when {
-                        transaction.accountId == null -> "НЕТ"
-                        linkedAccountName != null     -> linkedAccountName
-                        else                          -> "да"
-                    },
-                    ok = transaction.accountId != null,
-                )
-                DiagRow(
-                    "Остаток в сообщении",
-                    transaction.balanceKopecks
-                        ?.let { FosFormatter.amount(it, FosFormatter.currencySymbol(transaction.currency)) }
-                        ?: "не пойман",
-                    ok = transaction.balanceKopecks != null,
-                )
-            }
-
-            // Type selector — lets the user reclassify, e.g. an outgoing «перевод другу» that the
-            // app booked as a neutral TRANSFER but is really a расход (money left for good).
-            Text("Тип операции", style = FosType.SectionCap, color = FosColors.TextMuted)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TypeChip("Расход",  selectedType == TransactionType.EXPENSE,  FosColors.Negative,  Modifier.weight(1f)) { selectedType = TransactionType.EXPENSE }
-                TypeChip("Доход",   selectedType == TransactionType.INCOME,   FosColors.Positive,  Modifier.weight(1f)) { selectedType = TransactionType.INCOME }
-                TypeChip("Перевод", selectedType == TransactionType.TRANSFER, FosColors.TextPrimary, Modifier.weight(1f)) { selectedType = TransactionType.TRANSFER }
-            }
-
-            // Note field
-            OutlinedTextField(
-                value           = note,
-                onValueChange   = { note = it },
-                label           = { Text("Заметка", style = FosType.Label) },
-                singleLine      = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                colors          = addSheetTextFieldColors(),
-                modifier        = Modifier.fillMaxWidth(),
-            )
-
-            // Category grid
-            Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
-            LazyVerticalGrid(
-                columns                  = GridCells.Fixed(4),
-                horizontalArrangement    = Arrangement.spacedBy(8.dp),
-                verticalArrangement      = Arrangement.spacedBy(8.dp),
-                modifier                 = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp),
-            ) {
-                items(categories) { cat ->
-                    val selected = categoryId == cat.id
-                    CategoryCell(
-                        cat      = cat,
-                        selected = selected,
-                        onClick  = { categoryId = if (selected) null else cat.id },
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            // Save
-            Button(
-                onClick  = {
-                    onSave(selectedType, merchant, categoryId, note.ifBlank { null })
-                    onDismiss()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape    = RoundedCornerShape(FosDimens.RadiusCard),
-                colors   = ButtonDefaults.buttonColors(
-                    containerColor = FosColors.Positive,
-                    contentColor   = FosColors.Background,
-                ),
-            ) {
-                Text("Сохранить", style = FosType.BodySemi)
-            }
-
-            // (Deletion is handled by swipe-left-to-reveal-trash on the row, so no delete button here.)
-
-            // Diagnostic: the exact SMS/push text the app captured. Lets a mis-parse (e.g. an Alfa
-            // push whose "Остаток"/card line wasn't delivered to the listener) be inspected/reported.
-            transaction.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
-                Spacer(Modifier.height(8.dp))
-                Text("Исходный текст", style = FosType.SectionCap, color = FosColors.TextMuted)
-                Spacer(Modifier.height(4.dp))
+            Column {
                 Text(
-                    text  = raw,
+                    text  = amtText,
+                    style = FosType.HeroAmount,
+                    color = amtColor,
+                )
+                Text(
+                    text  = FosFormatter.dayLabelYear(transaction.timestamp),
                     style = FosType.Micro,
-                    color = FosColors.TextSecondary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
-                        .background(FosColors.Surface2)
-                        .padding(10.dp),
+                    color = FosColors.TextMuted,
                 )
             }
+            when (transaction.source) {
+                com.financeos.hub.core.database.entities.TransactionSource.MANUAL ->
+                    Text("вручную", style = FosType.Micro, color = FosColors.TextMuted)
+                com.financeos.hub.core.database.entities.TransactionSource.PUSH ->
+                    Text("push", style = FosType.Micro, color = FosColors.Info)
+                com.financeos.hub.core.database.entities.TransactionSource.PDF ->
+                    Text("PDF", style = FosType.Micro, color = FosColors.TextMuted)
+                else ->
+                    Text("SMS", style = FosType.Micro, color = FosColors.Info)
+            }
+        }
+
+        // Merchant field
+        OutlinedTextField(
+            value           = merchant,
+            onValueChange   = { merchant = it },
+            label           = { Text("Получатель / магазин", style = FosType.Label) },
+            singleLine      = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            colors          = addSheetTextFieldColors(),
+            modifier        = Modifier.fillMaxWidth(),
+        )
+
+        // Account requisites — which account the money left / arrived at, parsed from the
+        // bank SMS/push. Only meaningful for ingested transactions; manual entries skip it.
+        val src = transaction.source
+        if (src == com.financeos.hub.core.database.entities.TransactionSource.SMS ||
+            src == com.financeos.hub.core.database.entities.TransactionSource.PUSH
+        ) {
+            AccountMaskRow("Счёт списания", transaction.sourceMask)
+            AccountMaskRow("Счёт зачисления", transaction.counterpartyMask)
+            // Diagnostics: did the parsed card mask resolve to one of your accounts, and did the
+            // bank message carry a balance? These pinpoint whether a stuck balance is a linking
+            // problem (mask present but "не привязан") or a capture problem ("остаток не пойман").
+            DiagRow(
+                "Привязан к счёту",
+                when {
+                    transaction.accountId == null -> "НЕТ"
+                    linkedAccountName != null     -> linkedAccountName
+                    else                          -> "да"
+                },
+                ok = transaction.accountId != null,
+            )
+            DiagRow(
+                "Остаток в сообщении",
+                transaction.balanceKopecks
+                    ?.let { FosFormatter.amount(it, FosFormatter.currencySymbol(transaction.currency)) }
+                    ?: "не пойман",
+                ok = transaction.balanceKopecks != null,
+            )
+        }
+
+        // Type selector — lets the user reclassify, e.g. an outgoing «перевод другу» that the
+        // app booked as a neutral TRANSFER but is really a расход (money left for good).
+        Text("Тип операции", style = FosType.SectionCap, color = FosColors.TextMuted)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TypeChip("Расход",  selectedType == TransactionType.EXPENSE,  FosColors.Negative,  Modifier.weight(1f)) { selectedType = TransactionType.EXPENSE }
+            TypeChip("Доход",   selectedType == TransactionType.INCOME,   FosColors.Positive,  Modifier.weight(1f)) { selectedType = TransactionType.INCOME }
+            TypeChip("Перевод", selectedType == TransactionType.TRANSFER, FosColors.TextPrimary, Modifier.weight(1f)) { selectedType = TransactionType.TRANSFER }
+        }
+
+        // Note field
+        OutlinedTextField(
+            value           = note,
+            onValueChange   = { note = it },
+            label           = { Text("Заметка", style = FosType.Label) },
+            singleLine      = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            colors          = addSheetTextFieldColors(),
+            modifier        = Modifier.fillMaxWidth(),
+        )
+
+        // Category grid
+        Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
+        LazyVerticalGrid(
+            columns                  = GridCells.Fixed(4),
+            horizontalArrangement    = Arrangement.spacedBy(8.dp),
+            verticalArrangement      = Arrangement.spacedBy(8.dp),
+            modifier                 = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+        ) {
+            items(categories) { cat ->
+                val selected = categoryId == cat.id
+                CategoryCell(
+                    cat      = cat,
+                    selected = selected,
+                    onClick  = { categoryId = if (selected) null else cat.id },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // Save
+        Button(
+            onClick  = {
+                onSave(selectedType, merchant, categoryId, note.ifBlank { null })
+                onDismiss()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(FosDimens.RadiusCard),
+            colors   = ButtonDefaults.buttonColors(
+                containerColor = FosColors.Positive,
+                contentColor   = FosColors.Background,
+            ),
+        ) {
+            Text("Сохранить", style = FosType.BodySemi)
+        }
+
+        // (Deletion is handled by swipe-left-to-reveal-trash on the row, so no delete button here.)
+
+        // Diagnostic: the exact SMS/push text the app captured. Lets a mis-parse (e.g. an Alfa
+        // push whose "Остаток"/card line wasn't delivered to the listener) be inspected/reported.
+        transaction.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
+            Spacer(Modifier.height(8.dp))
+            Text("Исходный текст", style = FosType.SectionCap, color = FosColors.TextMuted)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text  = raw,
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                    .background(FosColors.Surface2)
+                    .padding(10.dp),
+            )
         }
     }
 

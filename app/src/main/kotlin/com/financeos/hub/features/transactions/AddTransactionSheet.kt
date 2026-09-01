@@ -12,12 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
@@ -26,11 +23,9 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SelectableDates
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -52,6 +47,7 @@ import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.ui.theme.AmountVisualTransformation
 import com.financeos.hub.ui.components.AccountPicker
+import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.components.SourceOption
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -79,7 +75,6 @@ private val INCOME_SOURCES = listOf(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddTransactionSheet(
-    sheetState : SheetState,
     categories : List<CategoryEntity>,
     accounts   : List<AccountEntity>,
     cards      : List<CardEntity>,
@@ -121,233 +116,223 @@ fun AddTransactionSheet(
     val destOption      = sourceOptions.firstOrNull { it.key == destKey }
     val currencySymbol  = FosFormatter.currencySymbol(selectedAccount?.currency ?: "RUB")
 
-    ModalBottomSheet(
-        onDismissRequest  = onDismiss,
-        sheetState        = sheetState,
-        containerColor    = FosColors.Surface,
-        contentColor      = FosColors.TextPrimary,
+    // Форма считается заполненной, как только человек что-то ввёл или выбрал. Сумма и продавец —
+    // главное, но выбранный счёт и изменённая дата тоже стоят вопроса: восстанавливать их заново
+    // так же обидно.
+    val dirty = {
+        amountText.isNotBlank() || merchant.isNotBlank() || note.isNotBlank() ||
+            categoryId != null || sourceKey != null || destKey != null ||
+            selectedDate != LocalDate.now()
+    }
+
+    FosFormSheet(
+        onDismiss  = onDismiss,
+        hasChanges = dirty,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // The sheet content is taller than the screen (three type chips, amount, date,
-                // one or TWO vertical account pickers, two text fields, category chips, Save).
-                // Without verticalScroll everything below the fold is simply unreachable — the
-                // user could neither expand a bank nor press «Сохранить».
-                // imePadding is required because the app is edge-to-edge: with
-                // enableEdgeToEdge() the window is not resized by adjustResize, so the keyboard
-                // would otherwise cover the field being typed into.
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = FosDimens.ScreenPadding)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
-        ) {
-            Text("Добавить операцию", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+        Text("Добавить операцию", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
 
-            // Expense / Income / Transfer toggle. Transfer lets the user log a перевод that never
-            // arrived as a push (so it couldn't be parsed) — stored as an outgoing TRANSFER.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    TransactionType.EXPENSE  to "Расход",
-                    TransactionType.INCOME   to "Доход",
-                    TransactionType.TRANSFER to "Перевод",
-                ).forEach { (type, label) ->
-                        val selected = txType == type
-                        val selColor = when (type) {
-                            TransactionType.EXPENSE  -> FosColors.Negative
-                            TransactionType.INCOME   -> FosColors.Positive
-                            TransactionType.TRANSFER -> FosColors.Info
-                        }
-                        FilterChip(
-                            selected = selected,
-                            onClick  = { txType = type },
-                            label    = { Text(label, style = FosType.Label) },
-                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = selColor.copy(alpha = 0.15f),
-                                selectedLabelColor     = selColor,
-                                containerColor         = FosColors.Surface2,
-                                labelColor             = FosColors.TextSecondary,
-                            ),
-                        )
+        // Expense / Income / Transfer toggle. Transfer lets the user log a перевод that never
+        // arrived as a push (so it couldn't be parsed) — stored as an outgoing TRANSFER.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                TransactionType.EXPENSE  to "Расход",
+                TransactionType.INCOME   to "Доход",
+                TransactionType.TRANSFER to "Перевод",
+            ).forEach { (type, label) ->
+                    val selected = txType == type
+                    val selColor = when (type) {
+                        TransactionType.EXPENSE  -> FosColors.Negative
+                        TransactionType.INCOME   -> FosColors.Positive
+                        TransactionType.TRANSFER -> FosColors.Info
                     }
-            }
-
-            // Amount — currency symbol follows the selected account
-            OutlinedTextField(
-                // State stays raw; AmountVisualTransformation renders it grouped ("1 000").
-                value         = amountText,
-                onValueChange = { amountText = FosFormatter.sanitizeAmountInput(it) },
-                visualTransformation = AmountVisualTransformation,
-                label         = { Text("Сумма, $currencySymbol", style = FosType.Label) },
-                isError       = amountError,
-                singleLine    = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Decimal,
-                    imeAction    = ImeAction.Next,
-                ),
-                colors        = fosTextFieldColors(),
-                modifier      = Modifier.fillMaxWidth(),
-            )
-
-            // Date of the operation — for manual entries that were missed by SMS/push
-            Text("Дата операции", style = FosType.SectionCap, color = FosColors.TextMuted)
-            val selectedDateMillis = selectedDate
-                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            FilterChip(
-                selected = true,
-                onClick  = { showDatePicker = true },
-                label    = { Text("📅  ${FosFormatter.dayLabelYear(selectedDateMillis)}", style = FosType.Micro) },
-                shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                colors   = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
-                    selectedLabelColor     = FosColors.Info,
-                ),
-            )
-
-            // «Откуда» — pick the bank first, then its account. Scrolling one long chip strip to
-            // find a card was the slowest part of logging an operation by hand.
-            if (sourceOptions.isNotEmpty()) {
-                AccountPicker(
-                    title       = if (txType == TransactionType.INCOME) "Куда" else "Откуда",
-                    options     = sourceOptions,
-                    selectedKey = sourceKey,
-                    accent      = FosColors.Info,
-                    onSelect    = { sourceKey = it },
-                )
-            }
-
-            // «Куда» — destination of a TRANSFER. Choosing it credits that account so an internal
-            // перевод keeps net worth unchanged (source −сумма, destination +сумма).
-            if (txType == TransactionType.TRANSFER && sourceOptions.isNotEmpty()) {
-                AccountPicker(
-                    title       = "Куда",
-                    options     = sourceOptions,
-                    selectedKey = destKey,
-                    accent      = FosColors.Positive,
-                    onSelect    = { destKey = it },
-                )
-            }
-
-            // Merchant / payee
-            OutlinedTextField(
-                value         = merchant,
-                onValueChange = { merchant = it },
-                label         = {
-                    Text(
-                        if (txType == TransactionType.INCOME) "Отправитель / источник" else "Получатель / магазин",
-                        style = FosType.Label,
+                    FilterChip(
+                        selected = selected,
+                        onClick  = { txType = type },
+                        label    = { Text(label, style = FosType.Label) },
+                        shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = selColor.copy(alpha = 0.15f),
+                            selectedLabelColor     = selColor,
+                            containerColor         = FosColors.Surface2,
+                            labelColor             = FosColors.TextSecondary,
+                        ),
                     )
-                },
-                singleLine    = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                colors        = fosTextFieldColors(),
-                modifier      = Modifier.fillMaxWidth(),
-            )
-
-            // Note
-            OutlinedTextField(
-                value         = note,
-                onValueChange = { note = it },
-                label         = { Text("Заметка (необязательно)", style = FosType.Label) },
-                singleLine    = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                colors        = fosTextFieldColors(),
-                modifier      = Modifier.fillMaxWidth(),
-            )
-
-            // INCOME → source presets; EXPENSE → category chips
-            if (txType == TransactionType.INCOME) {
-                Text("Тип дохода", style = FosType.SectionCap, color = FosColors.TextMuted)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement   = Arrangement.spacedBy(6.dp),
-                    modifier              = Modifier.fillMaxWidth(),
-                ) {
-                    INCOME_SOURCES.forEach { (emoji, label) ->
-                        val selected = incomeSource == label
-                        FilterChip(
-                            selected = selected,
-                            onClick  = { incomeSource = if (selected) null else label },
-                            label    = { Text("$emoji $label", style = FosType.Micro) },
-                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FosColors.Positive.copy(alpha = 0.15f),
-                                selectedLabelColor     = FosColors.Positive,
-                                containerColor         = FosColors.Surface2,
-                                labelColor             = FosColors.TextSecondary,
-                            ),
-                        )
-                    }
                 }
-            } else if (txType == TransactionType.EXPENSE && categories.isNotEmpty()) {
-                Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
-                // Сетка с переносом, а не лента вбок. Категорий восемнадцать: в ленте видно четыре,
-                // остальные приходится листать вслепую, не зная ни сколько их, ни где нужная.
-                // Здесь они все на экране сразу, и выбор — одно касание вместо прокрутки.
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement   = Arrangement.spacedBy(6.dp),
-                    modifier              = Modifier.fillMaxWidth(),
-                ) {
-                    categories.forEach { cat ->
-                        val selected = categoryId == cat.id
-                        FilterChip(
-                            selected = selected,
-                            onClick  = { categoryId = if (selected) null else cat.id },
-                            label    = { Text("${cat.emoji} ${cat.name}", style = FosType.Micro) },
-                            shape    = RoundedCornerShape(FosDimens.RadiusChip),
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
-                                selectedLabelColor     = FosColors.Info,
-                                containerColor         = FosColors.Surface2,
-                                labelColor             = FosColors.TextSecondary,
-                            ),
-                        )
-                    }
-                }
-            }
+        }
 
-            Spacer(Modifier.height(4.dp))
+        // Amount — currency symbol follows the selected account
+        OutlinedTextField(
+            // State stays raw; AmountVisualTransformation renders it grouped ("1 000").
+            value         = amountText,
+            onValueChange = { amountText = FosFormatter.sanitizeAmountInput(it) },
+            visualTransformation = AmountVisualTransformation,
+            label         = { Text("Сумма, $currencySymbol", style = FosType.Label) },
+            isError       = amountError,
+            singleLine    = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Decimal,
+                imeAction    = ImeAction.Next,
+            ),
+            colors        = fosTextFieldColors(),
+            modifier      = Modifier.fillMaxWidth(),
+        )
 
-            // Save button
-            val kopecks = FosFormatter.parseAmountInput(amountText) ?: 0L
-            Button(
-                onClick  = {
-                    if (kopecks > 0) {
-                        // For income, fold the chosen source into the description (with the note if any).
-                        val finalNote = if (txType == TransactionType.INCOME) {
-                            listOfNotNull(incomeSource, note.ifBlank { null }).joinToString(" · ").ifBlank { null }
-                        } else {
-                            note.ifBlank { null }
-                        }
-                        // Today keeps the live clock; a back-dated day uses the current time-of-day
-                        // on that date so it sorts naturally within the day's group.
-                        val today = LocalDate.now()
-                        val timestamp = if (selectedDate == today) {
-                            System.currentTimeMillis()
-                        } else {
-                            selectedDate.atTime(LocalTime.now())
-                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                        }
-                        onSave(txType, kopecks, merchant, categoryId, finalNote,
-                            selectedOption?.accountId, selectedOption?.mask,
-                            if (txType == TransactionType.TRANSFER) destOption?.accountId else null,
-                            timestamp)
-                        onDismiss()
-                    }
-                },
-                enabled  = kopecks > 0 && !amountError,
-                modifier = Modifier.fillMaxWidth(),
-                shape    = RoundedCornerShape(FosDimens.RadiusCard),
-                colors   = ButtonDefaults.buttonColors(
-                    containerColor = FosColors.Positive,
-                    contentColor   = FosColors.Background,
-                ),
+        // Date of the operation — for manual entries that were missed by SMS/push
+        Text("Дата операции", style = FosType.SectionCap, color = FosColors.TextMuted)
+        val selectedDateMillis = selectedDate
+            .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        FilterChip(
+            selected = true,
+            onClick  = { showDatePicker = true },
+            label    = { Text("📅  ${FosFormatter.dayLabelYear(selectedDateMillis)}", style = FosType.Micro) },
+            shape    = RoundedCornerShape(FosDimens.RadiusChip),
+            colors   = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
+                selectedLabelColor     = FosColors.Info,
+            ),
+        )
+
+        // «Откуда» — pick the bank first, then its account. Scrolling one long chip strip to
+        // find a card was the slowest part of logging an operation by hand.
+        if (sourceOptions.isNotEmpty()) {
+            AccountPicker(
+                title       = if (txType == TransactionType.INCOME) "Куда" else "Откуда",
+                options     = sourceOptions,
+                selectedKey = sourceKey,
+                accent      = FosColors.Info,
+                onSelect    = { sourceKey = it },
+            )
+        }
+
+        // «Куда» — destination of a TRANSFER. Choosing it credits that account so an internal
+        // перевод keeps net worth unchanged (source −сумма, destination +сумма).
+        if (txType == TransactionType.TRANSFER && sourceOptions.isNotEmpty()) {
+            AccountPicker(
+                title       = "Куда",
+                options     = sourceOptions,
+                selectedKey = destKey,
+                accent      = FosColors.Positive,
+                onSelect    = { destKey = it },
+            )
+        }
+
+        // Merchant / payee
+        OutlinedTextField(
+            value         = merchant,
+            onValueChange = { merchant = it },
+            label         = {
+                Text(
+                    if (txType == TransactionType.INCOME) "Отправитель / источник" else "Получатель / магазин",
+                    style = FosType.Label,
+                )
+            },
+            singleLine    = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            colors        = fosTextFieldColors(),
+            modifier      = Modifier.fillMaxWidth(),
+        )
+
+        // Note
+        OutlinedTextField(
+            value         = note,
+            onValueChange = { note = it },
+            label         = { Text("Заметка (необязательно)", style = FosType.Label) },
+            singleLine    = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            colors        = fosTextFieldColors(),
+            modifier      = Modifier.fillMaxWidth(),
+        )
+
+        // INCOME → source presets; EXPENSE → category chips
+        if (txType == TransactionType.INCOME) {
+            Text("Тип дохода", style = FosType.SectionCap, color = FosColors.TextMuted)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement   = Arrangement.spacedBy(6.dp),
+                modifier              = Modifier.fillMaxWidth(),
             ) {
-                Text("Сохранить", style = FosType.BodySemi)
+                INCOME_SOURCES.forEach { (emoji, label) ->
+                    val selected = incomeSource == label
+                    FilterChip(
+                        selected = selected,
+                        onClick  = { incomeSource = if (selected) null else label },
+                        label    = { Text("$emoji $label", style = FosType.Micro) },
+                        shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FosColors.Positive.copy(alpha = 0.15f),
+                            selectedLabelColor     = FosColors.Positive,
+                            containerColor         = FosColors.Surface2,
+                            labelColor             = FosColors.TextSecondary,
+                        ),
+                    )
+                }
             }
+        } else if (txType == TransactionType.EXPENSE && categories.isNotEmpty()) {
+            Text("Категория", style = FosType.SectionCap, color = FosColors.TextMuted)
+            // Сетка с переносом, а не лента вбок. Категорий восемнадцать: в ленте видно четыре,
+            // остальные приходится листать вслепую, не зная ни сколько их, ни где нужная.
+            // Здесь они все на экране сразу, и выбор — одно касание вместо прокрутки.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement   = Arrangement.spacedBy(6.dp),
+                modifier              = Modifier.fillMaxWidth(),
+            ) {
+                categories.forEach { cat ->
+                    val selected = categoryId == cat.id
+                    FilterChip(
+                        selected = selected,
+                        onClick  = { categoryId = if (selected) null else cat.id },
+                        label    = { Text("${cat.emoji} ${cat.name}", style = FosType.Micro) },
+                        shape    = RoundedCornerShape(FosDimens.RadiusChip),
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = FosColors.Info.copy(alpha = 0.15f),
+                            selectedLabelColor     = FosColors.Info,
+                            containerColor         = FosColors.Surface2,
+                            labelColor             = FosColors.TextSecondary,
+                        ),
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // Save button
+        val kopecks = FosFormatter.parseAmountInput(amountText) ?: 0L
+        Button(
+            onClick  = {
+                if (kopecks > 0) {
+                    // For income, fold the chosen source into the description (with the note if any).
+                    val finalNote = if (txType == TransactionType.INCOME) {
+                        listOfNotNull(incomeSource, note.ifBlank { null }).joinToString(" · ").ifBlank { null }
+                    } else {
+                        note.ifBlank { null }
+                    }
+                    // Today keeps the live clock; a back-dated day uses the current time-of-day
+                    // on that date so it sorts naturally within the day's group.
+                    val today = LocalDate.now()
+                    val timestamp = if (selectedDate == today) {
+                        System.currentTimeMillis()
+                    } else {
+                        selectedDate.atTime(LocalTime.now())
+                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    }
+                    onSave(txType, kopecks, merchant, categoryId, finalNote,
+                        selectedOption?.accountId, selectedOption?.mask,
+                        if (txType == TransactionType.TRANSFER) destOption?.accountId else null,
+                        timestamp)
+                    onDismiss()
+                }
+            },
+            enabled  = kopecks > 0 && !amountError,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(FosDimens.RadiusCard),
+            colors   = ButtonDefaults.buttonColors(
+                containerColor = FosColors.Positive,
+                contentColor   = FosColors.Background,
+            ),
+        ) {
+            Text("Сохранить", style = FosType.BodySemi)
         }
     }
 

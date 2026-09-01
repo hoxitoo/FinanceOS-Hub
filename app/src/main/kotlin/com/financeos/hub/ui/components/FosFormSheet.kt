@@ -83,6 +83,10 @@ fun FosFormSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Формы выше экрана (чипы, суммы, выбор счёта, поля, кнопка). Без verticalScroll
+                // всё ниже сгиба просто недостижимо — нельзя ни раскрыть банк, ни нажать
+                // «Сохранить». imePadding обязателен из-за edge-to-edge: окно не ужимается под
+                // клавиатуру, и та накрыла бы поле, в которое печатают.
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = FosDimens.ScreenPadding)
