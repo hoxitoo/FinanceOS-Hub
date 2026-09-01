@@ -30,18 +30,27 @@ import com.financeos.hub.ui.theme.fosCardSurface
  * считающие одно и то же число разными путями, рано или поздно расходятся, и объяснить человеку,
  * какому из них верить, будет нечем.
  *
- * Решение «показывать ли плитку» принимает ВЫЗЫВАЮЩИЙ, а не она сама. Ранний `return` внутри
- * композиции не убирает `item {}` из списка — остаётся пустая ячейка, а `spacedBy` добавляет к ней
- * отступ, и на главной появляется необъяснимая дыра. Плитка не показывается, пока календарь пуст:
- * без обязательств «Свободно» вырождается в «остаток минус резерв», то есть в нетто-капитал
- * строчкой выше под другим именем.
+ * **Плитка — единственный вход в календарь, поэтому она видна ВСЕГДА.** Скрывая её «пока нечего
+ * показывать», мы делали функцию недостижимой: обязательство добавляется только на экране
+ * календаря, а попасть туда можно было только через плитку, которая появлялась после первого
+ * обязательства. Замкнутый круг, в котором календаря для человека просто не существует.
  *
+ * Поэтому у плитки два вида. С обязательствами — «Свободно» и разбор. Без них — приглашение: без
+ * обязательств «Свободно» вырождается в «остаток минус резерв», то есть повторяет нетто-капитал
+ * строчкой выше, и показывать его как число значило бы врать о новизне.
+ *
+ * Решение «показывать ли что-либо» всё равно принимает ВЫЗЫВАЮЩИЙ, снаружи `item {}`: ранний
+ * `return` внутри композиции оставляет в списке пустую ячейку, а `spacedBy` добавляет ей отступ.
  */
 @Composable
 fun FreeMoneyTile(
-    free   : FreeMoney.FreeMoneyBreakdown,
+    free   : FreeMoney.FreeMoneyBreakdown?,
     onClick: () -> Unit,
 ) {
+    if (free == null || free.obligationCount == 0) {
+        CalendarInviteTile(onClick)
+        return
+    }
     val tone   = if (free.freeKopecks >= 0) FosTone.Positive else FosTone.Negative
     val accent = tone.accent ?: FosColors.TextPrimary
 
@@ -85,6 +94,39 @@ fun FreeMoneyTile(
             "Учтено ${pluralPayments(free.obligationCount)} на ${FosFormatter.compact(free.obligationsKopecks)}",
             style = FosType.MicroNum,
             color = FosColors.TextMuted,
+        )
+    }
+}
+
+/**
+ * Вид плитки, когда обязательств ещё нет: вход и объяснение одной карточкой.
+ *
+ * `Outline` — стиль призыва к действию по правилам огранки. Числа здесь нет намеренно: пока в
+ * календаре пусто, любое число дублировало бы нетто-капитал строчкой выше.
+ */
+@Composable
+private fun CalendarInviteTile(onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fosCardSurface(FosCardStyle.Outline, FosTone.Info, FosDimens.RadiusCard)
+            .clickable { onClick() }
+            .padding(FosDimens.CardPadding),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Text("Календарь платежей", style = FosType.BodySemi, color = FosColors.TextPrimary)
+            Text("›", style = FosType.IconAction, color = FosColors.TextMuted)
+        }
+        Text(
+            "Добавьте аренду и подтвердите найденные подписки — и увидите «Свободно»: " +
+                "сколько можно потратить, ничего не сломав.",
+            style = FosType.Micro,
+            color = FosColors.TextSecondary,
         )
     }
 }
