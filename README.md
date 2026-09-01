@@ -63,7 +63,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 ## Screens
 
-1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (появляется, только когда в календаре есть обязательства), accounts with volumetric bank cards, clickable recent transactions
+1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (без обязательств — приглашение в календарь, с ними — само число), accounts with volumetric bank cards, clickable recent transactions
 2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, "↑ CSV" export, "↓ PDF" import
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
