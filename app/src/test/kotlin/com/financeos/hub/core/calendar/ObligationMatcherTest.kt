@@ -37,6 +37,9 @@ class ObligationMatcherTest {
         direction     = direction,
         anchorDate    = due.atStartOfDay(zone).toInstant().toEpochMilli(),
         accountId     = account,
+        // Обязательство существует с момента якоря: иначе сработала бы отсечка «нет дат до
+        // появления», и тесты проверяли бы её, а не правила сопоставления.
+        createdAt     = due.atStartOfDay(zone).toInstant().toEpochMilli(),
     )
 
     private fun tx(

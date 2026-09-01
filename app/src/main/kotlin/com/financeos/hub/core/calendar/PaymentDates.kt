@@ -32,11 +32,17 @@ object PaymentDates {
         to     : LocalDate,
         zone   : ZoneId = ZoneId.systemDefault(),
     ): List<LocalDate> {
-        if (to.isBefore(from)) return emptyList()
+        // Обязательство не описывает время ДО своего появления. Подтвердив сегодня подписку,
+        // человек не просил следить за июлем — а без этой отсечки июльские периоды всплывали как
+        // «ПРОСРОЧЕНО» (долг, которого нет) и тут же закрывались июльскими покупками, из-за чего
+        // «Отвязать» выглядело сломанным: снятая отметка мгновенно возвращалась на месяц раньше.
+        val bornOn = Instant.ofEpochMilli(payment.createdAt).atZone(zone).toLocalDate()
+        val start  = maxOf(from, bornOn)
+        if (to.isBefore(start)) return emptyList()
         val anchor = Instant.ofEpochMilli(payment.anchorDate).atZone(zone).toLocalDate()
 
         if (payment.schedule == PaymentSchedule.ONCE) {
-            return if (anchor in from..to) listOf(anchor) else emptyList()
+            return if (anchor in start..to) listOf(anchor) else emptyList()
         }
 
         val out = ArrayList<LocalDate>()
@@ -46,7 +52,7 @@ object PaymentDates {
         while (step <= MAX_STEPS) {
             val date = occurrence(payment, anchor, step)
             if (date.isAfter(to)) break
-            if (!date.isBefore(from)) out += date
+            if (!date.isBefore(start)) out += date
             step++
         }
         return out
