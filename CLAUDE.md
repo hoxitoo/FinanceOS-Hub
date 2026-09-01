@@ -215,6 +215,13 @@ byte-identical to the pre-v11 behaviour.
 - Every sender-matching parser is tried (`firstNotNullOfOrNull`), not just the first.
 - `AmountParser` is null-safe (a throw aborted the whole 90-day import) and handles NBSP.
 - Card-mask regexes require the masking glyph — a merchant ending in 4 digits was read as a card.
+- **Кириллический паттерн без учёта регистра создаётся ТОЛЬКО через `ciRegex()`.**
+  `RegexOption.IGNORE_CASE` = `Pattern.CASE_INSENSITIVE`, который сворачивает регистр только
+  US-ASCII: «Покупка» не совпадает с «ПОКУПКА» (проверено на JDK 21), и пуш с заголовком капсом
+  молча терялся — `null`, без ошибки и без лога. `UNICODE_CASE` в `RegexOption` нет, поэтому
+  `ciRegex` включает его встроенным `(?u)`. Голый `IGNORE_CASE` законен только для чисто
+  латинского паттерна. Та же ловушка у SQLite `LIKE` и у `\b`/`\w` (они ASCII-only — идиома
+  проекта: `(?![А-Яа-яёЁ])` / `(?<![\p{L}\p{N}])`).
 
 ---
 
