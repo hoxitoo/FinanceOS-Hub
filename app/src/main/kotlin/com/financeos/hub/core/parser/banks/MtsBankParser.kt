@@ -5,6 +5,7 @@ import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
 import com.financeos.hub.core.parser.TransferPatterns
+import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
 
 class MtsBankParser @Inject constructor() : BankParser {
@@ -13,16 +14,12 @@ class MtsBankParser @Inject constructor() : BankParser {
     override val senderPatterns = listOf(Regex("MTS.?BANK|МТС.?БАНК|MTSB"))
 
     // "Покупка 1500.00 RUB по карте *1234. Магазин МАГАЗИН. Баланс: 5000.00 RUB"
-    private val expense = Regex(
-        """(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб).*?\*(\d{4})[.\s]+(?:Магазин|Торговец)?\s*(.+?)[.\s]+(?:Баланс|Остаток|Доступно)[:.\s]+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб)""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val expense = ciRegex(
+        """(?:Покупка|Оплата|Списание)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб).*?\*(\d{4})[.\s]+(?:Магазин|Торговец)?\s*(.+?)[.\s]+(?:Баланс|Остаток|Доступно)[:.\s]+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб)""")
 
     // "Зачисление 10000.00 RUB на карту *1234"
-    private val income = Regex(
-        """(?:Зачисление|Пополнение|Поступление)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб).*?\*(\d{4})""",
-        RegexOption.IGNORE_CASE,
-    )
+    private val income = ciRegex(
+        """(?:Зачисление|Пополнение|Поступление)\s+([\d\s]+(?:[.,]\d{2})?)\s*(?:RUB|₽|руб).*?\*(\d{4})""")
 
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
