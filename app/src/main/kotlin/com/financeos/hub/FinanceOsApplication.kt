@@ -5,6 +5,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.financeos.hub.core.analytics.AnalyticsWorker
 import com.financeos.hub.core.calendar.ObligationSyncer
+import com.financeos.hub.core.notifications.ListenerHealth
+import com.financeos.hub.core.notifications.ListenerWatchdogWorker
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.core.update.UpdateCheckWorker
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -24,6 +26,12 @@ class FinanceOsApplication : Application(), Configuration.Provider {
         notificationHelper.createChannels()
         AnalyticsWorker.schedule(this)
         UpdateCheckWorker.schedule(this)
+        // Служба чтения банковских пушей отваливается молча — при обновлении APK, перезагрузке и
+        // от диспетчера питания. Компонент включаем на старте (выключенный система не привяжет
+        // никогда), а сторож раз в час просит привязку обратно.
+        ListenerHealth.ensureComponentEnabled(this)
+        ListenerHealth.healIfNeeded(this)
+        ListenerWatchdogWorker.schedule(this)
         // Сопоставление обязательств — работа приложения, а не открытого календаря: отметка нужна
         // плитке на главной и «Свободно» даже тогда, когда на календарь никто не заходил.
         obligationSyncer.start()
