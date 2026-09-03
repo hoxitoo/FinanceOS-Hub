@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.service.notification.NotificationListenerService
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.delay
 
 /**
  * Жива ли на самом деле служба чтения банковских уведомлений.
@@ -34,6 +35,14 @@ object ListenerHealth {
     private const val KEY_CONNECTED_AT    = "connected_at"
     private const val KEY_DISCONNECTED_AT = "disconnected_at"
     private const val KEY_LAST_PUSH_AT    = "last_push_at"
+    private const val KEY_LAST_FORCE_AT   = "last_force_at"
+
+    /** Сколько ждать после мягкой просьбы: система привязывает службу асинхронно. */
+    private const val SOFT_WAIT_MS = 1_200L
+    /** После перезапуска компонента системе нужно заметно больше времени. */
+    private const val HARD_WAIT_MS = 2_500L
+    /** Автоматический жёсткий перезапуск — не чаще раза в сутки. */
+    private const val AUTO_FORCE_COOLDOWN_MS = 24L * 60 * 60 * 1000
 
     /**
      * Привязана ли служба ПРЯМО СЕЙЧАС. Живёт в процессе, и это правильно: служба работает в том же
@@ -84,16 +93,8 @@ object ListenerHealth {
     // ── Починка ──────────────────────────────────────────────────────────────
 
     /**
-     * Просьба к системе снова привязать службу. Ровно то, что рекомендует документация Android
-     * после потери привязки, и единственный способ починки БЕЗ побочных эффектов: если служба уже
-     * привязана, вызов ничего не делает, если разрешения нет — тихо не срабатывает.
-     *
-     * Намеренно НЕ трогаем `setComponentEnabledSetting`: погасить и снова зажечь компонент —
-     * известный способ добиться перепривязки, но на части прошивок он выбивает приложение из списка
-     * доступа к уведомлениям, и тогда молчаливая поломка становится необратимой без участия
-     * пользователя. Менять восстановимую проблему на невосстановимую нельзя. Если `requestRebind`
-     * не помог, экран настроек предлагает открыть системный список — там переключатель чинит всё
-     * гарантированно, и делает это осознанно человек.
+     * Мягкая просьба к системе привязать службу обратно. Без побочных эффектов: если служба уже
+     * привязана, вызов ничего не делает; если разрешения нет — тихо не срабатывает.
      */
     fun requestRebind(context: Context) {
         runCatching { NotificationListenerService.requestRebind(component(context)) }
@@ -107,6 +108,94 @@ object ListenerHealth {
         if (!permissionGranted(context)) return
         if (connectedInProcess) return
         requestRebind(context)
+    }
+
+    // ── Жёсткое переподключение ──────────────────────────────────────────────
+
+    enum class RebindOutcome {
+        /** Служба поднялась — пуши снова читаются. */
+        RECONNECTED,
+        /** Разрешения нет: чинить нечего, нужен системный список. */
+        NO_PERMISSION,
+        /** Разрешение исчезло ПОСЛЕ перезапуска компонента — редкий, но известный исход. */
+        PERMISSION_LOST,
+        /** Ничего не помогло; остаётся системный переключатель. */
+        STILL_DOWN,
+    }
+
+    /**
+     * Две попытки подряд: сначала мягкая, потом перезапуск компонента.
+     *
+     * Раньше здесь стоял только [requestRebind], и в комментарии было написано, что
+     * `setComponentEnabledSetting` трогать нельзя — на части прошивок он выбивает приложение из
+     * списка доступа к уведомлениям. Осторожность оказалась дороже проблемы: на реальном устройстве
+     * (One UI) после обновления APK мягкая просьба не поднимает службу ВООБЩЕ, и «Переподключить»
+     * молча ничего не делало. Неработающая кнопка — тоже необратимая поломка, только каждый раз.
+     *
+     * Поэтому перезапуск компонента здесь есть, но обставлен так, что худший исход виден:
+     *  - он идёт ВТОРЫМ, только когда мягкая просьба не помогла;
+     *  - разрешение проверяется ПОСЛЕ и, если оно пропало, вызывающий об этом узнаёт
+     *    ([PERMISSION_LOST]) и говорит человеку, а не оставляет тихо сломанным.
+     *
+     * Паузы обязательны: система привязывает службу асинхронно и вызывает `onListenerConnected`
+     * позже. Без ожидания ответ «не помогло» был бы неправдой в большинстве случаев.
+     */
+    suspend fun forceRebind(context: Context): RebindOutcome {
+        if (!permissionGranted(context)) return RebindOutcome.NO_PERMISSION
+
+        ensureComponentEnabled(context)
+        requestRebind(context)
+        delay(SOFT_WAIT_MS)
+        if (connectedInProcess) return RebindOutcome.RECONNECTED
+
+        restartComponent(context)
+        requestRebind(context)
+        delay(HARD_WAIT_MS)
+
+        return when {
+            connectedInProcess            -> RebindOutcome.RECONNECTED
+            !permissionGranted(context)   -> RebindOutcome.PERMISSION_LOST
+            else                          -> RebindOutcome.STILL_DOWN
+        }
+    }
+
+    /**
+     * Погасить и сразу зажечь компонент службы — то, что система воспринимает как «появился новый
+     * слушатель» и привязывает заново.
+     *
+     * Включение идёт в `finally`: если между двумя вызовами что-то бросит, выключенный компонент
+     * остался бы выключенным навсегда, а выключенный компонент не привяжется никогда и никаким
+     * `requestRebind` этого не исправить.
+     */
+    private fun restartComponent(context: Context) {
+        val pm = context.applicationContext.packageManager
+        try {
+            runCatching {
+                pm.setComponentEnabledSetting(
+                    component(context),
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP,
+                )
+            }
+        } finally {
+            ensureComponentEnabled(context)
+        }
+    }
+
+    /**
+     * Автоматический жёсткий перезапуск — не чаще раза в сутки.
+     *
+     * Ограничение по частоте не про батарею, а про доверие: перезапуск компонента иногда сбрасывает
+     * разрешение, и повторять такое в цикле нельзя. Одной попытки после обновления приложения
+     * достаточно, дальше решает человек.
+     */
+    fun mayAutoForce(context: Context): Boolean {
+        val last = prefs(context).getLong(KEY_LAST_FORCE_AT, 0L)
+        return System.currentTimeMillis() - last > AUTO_FORCE_COOLDOWN_MS
+    }
+
+    fun markAutoForced(context: Context) {
+        prefs(context).edit().putLong(KEY_LAST_FORCE_AT, System.currentTimeMillis()).apply()
     }
 
     /**

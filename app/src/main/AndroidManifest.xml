@@ -59,6 +59,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Возврат привязки службы уведомлений после событий, которые её гарантированно рвут:
+             обновление APK (приложение раздаётся файлом и обновляется часто) и перезагрузка.
+             Разрешение при таком разрыве остаётся выданным, поэтому заметить поломку человек
+             не может — операции просто перестают появляться. -->
+        <receiver
+            android:name=".core.notifications.ListenerRebindReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Push notification listener (reads banking app pushes) -->
         <service
             android:name=".core.notifications.PushNotificationListener"

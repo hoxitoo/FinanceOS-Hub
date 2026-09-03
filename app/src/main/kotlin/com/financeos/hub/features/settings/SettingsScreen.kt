@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.notifications.ListenerHealth
 import com.financeos.hub.ui.components.FosSectionHeader
@@ -291,6 +293,10 @@ fun SettingsScreen(
         }
 
         // ── Push notification reader ─────────────────────────────────────────────
+        val scope        = rememberCoroutineScope()
+        var rebinding    by remember { mutableStateOf(false) }
+        var rebindResult by remember { mutableStateOf<ListenerHealth.RebindOutcome?>(null) }
+
         // Состояние службы опрашивается, а не читается один раз: привязка появляется асинхронно
         // (в том числе через пару секунд после нажатия «Переподключить»), и подпись, застывшая на
         // момент первой отрисовки, врала бы ровно в тот момент, когда на неё смотрят.
@@ -350,12 +356,28 @@ fun SettingsScreen(
                             verticalAlignment     = Alignment.CenterVertically,
                         ) {
                             TextButton(
-                                onClick        = { ListenerHealth.requestRebind(context) },
+                                // Кнопка обязана отвечать. Раньше она молча просила систему
+                                // переподключиться, и когда та не отвечала — а на One UI после
+                                // обновления APK она не отвечает никогда — человек видел, что
+                                // «ничего не происходит», и не мог отличить это от сломанной кнопки.
+                                enabled        = !rebinding,
+                                onClick        = {
+                                    rebinding = true
+                                    rebindResult = null
+                                    scope.launch {
+                                        rebindResult = ListenerHealth.forceRebind(context)
+                                        rebinding = false
+                                    }
+                                },
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                     horizontal = 8.dp, vertical = 0.dp
                                 ),
                             ) {
-                                Text("Переподключить", style = FosType.Label, color = FosColors.Info)
+                                Text(
+                                    if (rebinding) "Подключаю…" else "Переподключить",
+                                    style = FosType.Label,
+                                    color = if (rebinding) FosColors.TextMuted else FosColors.Info,
+                                )
                             }
                             TextButton(
                                 onClick        = {
@@ -371,12 +393,38 @@ fun SettingsScreen(
                                 Text("Настройки Android", style = FosType.Label, color = FosColors.TextSecondary)
                             }
                         }
-                        Text(
-                            "Если «Переподключить» не помогло — выключите и снова включите доступ " +
-                                "для FinanceOS в системном списке. Это чинит привязку гарантированно.",
-                            style = FosType.Micro,
-                            color = FosColors.TextMuted,
-                        )
+                        // Исход показывается словами: «получилось» и «не вышло» требуют разных
+                        // действий, и человек не должен угадывать, какое из них наступило.
+                        when (rebindResult) {
+                            ListenerHealth.RebindOutcome.RECONNECTED -> Text(
+                                "Готово — служба подключена, пуши снова читаются",
+                                style = FosType.Micro,
+                                color = FosColors.Positive,
+                            )
+                            ListenerHealth.RebindOutcome.PERMISSION_LOST -> Text(
+                                "Android сбросил доступ при перезапуске службы — включите " +
+                                    "FinanceOS в системном списке заново",
+                                style = FosType.Micro,
+                                color = FosColors.Negative,
+                            )
+                            ListenerHealth.RebindOutcome.NO_PERMISSION -> Text(
+                                "Доступ к уведомлениям не выдан — включите FinanceOS в системном списке",
+                                style = FosType.Micro,
+                                color = FosColors.Negative,
+                            )
+                            ListenerHealth.RebindOutcome.STILL_DOWN -> Text(
+                                "Система не подняла службу. Выключите и снова включите доступ для " +
+                                    "FinanceOS в системном списке — это чинит привязку гарантированно.",
+                                style = FosType.Micro,
+                                color = FosColors.Warning,
+                            )
+                            null -> Text(
+                                "Если «Переподключить» не помогло — выключите и снова включите доступ " +
+                                    "для FinanceOS в системном списке. Это чинит привязку гарантированно.",
+                                style = FosType.Micro,
+                                color = FosColors.TextMuted,
+                            )
+                        }
                     }
 
                     // Две даты, по которым видно правду без гадания: когда служба поднималась
