@@ -40,6 +40,9 @@ class TransactionRepository @Inject constructor(
 
     suspend fun softDelete(id: String) = dao.softDelete(id)
 
+    /** Обе живые ноги одного перевода — чтобы удалить событие целиком, а не половину. */
+    suspend fun transferPair(pairId: String): List<TransactionEntity> = dao.byTransferPair(pairId)
+
     suspend fun deleteAllHistory() = dao.deleteAll()
 
     suspend fun sumExpensesThisMonth(): Long {

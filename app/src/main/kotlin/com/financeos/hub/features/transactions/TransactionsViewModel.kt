@@ -226,6 +226,28 @@ class TransactionsViewModel @Inject constructor(
                 transferRouter.onTransactionReversed(tx)
             }
             txRepo.softDelete(id)
+
+            // Перевод между своими счетами — ОДНО событие, записанное двумя строками. Удалив только
+            // ту, что попалась под руку, человек вернул бы деньги одному счёту и оставил второй
+            // сдвинутым навсегда: откатить чужую ногу нечем, она сама себе запись. Поэтому парная
+            // строка удаляется вместе с этой и откатывает свой счёт сама.
+            tx?.transferPairId?.let { pairId ->
+                txRepo.transferPair(pairId)
+                    .filter { it.id != id }
+                    .forEach { leg ->
+                        if (leg.accountId != null && leg.balanceKopecks == null &&
+                            leg.source != TransactionSource.PDF
+                        ) {
+                            accountRepo.getById(leg.accountId)?.let { acc ->
+                                accountRepo.upsert(acc.copy(
+                                    balanceKopecks = acc.balanceKopecks - leg.amountKopecks,
+                                    updatedAt      = System.currentTimeMillis(),
+                                ))
+                            }
+                        }
+                        txRepo.softDelete(leg.id)
+                    }
+            }
         }
     }
 
@@ -246,6 +268,17 @@ class TransactionsViewModel @Inject constructor(
             // Tag the manual op with the chosen account's currency so a non-RUB account (e.g. a
             // МБанк USD/сом card) renders the correct symbol in history instead of ₽.
             val acc = accountId?.let { accountRepo.getById(it) }
+
+            // Перевод между СВОИМИ счетами пишется ДВУМЯ строками с общим transferPairId — так же,
+            // как это делает «Погасить» (инвариант #16). Раньше здесь была одна строка, которая
+            // молча двигала баланс второго счёта, не оставляя следа: удалить её значило вернуть
+            // деньги источнику и НАВСЕГДА оставить приёмник сдвинутым. Именно так «удалил погашение
+            // — долг по карте не вернулся»: строка знала только свой счёт, а второй восстановить
+            // было нечем.
+            val pairId = if (type == TransactionType.TRANSFER &&
+                destAccountId != null && destAccountId != accountId
+            ) UUID.randomUUID().toString() else null
+
             txRepo.insert(
                 TransactionEntity(
                     id            = UUID.randomUUID().toString(),
@@ -264,6 +297,7 @@ class TransactionsViewModel @Inject constructor(
                     timestamp     = timestamp,
                     sourceMask    = sourceMask,
                     currency      = acc?.currency ?: "RUB",
+                    transferPairId = pairId,
                     isDeleted     = false,
                     deletedAt     = null,
                 )
@@ -282,10 +316,26 @@ class TransactionsViewModel @Inject constructor(
                     ))
                 }
             }
-            // For an internal TRANSFER, credit the destination account too, so net worth is unchanged
-            // (source −сумма above, destination +сумма here). Only when a distinct destination is set.
-            if (type == TransactionType.TRANSFER && destAccountId != null && destAccountId != accountId) {
+            // Встречная нога: своя строка на счёте-приёмнике. Она и двигает его баланс, и позволяет
+            // этот сдвиг отменить — откатить можно только тот счёт, на котором строка лежит.
+            if (pairId != null && destAccountId != null) {
                 accountRepo.getById(destAccountId)?.let { dest ->
+                    txRepo.insert(
+                        TransactionEntity(
+                            id             = UUID.randomUUID().toString(),
+                            smsId          = null,
+                            accountId      = dest.id,
+                            categoryId     = null,   // перевод не трата, категории у него нет
+                            type           = TransactionType.TRANSFER,
+                            source         = TransactionSource.MANUAL,
+                            amountKopecks  = mag,    // деньги пришли
+                            merchant       = merchant.ifBlank { null } ?: "Перевод",
+                            description    = acc?.let { "с «${it.name}»" },
+                            timestamp      = timestamp,
+                            currency       = dest.currency,
+                            transferPairId = pairId,
+                        )
+                    )
                     accountRepo.upsert(dest.copy(
                         balanceKopecks = dest.balanceKopecks + mag,
                         updatedAt      = now,

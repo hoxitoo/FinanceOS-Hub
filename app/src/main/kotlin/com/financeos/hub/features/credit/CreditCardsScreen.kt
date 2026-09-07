@@ -1,6 +1,7 @@
 package com.financeos.hub.features.credit
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import com.financeos.hub.core.credit.InterestFreeWindow
 import com.financeos.hub.core.credit.PaymentSource
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.ui.components.TransactionRow
+import com.financeos.hub.ui.components.FosExplain
 import com.financeos.hub.ui.components.FosSectionHeader
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosTone
@@ -334,29 +336,54 @@ private fun CreditCardBlock(
         Spacer(Modifier.height(12.dp))
         HorizontalDivider(color = FosColors.Border)
 
-        card.aprPercent?.let { apr ->
-            TermRow("Ставка", "${FosFormatter.percent(apr / 100.0, decimals = 1)} годовых")
+        // Ставка, длина периода и неустойка — СПРАВКА из тарифа: меняются раз в год, а место
+        // занимали всегда, оттесняя вниз то, ради чего экран открывают (сколько и когда платить).
+        // Свёрнуты, но не спрятаны: строка-переключатель видна, и в ней сразу стоит ставка.
+        var termsOpen by remember { mutableStateOf(false) }
+        val hasTerms = card.aprPercent != null ||
+            card.account.interestFreeDays != null ||
+            (card.account.penaltyAprBp ?: 0) > 0
+        if (hasTerms) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { termsOpen = !termsOpen }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Text("Условия карты", style = FosType.Body, color = FosColors.TextSecondary)
+                Text(
+                    buildString {
+                        card.aprPercent?.let {
+                            append(FosFormatter.percent(it / 100.0, decimals = 1)).append(" годовых")
+                        }
+                        append(if (termsOpen) "  ▴" else "  ▾")
+                    },
+                    style = FosType.MicroNum,
+                    color = FosColors.TextMuted,
+                )
+            }
         }
-        card.account.interestFreeDays?.let { days ->
-            TermRow(
-                "Беспроцентный период",
-                pluralDays(days),
-                hint = "на покупки, от даты покупки",
-            )
-        }
-        card.account.penaltyAprBp?.takeIf { it > 0 }?.let { bp ->
-            TermRow(
-                "Неустойка",
-                "${FosFormatter.percent(bp / 10_000.0, decimals = 1)} годовых",
-                hint = "если пропустить обязательный платёж",
-                valueColor = FosColors.Warning,
-            )
-        }
-        card.freeLimit?.let { free ->
-            TermRow("Свободный лимит", FosFormatter.amount(free))
-        }
-        card.utilization?.let { used ->
-            TermRow("Использовано", FosFormatter.percent(used.toDouble()))
+        if (termsOpen) {
+            card.aprPercent?.let { apr ->
+                TermRow("Ставка", "${FosFormatter.percent(apr / 100.0, decimals = 1)} годовых")
+            }
+            card.account.interestFreeDays?.let { days ->
+                TermRow(
+                    "Беспроцентный период",
+                    pluralDays(days),
+                    hint = "на покупки, от даты покупки",
+                )
+            }
+            card.account.penaltyAprBp?.takeIf { it > 0 }?.let { bp ->
+                TermRow(
+                    "Неустойка",
+                    "${FosFormatter.percent(bp / 10_000.0, decimals = 1)} годовых",
+                    hint = "если пропустить обязательный платёж",
+                    valueColor = FosColors.Warning,
+                )
+            }
         }
         if (card.spentSinceStatement > 0) {
             TermRow(
@@ -636,11 +663,13 @@ private fun InterestFreeCountdown(window: InterestFreeWindow) {
             color = FosColors.TextMuted,
             maxLines = 2,
         )
-        Text(
-            "Оценка: приложение считает, что погашения закрывают покупки начиная со старых. " +
-                "Покупки, сделанные до установки приложения, оно не видит.",
-            style = FosType.Micro,
-            color = FosColors.TextMuted,
+        // Оговорка обязана быть — число оценочное, — но три строки подряд мелким шрифтом читаются как
+        // шум и вытесняют то, ради чего сюда пришли. Под «?» она никуда не девается.
+        FosExplain(
+            text  = "Приложение считает, что погашения закрывают покупки начиная со старых. " +
+                "Покупки, сделанные до установки приложения, оно не видит — отсчёт может " +
+                "начинаться не с той покупки.",
+            label = "насколько это точно",
         )
     }
 }

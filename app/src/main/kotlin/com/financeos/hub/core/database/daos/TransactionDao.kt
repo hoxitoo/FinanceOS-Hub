@@ -113,6 +113,14 @@ interface TransactionDao {
         centerTs: Long,
     ): TransactionEntity?
 
+    /**
+     * Обе строки одного перевода. Перевод — ОДНО событие, записанное двумя строками (по одной на
+     * счёт), и удалять его надо целиком: удалив только видимую ногу, человек оставляет второй счёт
+     * сдвинутым навсегда.
+     */
+    @Query("SELECT * FROM transactions WHERE transfer_pair_id = :pairId AND is_deleted = 0")
+    suspend fun byTransferPair(pairId: String): List<TransactionEntity>
+
     @Query("UPDATE transactions SET type = 'TRANSFER', transfer_pair_id = :pairId, category_id = NULL, updated_at = :now WHERE id = :id")
     suspend fun markAsPairedTransfer(id: String, pairId: String, now: Long = System.currentTimeMillis())
 
