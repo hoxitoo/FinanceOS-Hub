@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
@@ -38,11 +39,26 @@ enum class TxFilter(val label: String) {
     ALL("Все"),
     EXPENSE("Расходы"),
     INCOME("Доходы"),
+    // Переводов в фильтре не было вовсе, хотя тип первоклассный: погашение кредитки и
+    // перекладывание между своими счетами нельзя было отделить от трат никак.
+    TRANSFER("Переводы"),
+}
+
+/**
+ * Отрезок дат, по которому сужается список. `null` — без ограничения.
+ *
+ * Обе границы — ДНИ, а не метки времени: человек выбирает «с 1 по 7 сентября», а не «с 1 сентября
+ * 00:00:00.000». Сравнение идёт по началу дня операции, поэтому операция в 23:59 последнего дня
+ * попадает внутрь — иначе выбранный день молча терял бы вечерние покупки.
+ */
+data class DateRange(val from: LocalDate, val to: LocalDate) {
+    val single: Boolean get() = from == to
 }
 
 data class TransactionsState(
     val grouped        : Map<Long, List<TransactionEntity>> = emptyMap(),
     val activeFilter   : TxFilter                           = TxFilter.ALL,
+    val dateRange      : DateRange?                         = null,
     val searchQuery    : String                             = "",
     val categories     : List<CategoryEntity>               = emptyList(),
     val categoryFilter : String?                            = null,
@@ -83,6 +99,15 @@ class TransactionsViewModel @Inject constructor(
     private val _filter         = MutableStateFlow(TxFilter.ALL)
     private val _search         = MutableStateFlow("")
     private val _categoryFilter = MutableStateFlow<String?>(savedStateHandle["categoryId"])
+    private val _dateRange      = MutableStateFlow<DateRange?>(null)
+
+    /** Всё, чем сужается список. Собрано в один поток: `combine` принимает не больше пяти. */
+    private data class Filters(
+        val type    : TxFilter,
+        val query   : String,
+        val category: String?,
+        val dates   : DateRange?,
+    )
 
     fun clearCategoryFilter() { _categoryFilter.value = null }
 
@@ -91,16 +116,30 @@ class TransactionsViewModel @Inject constructor(
         categoryRepo.observeAll(),
         accountRepo.observeAll(),
         cardRepo.observeAll(),
-        combine(_filter, _search, _categoryFilter) { f, s, c -> Triple(f, s, c) },
-    ) { txList, categories, accounts, cards, (filter, query, catFilter) ->
+        combine(_filter, _search, _categoryFilter, _dateRange) { f, s, c, d -> Filters(f, s, c, d) },
+    ) { txList, categories, accounts, cards, filters ->
+        val filter    = filters.type
+        val query     = filters.query
+        val catFilter = filters.category
+        val dates     = filters.dates
         val catMap = categories.associate { it.id to it.name }
 
         val filtered = txList
             .filter { tx ->
                 when (filter) {
-                    TxFilter.ALL     -> true
-                    TxFilter.EXPENSE -> tx.type == TransactionType.EXPENSE
-                    TxFilter.INCOME  -> tx.type == TransactionType.INCOME
+                    TxFilter.ALL      -> true
+                    TxFilter.EXPENSE  -> tx.type == TransactionType.EXPENSE
+                    TxFilter.INCOME   -> tx.type == TransactionType.INCOME
+                    TxFilter.TRANSFER -> tx.type == TransactionType.TRANSFER
+                }
+            }
+            .filter { tx ->
+                // Сравниваем ДНИ, а не метки времени: иначе выбранный день обрезался бы по
+                // полуночи и терял всё, что куплено вечером.
+                if (dates == null) true else {
+                    val day = Instant.ofEpochMilli(tx.timestamp)
+                        .atZone(ZoneId.systemDefault()).toLocalDate()
+                    !day.isBefore(dates.from) && !day.isAfter(dates.to)
                 }
             }
             .filter { tx ->
@@ -132,6 +171,7 @@ class TransactionsViewModel @Inject constructor(
         TransactionsState(
             grouped        = grouped,
             activeFilter   = filter,
+            dateRange      = dates,
             searchQuery    = query,
             categories     = categories,
             categoryFilter = catFilter,
@@ -143,6 +183,7 @@ class TransactionsViewModel @Inject constructor(
 
     fun setFilter(filter: TxFilter) { _filter.value = filter }
     fun setSearch(query: String)    { _search.value = query }
+    fun setDateRange(range: DateRange?) { _dateRange.value = range }
 
     fun updateTransaction(
         tx         : TransactionEntity,
