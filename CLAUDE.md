@@ -256,8 +256,10 @@ Everything below is **implemented and shipped** unless marked otherwise.
 
 ## Screens
 - [x] Dashboard (3 hero variants, month label, bank cards, clickable recent ops, account CRUD)
-- [x] Transactions (search, filters, swipe-left-to-reveal delete, detail/edit sheet with source
-      diagnostics, CSV export, PDF import, manual add incl. **Перевод** with destination account)
+- [x] Transactions (одна строка фильтров: лупа-поиск, «Тип операции» меню — Все/Расходы/Доходы/
+      **Переводы**, «Дата» — календарь на один день или отрезок; swipe-left-to-reveal delete,
+      detail/edit sheet with source diagnostics, «↑ Экспорт» CSV, «↓ Импорт» PDF, manual add incl.
+      **Перевод** with destination account)
 - [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
 - [x] Budget (envelopes, CRUD, throttled alerts), Goals (9 bundled art backdrops, history,
       🔗 routing, ручное пополнение И снятие через ±)
@@ -500,6 +502,20 @@ rowid). Дубликат паттерна с новым id встанет поз
 - Округление ОДИН раз, на выходе. Проценты = разность округлённых величин, а не округление
   разности, иначе «ваши + проценты ≠ итог» на копейку — и это первое, что замечает глаз.
 - Потолок `MAX_MONTHS = 600`. Недостижимая цель возвращает `null` («никогда»), а не 600 месяцев.
+
+### 25. Вложенный `Scaffold` отступает от системных панелей ВТОРОЙ раз
+Экраны живут внутри `Scaffold`'а навигации, и тот уже отдал содержимому отступ под нижнюю панель
+(`NavigationBar` сам добавляет к своей высоте вставку системной навигации). Свой `Scaffold` внутри
+экрана по умолчанию отступает ещё раз — снизу остаётся пустая полоса цвета фона высотой в системную
+навигацию. На тёмной теме это выглядит как «чёрная плата», приклеенная к экрану, и объяснить её
+нельзя ничем: под ней нет содержимого. Лечится `contentWindowInsets = WindowInsets(0, 0, 0, 0)` на
+ВНУТРЕННЕМ `Scaffold`, а не подгонкой отступов. `WindowInsets(0)` не компилируется — у фабрики нет
+одноаргументной перегрузки, только четыре стороны.
+
+### 26. Фильтр, сузивший список до пустого, обязан это сказать
+«Операций пока нет» при выставленном фильтре — ложь: операции есть, их отсеяли. Человек, выбравший
+вчерашний день или тип «Переводы», решит, что история потерялась. Пустое состояние смотрит на ВСЕ
+сужения сразу (поиск, тип, даты, категория), а не на одно.
 
 ### Реальные форматы пушей (проверено на устройстве)
 Тела склеены так же, как их собирает `PushNotificationListener`: заголовок, затем текст, через
