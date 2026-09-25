@@ -31,7 +31,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Category drill-down** | Interactive pseudo-3D pie — tap a slice to explode it, then open every operation of that category for this **and** last month |
 | **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER; auto-routed to savings goals by account / card / keyword, or paired between accounts so net worth is unchanged |
 | **Budget envelopes** | Monthly/weekly limits per category, dynamic color bar (green→amber→red), alerts throttled to **once per budget per month, max 2/day** (persisted, survives restart) |
-| **Savings goals** | Goal cards with 9 bundled pixel-art backdrops, **± dialog to add or withdraw**, per-goal **history** of routed operations, link by account / card / keyword |
+| **Savings goals** | Компактные карточки с пиксель-артом по теме цели; кольцо выполнения показывает **процент внутри себя** и красится в цвет темы, а не одинаково-зелёным у всех целей; **± для пополнения и снятия**, **история** зачислений, привязка по счёту / карте / ключевому слову. Форма цели: иконки разложены по девяти категориям в два столбца, поля «Начало накопления» и «Срок» рядом, счета выбираются чипами банк→счёт (можно несколько), выход из заполненной формы спрашивает подтверждение |
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
@@ -79,7 +79,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
    - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
    - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
-5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword, «🧮 Калькулятор» in the header
+5. **Goals** — карточки целей с артом по теме, кольцо с процентом внутри, ряд действий (история / ± / 🔗 / удалить), «Калькулятор» по центру шапки; форма цели с категориями иконок, датами начала и срока, выбором счетов чипами
 6. **Калькулятор** — three modes over one monthly simulation; fine-tuning panel; «ваш темп» and goal chips prefill from your own data; every figure is explicitly labelled an estimate
 7. **Календарь** — «Свободно» героем с разложенной арифметикой (счета − обязательства − резерв), два режима — полоса ближайших дат и сетка месяца (точки по видам событий, выбранный день фильтрует список), список событий с пометкой источника (цифра банка / объявлено вами / найдено), подтверждение найденных подписок одним касанием, раздел «уже прошло» с возможностью отвязать
 8. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
@@ -91,7 +91,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v17** (16 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v18** (17 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -104,7 +104,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v17 — 18 categories, ~216 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v18 — 18 categories, ~216 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only
@@ -154,6 +154,7 @@ CI (`.github/workflows/android.yml`) runs all three on every PR targeting `dev` 
 | Suite | Coverage |
 |-------|----------|
 | 12 × `*ParserTest` | по банку, ~7 случаев каждый (`MkbParser` пока не покрыт) |
+| `GoalIconsTest` | каждая иконка цели получает подложку своей категории, глифы не повторяются |
 | `TransferPatternsTest` | transfer detection, card-mask extraction, stem anchoring |
 | `RealPushFormatsTest` | форматы пушей, снятые с устройства: входящий СБП, `RUR`, списание по счёту |
 | `SberCreditPushTest` | покупка по кредитке и напоминание о платеже |

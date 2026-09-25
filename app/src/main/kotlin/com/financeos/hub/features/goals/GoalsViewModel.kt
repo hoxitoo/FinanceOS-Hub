@@ -66,11 +66,12 @@ class GoalsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
     fun createGoal(
-        name           : String,
-        emoji          : String,
-        targetKopecks  : Long,
-        deadlineAt     : Long?,
-        linkedAccountId: String? = null,
+        name            : String,
+        emoji           : String,
+        targetKopecks   : Long,
+        deadlineAt      : Long?,
+        startedAt       : Long? = null,
+        linkedAccountIds: Set<String> = emptySet(),
     ) {
         viewModelScope.launch {
             val goalId = UUID.randomUUID().toString()
@@ -82,15 +83,16 @@ class GoalsViewModel @Inject constructor(
                     targetKopecks = targetKopecks,
                     savedKopecks  = 0L,
                     deadlineAt    = deadlineAt,
+                    startedAt     = startedAt,
                 )
             )
-            if (linkedAccountId != null) {
+            linkedAccountIds.forEach { accountId ->
                 transferRouteRepo.addRoute(
                     TransferRouteEntity(
                         id         = UUID.randomUUID().toString(),
                         goalId     = goalId,
                         matchType  = TransferMatchType.ACCOUNT,
-                        matchValue = linkedAccountId,
+                        matchValue = accountId,
                     )
                 )
             }
@@ -123,6 +125,7 @@ class GoalsViewModel @Inject constructor(
         emoji         : String,
         targetKopecks : Long,
         deadlineAt    : Long?,
+        startedAt     : Long? = goal.startedAt,
     ) {
         viewModelScope.launch {
             goalRepo.upsert(
@@ -131,10 +134,43 @@ class GoalsViewModel @Inject constructor(
                     emoji         = emoji,
                     targetKopecks = targetKopecks,
                     deadlineAt    = deadlineAt,
+                    startedAt     = startedAt,
                     isCompleted   = goal.savedKopecks >= targetKopecks,
                     updatedAt     = System.currentTimeMillis(),
                 )
             )
+        }
+    }
+
+    /**
+     * Приводит привязки цели к счетам в точности к [accountIds]: недостающие добавляет, лишние
+     * снимает.
+     *
+     * Отдельным действием, а не внутри [updateGoal], потому что это запись в ДРУГУЮ таблицу
+     * (`transfer_routes`), и у неё своя семантика: снятая привязка — это `is_active = 0`, а не
+     * удаление строки. Трогаются только маршруты типа ACCOUNT: привязки по карте и ключевому слову
+     * живут в отдельном листе, и форма цели о них ничего не знает — стереть их заодно значило бы
+     * молча отменить чужую настройку.
+     */
+    fun syncAccountRoutes(goalId: String, accountIds: Set<String>) {
+        viewModelScope.launch {
+            val current = transferRouteRepo.getAllActive()
+                .filter { it.goalId == goalId && it.matchType == TransferMatchType.ACCOUNT }
+
+            current.filterNot { it.matchValue in accountIds }
+                .forEach { transferRouteRepo.removeRoute(it.id) }
+
+            val already = current.map { it.matchValue }.toSet()
+            (accountIds - already).forEach { accountId ->
+                transferRouteRepo.addRoute(
+                    TransferRouteEntity(
+                        id         = UUID.randomUUID().toString(),
+                        goalId     = goalId,
+                        matchType  = TransferMatchType.ACCOUNT,
+                        matchValue = accountId,
+                    )
+                )
+            }
         }
     }
 

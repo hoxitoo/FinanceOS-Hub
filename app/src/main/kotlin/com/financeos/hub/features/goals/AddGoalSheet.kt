@@ -6,15 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -45,50 +44,94 @@ import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
+import com.financeos.hub.ui.theme.bankBrand
 
-private val GOAL_EMOJIS = listOf(
-    "🏠", "🚗", "✈", "📱", "💻", "📚", "🎓", "💍",
-    "🏖", "🎸", "🏋", "💊", "🛋", "🎁", "💰", "⭐",
+/**
+ * Иконки цели, разложенные по смыслу.
+ *
+ * Раньше это была одна бесконечная лента вбок: чтобы узнать, есть ли вообще нужная иконка, её
+ * приходилось долистывать до конца, а что осталось за краем — не видно никак. Разложенные по
+ * категориям, они все на экране сразу, и выбор становится узнаванием, а не поиском.
+ *
+ * Состав каждой группы согласован с `goalArtFor` (`ui/components/GoalArt.kt`): иконка выбирает не
+ * только глиф, но и подложку карточки, поэтому новая иконка без темы молча получила бы подложку
+ * «покупки».
+ */
+internal data class IconGroup(val title: String, val emojis: List<String>)
+
+internal val ICON_GROUPS = listOf(
+    IconGroup("Путешествия", listOf("✈", "🏖", "🗺")),
+    IconGroup("Жильё",       listOf("🏠", "🛋", "🔑")),
+    IconGroup("Транспорт",   listOf("🚗", "🏍", "🚲")),
+    IconGroup("Техника",     listOf("📱", "💻", "🎸")),
+    IconGroup("Образование", listOf("📚", "🎓", "🗣")),
+    IconGroup("Здоровье",    listOf("💊", "🏋", "🦷")),
+    IconGroup("Праздники",   listOf("🎁", "💍", "🎂")),
+    IconGroup("Накопления",  listOf("💰", "⭐", "🐷")),
+    IconGroup("Покупки",     listOf("🛍", "👟", "🛒")),
 )
+
+private val DEFAULT_EMOJI = ICON_GROUPS.first().emojis.first()
 
 /**
  * Bottom sheet for creating OR editing a goal.
  * Pass [existing] to pre-fill the fields and switch to edit mode.
+ *
+ * [linkedAccountIds] — счета, уже привязанные к цели (маршруты `transfer_routes`). Форма правит их
+ * наравне с остальными полями: до этого выбор счёта в режиме правки просто игнорировался при
+ * сохранении, то есть элемент управления был, а действия за ним не было.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddGoalSheet(
-    existing  : GoalEntity? = null,
-    accounts  : List<AccountEntity> = emptyList(),
-    onDismiss : () -> Unit,
-    onSave    : (name: String, emoji: String, targetKopecks: Long, deadlineAt: Long?, linkedAccountId: String?) -> Unit,
+    existing        : GoalEntity? = null,
+    accounts        : List<AccountEntity> = emptyList(),
+    linkedAccountIds: Set<String> = emptySet(),
+    onDismiss       : () -> Unit,
+    onSave          : (
+        name            : String,
+        emoji           : String,
+        targetKopecks   : Long,
+        deadlineAt      : Long?,
+        startedAt       : Long?,
+        linkedAccountIds: Set<String>,
+    ) -> Unit,
 ) {
     val editing = existing != null
 
     // Key on existing?.id so the form resets correctly when the sheet is reused for a
     // different goal (e.g. edit goal A → dismiss → edit goal B) while still in composition.
-    var name             by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
-    var targetDigits     by remember(existing?.id) { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
-    var selectedEmoji    by remember(existing?.id) { mutableStateOf(existing?.emoji ?: GOAL_EMOJIS[0]) }
-    var deadline         by remember(existing?.id) { mutableStateOf(existing?.deadlineAt) }
-    var linkedAccountId  by remember { mutableStateOf<String?>(null) }
-    var showDatePicker   by remember { mutableStateOf(false) }
+    var name          by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
+    var targetDigits  by remember(existing?.id) { mutableStateOf(existing?.let { (it.targetKopecks / 100).toString() } ?: "") }
+    var selectedEmoji by remember(existing?.id) { mutableStateOf(existing?.emoji ?: DEFAULT_EMOJI) }
+    var deadline      by remember(existing?.id) { mutableStateOf(existing?.deadlineAt) }
+    // Новой цели начало подставляется сегодняшним днём: «начал копить сегодня» — верно почти
+    // всегда, а поправить одним нажатием проще, чем вспомнить заполнить пустое поле.
+    var startedAt     by remember(existing?.id) {
+        mutableStateOf(existing?.startedAt ?: if (existing == null) System.currentTimeMillis() else null)
+    }
+    // Ключ обязателен (инвариант #4): без него лист, переоткрытый для ДРУГОЙ цели, показывал бы
+    // привязки предыдущей — и сохранил бы их.
+    var picked        by remember(existing?.id) { mutableStateOf(linkedAccountIds) }
+    var datePicking   by remember { mutableStateOf<DateField?>(null) }
 
     val targetKopecks = (targetDigits.toLongOrNull() ?: 0L) * 100L
     val canSave = name.isNotBlank() && targetKopecks > 0
 
     // Для правки «грязным» считается отличие от сохранённой цели, для новой — любой ввод. Эмодзи
     // сравнивается с первым в списке: он подставлен за человека и сам по себе выбором не является.
+    // Начало у новой цели тоже подставлено, поэтому в «грязность» оно идёт только при правке.
     val dirty = {
         if (existing == null) {
             name.isNotBlank() || targetDigits.isNotBlank() || deadline != null ||
-                selectedEmoji != GOAL_EMOJIS[0] || linkedAccountId != null
+                selectedEmoji != DEFAULT_EMOJI || picked.isNotEmpty()
         } else {
             name != existing.name ||
                 targetDigits != (existing.targetKopecks / 100).toString() ||
                 selectedEmoji != existing.emoji ||
                 deadline != existing.deadlineAt ||
-                linkedAccountId != null
+                startedAt != existing.startedAt ||
+                picked != linkedAccountIds
         }
     }
 
@@ -102,161 +145,42 @@ fun AddGoalSheet(
             color = FosColors.TextPrimary,
         )
 
-        // Emoji picker
-        Text("Иконка", style = FosType.SectionCap, color = FosColors.TextMuted)
-        LazyRow(
-            contentPadding        = PaddingValues(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(GOAL_EMOJIS.size) { i ->
-                val emoji    = GOAL_EMOJIS[i]
-                val selected = emoji == selectedEmoji
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(FosDimens.RadiusIcon))
-                        .background(
-                            if (selected) FosColors.Positive.copy(alpha = 0.15f)
-                            else FosColors.Surface2
-                        )
-                        .border(
-                            1.dp,
-                            if (selected) FosColors.Positive else FosColors.BorderStrong,
-                            RoundedCornerShape(FosDimens.RadiusIcon),
-                        )
-                        .clickable { selectedEmoji = emoji },
+        // ── Иконка: категории в два столбца, без бокового скролла ────────────────
+        FieldCaption("ИКОНКА")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Два столбца вместо одного списка: девять групп в один столбец занимают полтора
+            // экрана, и поля формы уезжают за сгиб.
+            listOf(0, 1).forEach { column ->
+                Column(
+                    modifier            = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(emoji, style = FosType.BodySemi)
-                }
-            }
-        }
-
-        // Name
-        OutlinedTextField(
-            value           = name,
-            onValueChange   = { name = it },
-            label           = { Text("Название цели", style = FosType.Label) },
-            singleLine      = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            colors          = sheetFieldColors(),
-            modifier        = Modifier.fillMaxWidth(),
-        )
-
-        // Target amount — digits grouped live with spaces
-        OutlinedTextField(
-            value           = FosFormatter.groupDigits(targetDigits),
-            onValueChange   = { input -> targetDigits = input.filter { it.isDigit() }.take(12) },
-            label           = { Text("Целевая сумма, ₽", style = FosType.Label) },
-            singleLine      = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Number,
-                imeAction    = ImeAction.Done,
-            ),
-            colors          = sheetFieldColors(),
-            modifier        = Modifier.fillMaxWidth(),
-        )
-
-        // Deadline — optional date picker
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                .border(
-                    1.dp,
-                    FosColors.BorderStrong,
-                    RoundedCornerShape(FosDimens.RadiusButton),
-                )
-                .clickable { showDatePicker = true }
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-        ) {
-            Row(
-                modifier              = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Text(
-                    deadline?.let { "Срок: ${FosFormatter.date(it)}" } ?: "Срок выполнения (необязательно)",
-                    style = FosType.Body,
-                    color = if (deadline != null) FosColors.TextPrimary else FosColors.TextMuted,
-                )
-                if (deadline != null) {
-                    Text(
-                        "× Убрать",
-                        style    = FosType.Label,
-                        color    = FosColors.Negative,
-                        modifier = Modifier.clickable { deadline = null },
-                    )
-                } else {
-                    Text("📅", style = FosType.Body)
-                }
-            }
-        }
-
-        // Account picker — optional; links goal to a bank account for auto-routing
-        if (accounts.isNotEmpty()) {
-            Text("ПРИВЯЗАТЬ СЧЁТ (АВТО)", style = FosType.SectionCap, color = FosColors.TextMuted)
-            Text(
-                "Переводы на этот счёт будут автоматически добавлять к цели, переводы с него — вычитать.",
-                style = FosType.Micro,
-                color = FosColors.TextSecondary,
-            )
-            LazyRow(
-                contentPadding        = PaddingValues(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // "No link" chip
-                item {
-                    val selected = linkedAccountId == null
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                            .background(if (selected) FosColors.Surface2 else FosColors.Surface2)
-                            .border(
-                                1.dp,
-                                if (selected) FosColors.TextSecondary else FosColors.BorderStrong,
-                                RoundedCornerShape(FosDimens.RadiusButton),
-                            )
-                            .clickable { linkedAccountId = null }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        Text(
-                            "— Не привязывать",
-                            style = FosType.Label,
-                            color = if (selected) FosColors.TextPrimary else FosColors.TextMuted,
-                        )
-                    }
-                }
-                items(accounts) { acc ->
-                    val selected = linkedAccountId == acc.id
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(FosDimens.RadiusButton))
-                            .background(
-                                if (selected) FosColors.Positive.copy(alpha = 0.12f) else FosColors.Surface2
-                            )
-                            .border(
-                                1.dp,
-                                if (selected) FosColors.Positive else FosColors.BorderStrong,
-                                RoundedCornerShape(FosDimens.RadiusButton),
-                            )
-                            .clickable { linkedAccountId = acc.id }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                acc.name,
-                                style = FosType.Label,
-                                color = if (selected) FosColors.Positive else FosColors.TextPrimary,
-                            )
-                            if (acc.cardMask != null) {
-                                Text(
-                                    "•• ${acc.cardMask}",
-                                    style = FosType.Micro,
-                                    color = if (selected) FosColors.Positive.copy(alpha = 0.7f) else FosColors.TextMuted,
-                                )
+                    ICON_GROUPS.filterIndexed { i, _ -> i % 2 == column }.forEach { group ->
+                        Text(group.title, style = FosType.Micro, color = FosColors.TextMuted)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement   = Arrangement.spacedBy(6.dp),
+                        ) {
+                            group.emojis.forEach { emoji ->
+                                val selected = emoji == selectedEmoji
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(FosDimens.RadiusIcon))
+                                        .background(
+                                            if (selected) FosColors.Positive.copy(alpha = 0.15f)
+                                            else FosColors.Surface2
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (selected) FosColors.Positive else FosColors.BorderStrong,
+                                            RoundedCornerShape(FosDimens.RadiusIcon),
+                                        )
+                                        .clickable { selectedEmoji = emoji },
+                                ) {
+                                    Text(emoji, style = FosType.BodySemi)
+                                }
                             }
                         }
                     }
@@ -264,11 +188,68 @@ fun AddGoalSheet(
             }
         }
 
+        // ── Название и сумма ─────────────────────────────────────────────────────
+        // Подпись вынесена НАД полем, а не плавает внутри рамкой: без встроенного label поле
+        // становится на четверть ниже, а сама подпись читается всегда, а не только когда пусто.
+        FieldCaption("НАЗВАНИЕ ЦЕЛИ")
+        CompactField(
+            value         = name,
+            onValueChange = { name = it },
+            placeholder   = "Например, Греция",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        )
+
+        FieldCaption("ЦЕЛЕВАЯ СУММА, ₽")
+        CompactField(
+            value         = FosFormatter.groupDigits(targetDigits),
+            onValueChange = { input -> targetDigits = input.filter { it.isDigit() }.take(12) },
+            placeholder   = "200 000",
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction    = ImeAction.Done,
+            ),
+        )
+
+        // ── Две даты в один ряд ──────────────────────────────────────────────────
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DateCell(
+                caption  = "НАЧАЛО",
+                value    = startedAt,
+                empty    = "Не указано",
+                modifier = Modifier.weight(1f),
+                onPick   = { datePicking = DateField.START },
+                onClear  = { startedAt = null },
+            )
+            DateCell(
+                caption  = "СРОК",
+                value    = deadline,
+                empty    = "Без срока",
+                modifier = Modifier.weight(1f),
+                onPick   = { datePicking = DateField.DEADLINE },
+                onClear  = { deadline = null },
+            )
+        }
+
+        // ── Привязка счетов ──────────────────────────────────────────────────────
+        if (accounts.isNotEmpty()) {
+            FieldCaption("ПРИВЯЗАТЬ СЧЁТ")
+            Text(
+                "Переводы на привязанный счёт будут добавляться к цели, переводы с него — вычитаться.",
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+            )
+            GoalAccountPicker(
+                accounts = accounts,
+                picked   = picked,
+                onToggle = { id -> picked = if (id in picked) picked - id else picked + id },
+            )
+        }
+
         Spacer(Modifier.height(4.dp))
 
         Button(
             onClick  = {
-                onSave(name.trim(), selectedEmoji, targetKopecks, deadline, linkedAccountId)
+                onSave(name.trim(), selectedEmoji, targetKopecks, deadline, startedAt, picked)
                 onDismiss()
             },
             enabled  = canSave,
@@ -283,20 +264,27 @@ fun AddGoalSheet(
         }
     }
 
-    if (showDatePicker) {
+    datePicking?.let { field ->
+        val initial = when (field) {
+            DateField.START    -> startedAt
+            DateField.DEADLINE -> deadline
+        }
         val dpState = rememberDatePickerState(
-            initialSelectedDateMillis = deadline ?: System.currentTimeMillis(),
+            initialSelectedDateMillis = initial ?: System.currentTimeMillis(),
         )
         DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
+            onDismissRequest = { datePicking = null },
             confirmButton = {
                 TextButton(onClick = {
-                    deadline = dpState.selectedDateMillis
-                    showDatePicker = false
+                    when (field) {
+                        DateField.START    -> startedAt = dpState.selectedDateMillis
+                        DateField.DEADLINE -> deadline  = dpState.selectedDateMillis
+                    }
+                    datePicking = null
                 }) { Text("ОК", color = FosColors.Positive) }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
+                TextButton(onClick = { datePicking = null }) {
                     Text("Отмена", color = FosColors.TextSecondary)
                 }
             },
@@ -306,14 +294,204 @@ fun AddGoalSheet(
     }
 }
 
+/** Какое из двух полей даты сейчас выбирают — одно состояние на один календарь. */
+private enum class DateField { START, DEADLINE }
+
 @Composable
-private fun sheetFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor   = FosColors.Info,
-    unfocusedBorderColor = FosColors.BorderStrong,
-    focusedLabelColor    = FosColors.Info,
-    unfocusedLabelColor  = FosColors.TextMuted,
-    cursorColor          = FosColors.Info,
-    focusedTextColor     = FosColors.TextPrimary,
-    unfocusedTextColor   = FosColors.TextPrimary,
-    errorBorderColor     = FosColors.Negative,
-)
+private fun FieldCaption(text: String) {
+    Text(text, style = FosType.SectionCap, color = FosColors.TextSecondary)
+}
+
+/**
+ * Поле ввода без плавающей подписи.
+ *
+ * Высота задана явно: `OutlinedTextField` держит минимум 56 dp под подпись, которая здесь стоит
+ * снаружи, и поля выходили заметно выше, чем им нужно. Рамка и фон ярче обычных — в форме это
+ * главные элементы, а не фон под ними.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CompactField(
+    value          : String,
+    onValueChange  : (String) -> Unit,
+    placeholder    : String,
+    keyboardOptions: KeyboardOptions,
+) {
+    OutlinedTextField(
+        value           = value,
+        onValueChange   = onValueChange,
+        placeholder     = { Text(placeholder, style = FosType.Body, color = FosColors.TextMuted) },
+        singleLine      = true,
+        textStyle       = FosType.Body,
+        keyboardOptions = keyboardOptions,
+        shape           = RoundedCornerShape(FosDimens.RadiusButton),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor      = FosColors.Info,
+            unfocusedBorderColor    = FosColors.Info.copy(alpha = 0.40f),
+            focusedContainerColor   = FosColors.Surface2,
+            unfocusedContainerColor = FosColors.Surface2,
+            cursorColor             = FosColors.Info,
+            focusedTextColor        = FosColors.TextPrimary,
+            unfocusedTextColor      = FosColors.TextPrimary,
+            errorBorderColor        = FosColors.Negative,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+    )
+}
+
+/** Ячейка даты: подпись сверху, значение внутри, крестик — когда есть что убирать. */
+@Composable
+private fun DateCell(
+    caption : String,
+    value   : Long?,
+    empty   : String,
+    modifier: Modifier = Modifier,
+    onPick  : () -> Unit,
+    onClear : () -> Unit,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FieldCaption(caption)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .clip(RoundedCornerShape(FosDimens.RadiusButton))
+                .background(FosColors.Surface2)
+                .border(
+                    1.dp,
+                    if (value != null) FosColors.Info.copy(alpha = 0.40f) else FosColors.BorderStrong,
+                    RoundedCornerShape(FosDimens.RadiusButton),
+                )
+                .clickable { onPick() }
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Text(
+                value?.let { FosFormatter.dayLabelYear(it) } ?: empty,
+                style    = FosType.Body,
+                color    = if (value != null) FosColors.TextPrimary else FosColors.TextMuted,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (value != null) {
+                Text(
+                    "×",
+                    style    = FosType.BodySemi,
+                    color    = FosColors.Negative,
+                    modifier = Modifier
+                        .clickable { onClear() }
+                        .padding(start = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Выбор счетов: чипы банков, внутри чипа — его счета.
+ *
+ * Лента всех счетов вбок прятала и сам список, и сделанный выбор: привязанный счёт мог оказаться
+ * за краем экрана, и цель выглядела непривязанной. Банк раскрывается нажатием, выбранные счета
+ * пересчитаны в подписи, а выбор — множественный: у цели вполне может быть и накопительный счёт,
+ * и карта, с которой на него переводят.
+ */
+@Composable
+private fun GoalAccountPicker(
+    accounts: List<AccountEntity>,
+    picked  : Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    val banks = remember(accounts) { accounts.groupBy { it.bank }.toList() }
+    var expandedBank by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        banks.forEach { (bank, bankAccounts) ->
+            val brand      = bankBrand(bank)
+            val isExpanded = expandedBank == bank
+            val pickedHere = bankAccounts.count { it.id in picked }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                    .background(
+                        if (pickedHere > 0) FosColors.Positive.copy(alpha = 0.10f) else FosColors.Surface2
+                    )
+                    .clickable { expandedBank = if (isExpanded) null else bank }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(brand.bg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(bank.trim().take(1).uppercase(), style = FosType.SmallBold, color = brand.onBg)
+                }
+                Text(
+                    bank,
+                    style    = FosType.Body,
+                    color    = FosColors.TextPrimary,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                // Свёрнутый чип обязан говорить, что внутри выбрано: иначе «привязать» выглядит
+                // несделанным ровно после того, как его сделали.
+                if (pickedHere > 0) {
+                    Text("выбрано: $pickedHere", style = FosType.Micro, color = FosColors.Positive)
+                }
+                Text(if (isExpanded) "▲" else "▼", style = FosType.Micro, color = FosColors.TextMuted)
+            }
+
+            if (isExpanded) {
+                bankAccounts.forEach { acc ->
+                    val on = acc.id in picked
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp)
+                            .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                            .background(
+                                if (on) FosColors.Positive.copy(alpha = 0.16f) else FosColors.Surface
+                            )
+                            .clickable { onToggle(acc.id) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (on) "✓" else "+",
+                            style = FosType.BodySemi,
+                            color = if (on) FosColors.Positive else FosColors.TextMuted,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                acc.name,
+                                style    = FosType.Body,
+                                color    = if (on) FosColors.Positive else FosColors.TextPrimary,
+                                maxLines = 1,
+                            )
+                            acc.cardMask?.let {
+                                Text("•• $it", style = FosType.Micro, color = FosColors.TextMuted)
+                            }
+                        }
+                        Text(
+                            FosFormatter.compact(
+                                acc.balanceKopecks,
+                                FosFormatter.currencySymbol(acc.currency),
+                            ),
+                            style = FosType.MicroNum,
+                            color = FosColors.TextSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

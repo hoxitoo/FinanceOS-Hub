@@ -35,9 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.database.entities.GoalEntity
+import com.financeos.hub.core.database.entities.TransferMatchType
 import com.financeos.hub.ui.components.GoalArtBackdrop
+import com.financeos.hub.ui.components.accent
 import com.financeos.hub.ui.components.GoalRing
 import com.financeos.hub.ui.components.goalArtFor
 import com.financeos.hub.ui.theme.AmountVisualTransformation
@@ -96,19 +99,27 @@ fun GoalsScreen(
         ) {
             item { Spacer(Modifier.height(16.dp)) }
             item {
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically,
+                Box(
+                    modifier          = Modifier.fillMaxWidth(),
+                    contentAlignment  = Alignment.CenterStart,
                 ) {
                     Text("Цели", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
                     // Калькулятор живёт здесь, а не в настройках: вопрос «за сколько я это накоплю»
-                    // возникает ровно в тот момент, когда смотришь на недособранную цель.
+                    // возникает ровно в тот момент, когда смотришь на недособранную цель. По центру
+                    // и словом, а не эмодзи: 🧮 в углу читался как украшение заголовка, и на него
+                    // не нажимали — а это единственный вход в калькулятор.
                     TextButton(
                         onClick        = onCalculatorClick,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier       = Modifier.align(Alignment.Center),
                     ) {
-                        Text("🧮 Калькулятор", style = FosType.Label, color = FosColors.TextSecondary)
+                        Text(
+                            "Калькулятор",
+                            // На 15sp вместо прежних 11: это единственный вход в калькулятор,
+                            // и подписью в углу его просто не замечали.
+                            style = FosType.SubHeader.copy(fontSize = 15.sp),
+                            color = FosColors.Info,
+                        )
                     }
                 }
             }
@@ -158,20 +169,30 @@ fun GoalsScreen(
         AddGoalSheet(
             accounts   = state.accounts,
             onDismiss  = { showAddSheet = false },
-            onSave     = { name, emoji, targetKopecks, deadline, linkedAccountId ->
-                vm.createGoal(name, emoji, targetKopecks, deadline, linkedAccountId)
+            onSave     = { name, emoji, targetKopecks, deadline, startedAt, accountIds ->
+                vm.createGoal(name, emoji, targetKopecks, deadline, startedAt, accountIds)
             },
         )
     }
 
     // Edit existing goal
     editTarget?.let { goal ->
+        // Привязки цели живут в маршрутах, а не в самой цели, поэтому форма получает их отдельно —
+        // и, в отличие от прежней версии, действительно сохраняет.
+        val linked = remember(state.routes, goal.id) {
+            state.routes
+                .filter { it.goalId == goal.id && it.matchType == TransferMatchType.ACCOUNT }
+                .map { it.matchValue }
+                .toSet()
+        }
         AddGoalSheet(
-            existing   = goal,
-            accounts   = state.accounts,
-            onDismiss  = { editTarget = null },
-            onSave     = { name, emoji, targetKopecks, deadline, _ ->
-                vm.updateGoal(goal, name, emoji, targetKopecks, deadline)
+            existing         = goal,
+            accounts         = state.accounts,
+            linkedAccountIds = linked,
+            onDismiss        = { editTarget = null },
+            onSave           = { name, emoji, targetKopecks, deadline, startedAt, accountIds ->
+                vm.updateGoal(goal, name, emoji, targetKopecks, deadline, startedAt)
+                vm.syncAccountRoutes(goal.id, accountIds)
                 editTarget = null
             },
         )
@@ -341,6 +362,11 @@ private fun GoalCard(
     val tone  = if (complete) FosTone.Positive else FosTone.Neutral
     val style = if (complete) FosCardStyle.Rail else FosCardStyle.Plain
 
+    // Цвет кольца — тон ТЕМЫ цели (тот же, которым покрашена её подложка), а не общий зелёный:
+    // пять целей с одинаковыми зелёными кольцами превращались в один однообразный список, и это
+    // ровно то, на что жаловались. Достигнутая цель зелёная по правилу #1 — успех.
+    val ringColor = if (complete) FosColors.Positive else artKind.accent
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,28 +379,31 @@ private fun GoalCard(
         // Themed pixel-art backdrop (falls back to a themed gradient until the art is bundled).
         GoalArtBackdrop(kind = artKind, modifier = Modifier.matchParentSize())
 
+        // Высота карточки задаётся содержимым, а не артом: раньше три кнопки стояли столбиком
+        // справа и растягивали карточку до 140 dp, из которых половина была пустым фоном.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(FosDimens.CardPadding),
-            horizontalArrangement = Arrangement.spacedBy(FosDimens.CardPadding),
+                .padding(horizontal = FosDimens.CardPaddingSmall, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment     = Alignment.CenterVertically,
         ) {
             GoalRing(
                 progress = ratio,
-                modifier = Modifier.size(64.dp),
+                color    = ringColor,
+                modifier = Modifier.size(54.dp),
             )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "${goal.emoji} ${goal.name}",
-                    style = FosType.BodySemi,
-                    color = if (complete) FosColors.Positive else FosColors.TextPrimary,
+                    style    = FosType.BodySemi,
+                    color    = if (complete) FosColors.Positive else FosColors.TextPrimary,
+                    maxLines = 1,
                 )
-                Spacer(Modifier.height(2.dp))
                 Text(
                     "${FosFormatter.compact(goal.savedKopecks)} из ${FosFormatter.compact(goal.targetKopecks)}",
-                    style = FosType.Micro,
+                    style = FosType.MicroNum,
                     color = FosColors.TextSecondary,
                 )
                 goal.deadlineAt?.let {
@@ -384,47 +413,41 @@ private fun GoalCard(
                         color = FosColors.TextMuted,
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                // Tap to see every operation that funded (or drew from) this goal, with dates.
-                Text(
-                    "История ›",
-                    style    = FosType.Micro,
-                    color    = FosColors.Info,
-                    modifier = Modifier.clickable { onHistory() },
-                )
             }
 
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            // Действия в РЯД, а не столбиком: столбик из трёх кнопок был самой высокой частью
+            // карточки и диктовал ей высоту. «История» переехала сюда же — это такое же действие,
+            // как остальные, и отдельной строкой она только добавляла карточке ещё один этаж.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment     = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (complete) "✓" else "${(ratio * 100).toInt()}%",
-                    style = FosType.SmallBold,
-                    color = if (complete) FosColors.Positive else FosColors.TextSecondary,
-                )
+                GlyphAction("≡", FosColors.Info, onHistory)
                 // ± rather than +: the dialog behind it both adds and withdraws. Shown on a
                 // completed goal too — that is precisely when the money gets spent and has to
                 // come back out, and the card used to hide the control at exactly that point.
-                TextButton(
-                    onClick        = onAdjust,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text("±", style = FosType.BodySemi, color = FosColors.Info)
-                }
-                TextButton(
-                    onClick        = onLink,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text("🔗", style = FosType.Micro, color = FosColors.TextSecondary)
-                }
-                TextButton(
-                    onClick        = onDelete,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text("×", style = FosType.BodySemi, color = FosColors.Negative)
-                }
+                GlyphAction("±", FosColors.Info, onAdjust)
+                GlyphAction("🔗", FosColors.TextSecondary, onLink)
+                GlyphAction("×", FosColors.Negative, onDelete)
             }
         }
+    }
+}
+
+/**
+ * Кнопка-глиф в карточке цели.
+ *
+ * `TextButton` сам по себе не меньше 58×40 dp — четыре таких в ряд не помещаются на узком экране.
+ * Явный `size` перебивает этот минимум, но 36 dp всё ещё выше порога уверенного попадания пальцем,
+ * а padding нулевой, чтобы глиф стоял по центру.
+ */
+@Composable
+private fun GlyphAction(glyph: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    TextButton(
+        onClick        = onClick,
+        contentPadding = PaddingValues(0.dp),
+        modifier       = Modifier.size(36.dp),
+    ) {
+        Text(glyph, style = FosType.BodySemi, color = color)
     }
 }

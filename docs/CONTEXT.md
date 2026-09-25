@@ -43,7 +43,7 @@ TextDark      = #3A4358
 
 ## Database Schema
 
-Room schema **version 17**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
+Room schema **version 18**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
 
 | Migration | Change |
 |-----------|--------|
@@ -62,6 +62,7 @@ Room schema **version 17**. Every migration is registered in `DatabaseModule.add
 | 14→15 | re-seed + surgical `UPDATE` категорий для строк, которые замороженная модель пометила мимо (ИИ-сервисы и хостинг → «Подписки») |
 | 15→16 | `planned_payments` table (calendar obligations) |
 | 16→17 | `planned_payments.rejected_tx_id` — какую операцию человек отверг кнопкой «Отвязать» |
+| 17→18 | `goals.started_at` — когда начали копить; добавляется ПУСТЫМ, не из `created_at` |
 
 Схема растёт **только** миграцией: сборка падает при несоответствии, а `fallbackToDestructiveMigration`
 в этом проекте означал бы «стереть всю историю операций пользователя при обновлении».
@@ -122,9 +123,13 @@ isActive: Boolean
 ```
 id, name, emoji
 targetKopecks, savedKopecks: Long
-deadlineAt: Long?
+deadlineAt: Long?           ← срок, необязательный
+startedAt: Long?            ← начало накопления; отдельно от createdAt (цель заводят позже,
+                              чем начинают копить, и дата создания молча сократила бы срок)
 isCompleted: Boolean
 ```
+Привязка цели к счёту лежит НЕ здесь, а в `transfer_routes` (`matchType = ACCOUNT`). Форма цели
+правит её отдельным действием `GoalsViewModel.syncAccountRoutes` — см. инвариант #29.
 
 ### PlannedPaymentEntity (`planned_payments`)
 ```
