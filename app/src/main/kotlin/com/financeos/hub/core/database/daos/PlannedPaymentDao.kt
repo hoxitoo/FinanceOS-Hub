@@ -51,11 +51,14 @@ interface PlannedPaymentDao {
     @Query(
         """
         UPDATE planned_payments
-        SET last_matched_tx_id = :txId, matched_through = :through, updated_at = :now
+        SET last_matched_tx_id = :txId,
+            matched_tx_ids     = :txIds,
+            matched_through    = :through,
+            updated_at         = :now
         WHERE id = :id
         """
     )
-    suspend fun markMatched(id: String, txId: String?, through: Long?, now: Long)
+    suspend fun markMatched(id: String, txId: String?, txIds: String?, through: Long?, now: Long)
 
     /**
      * Снять отметку и запомнить отвергнутую операцию, чтобы сборщик не поставил её обратно.
@@ -63,14 +66,19 @@ interface PlannedPaymentDao {
      * Одним запросом: отдельные «сбросить» и «запомнить» дали бы окно, в котором обязательство
      * открыто и запрет ещё не записан — а сборщик слушает ту же таблицу и просыпается именно от
      * первой записи.
+     *
+     * `COALESCE`, а не присваивание: у периода, закрытого КНОПКОЙ «оплачено», операции нет вовсе, и
+     * прямая запись стёрла бы ранее отвергнутую. Сборщик тут же вернул бы её на место — ровно та
+     * кнопка, после которой всё возвращается назад, от которой `rejected_tx_id` и защищает.
      */
     @Query(
         """
         UPDATE planned_payments
-        SET rejected_tx_id = last_matched_tx_id,
+        SET rejected_tx_id     = COALESCE(last_matched_tx_id, rejected_tx_id),
             last_matched_tx_id = NULL,
-            matched_through = NULL,
-            updated_at = :now
+            matched_tx_ids     = NULL,
+            matched_through    = NULL,
+            updated_at         = :now
         WHERE id = :id
         """
     )

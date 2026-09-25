@@ -51,8 +51,14 @@ data class DashboardState(
     /** Aggregate of every active CREDIT account — drives the dashboard tile. */
     val credit              : CreditSummary?            = null,
     private val categories  : Map<String, String>       = emptyMap(),
+    /** Метки источников для «Недавних» — считаются по этим же пяти строкам. */
+    private val sources     : Map<String, com.financeos.hub.ui.components.TxSource> = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categories[it] } ?: "Другое"
+
+    /** Чья это карта и насколько громко об этом говорить. См. `buildSourceLabels`. */
+    fun sourceOf(tx: TransactionEntity): com.financeos.hub.ui.components.TxSource? =
+        com.financeos.hub.features.transactions.sourceKeyOf(tx)?.let { sources[it] }
 
     /** Accounts shown in the «Счета» carousel: credit cards live on their own screen instead. */
     val cashAccounts: List<AccountEntity>
@@ -181,6 +187,11 @@ class DashboardViewModel @Inject constructor(
             accounts             = accounts,
             cards                = cards,
             recentTransactions   = txList.take(5),
+            sources              = com.financeos.hub.features.transactions.buildSourceLabels(
+                transactions = txList.take(5),
+                accounts     = accounts,
+                cards        = cards,
+            ),
             categoryEntities     = categories,
             credit               = credit,
             categories           = catMap,

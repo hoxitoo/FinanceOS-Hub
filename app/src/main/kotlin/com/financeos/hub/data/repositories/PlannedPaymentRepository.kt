@@ -31,8 +31,15 @@ class PlannedPaymentRepository @Inject constructor(
     /** Настоящее удаление — только по явному желанию человека. */
     suspend fun delete(id: String) = dao.delete(id)
 
-    suspend fun markMatched(id: String, txId: String?, throughEpochMillis: Long?) =
-        dao.markMatched(id, txId, throughEpochMillis, System.currentTimeMillis())
+    /**
+     * @param txIds все операции, закрывшие период (счёт бывает оплачен по частям). Первая из них —
+     *        основная, она же попадает в `last_matched_tx_id`. Пустой список = отметка «оплачено»
+     *        без конкретной операции: человек подтвердил платёж руками.
+     */
+    suspend fun markMatched(id: String, txIds: List<String>, throughEpochMillis: Long?) =
+        dao.markMatched(
+            id, txIds.firstOrNull(), txIds.takeIf { it.isNotEmpty() }?.joinToString(","),
+            throughEpochMillis, System.currentTimeMillis())
 
     /**
      * Отвязать найденную операцию: обязательство снова считается незакрытым, а отвергнутая операция

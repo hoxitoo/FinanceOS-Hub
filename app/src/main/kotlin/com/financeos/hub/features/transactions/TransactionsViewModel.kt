@@ -19,6 +19,7 @@ import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.CardRepository
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
+import com.financeos.hub.ui.components.TxSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,9 +66,25 @@ data class TransactionsState(
     val accounts       : List<AccountEntity>               = emptyList(),
     val cards          : List<CardEntity>                  = emptyList(),
     private val categoryMap: Map<String, String>            = emptyMap(),
+    /** Метка источника по его ключу — см. [sourceKeyOf]. */
+    private val sources: Map<String, TxSource>              = emptyMap(),
 ) {
     fun categoryName(id: String?): String = id?.let { categoryMap[it] } ?: "Другое"
+
+    /** Чья это карта и насколько громко об этом говорить. `null` — источник неизвестен. */
+    fun sourceOf(tx: TransactionEntity): TxSource? = sourceKeyOf(tx)?.let { sources[it] }
 }
+
+/**
+ * Ключ источника операции: счёт, если он определён, иначе маска карты из самого сообщения.
+ *
+ * Маска — запасной вариант не для красоты: у непривязанной операции счёта нет вовсе, но банк
+ * напечатал в пуше четыре цифры, и по ним человек свою карту узнаёт. Терять эту подпись только
+ * потому, что карта ещё не заведена в приложении, значит прятать единственное, что о строке
+ * известно.
+ */
+internal fun sourceKeyOf(tx: TransactionEntity): String? =
+    tx.accountId?.let { "acc:$it" } ?: tx.sourceMask?.takeIf { it.isNotBlank() }?.let { "mask:$it" }
 
 data class PdfImportResult(val found: Int, val inserted: Int)
 
@@ -178,6 +195,10 @@ class TransactionsViewModel @Inject constructor(
             accounts       = accounts,
             cards          = cards,
             categoryMap    = catMap,
+            // Считается по ОТФИЛЬТРОВАННОМУ списку, а не по всей истории: заметность должна
+            // отвечать тому, что человек видит сейчас. Отфильтровал по одному счёту — метки
+            // погасли сами, потому что различать стало нечего.
+            sources        = buildSourceLabels(filtered, accounts, cards),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionsState())
 

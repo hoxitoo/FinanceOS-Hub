@@ -221,6 +221,9 @@ class BackupManager @Inject constructor(
         putNullable("accountId", accountId); putNullable("categoryId", categoryId)
         putNullable("autoSource", autoSource)
         putNullable("lastMatchedTxId", lastMatchedTxId); putNullable("matchedThrough", matchedThrough)
+        // ВСЕ части платежа, а не только основная: без них восстановленное обязательство считало бы
+        // свободными операции, которые его же и закрыли, и они ушли бы закрывать соседние.
+        putNullable("matchedTxIds", matchedTxIds)
         putNullable("rejectedTxId", rejectedTxId)
         put("isActive", isActive); put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
@@ -328,6 +331,7 @@ class BackupManager @Inject constructor(
         autoSource = optStringOrNull("autoSource"),
         lastMatchedTxId = optStringOrNull("lastMatchedTxId"),
         matchedThrough = optLongOrNull("matchedThrough"),
+        matchedTxIds = optStringOrNull("matchedTxIds"),
         rejectedTxId = optStringOrNull("rejectedTxId"),
         isActive = optBoolean("isActive", true),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
