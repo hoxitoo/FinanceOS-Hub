@@ -202,15 +202,22 @@ class TransactionsViewModel @Inject constructor(
                 TransactionType.INCOME   ->  mag
                 TransactionType.TRANSFER -> tx.amountKopecks
             }
-            // Смена типа разрывает спаривание переводов (пара — это две ноги ОДНОГО перевода),
-            // но привязку к цели больше не рвёт: цель следует за деньгами на счёте независимо от
-            // того, назвали операцию тратой или переводом.
             val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            // Знак мог перевернуться (расход → доход). Зачисление в цель считается по знаку строки,
-            // поэтому старое надо снять и применить новое — иначе цель осталась бы с прежним
-            // вкладом, вдвое разошедшимся с историей.
-            val amountFlipped = tx.goalId != null && newAmount != tx.amountKopecks
-            if (amountFlipped) transferRouter.onTransactionReversed(tx)
+            // Судьба зачисления в цель зависит от ТОГО, ЧЕМ цель привязана.
+            //
+            //  • Привязка к СЧЁТУ говорит «деньги на этом счёте — это цель», и она верна для траты
+            //    ровно так же, как для перевода. Тип поменялся — пересчитываем знак: расход стал
+            //    доходом, значит старое зачисление снимаем и применяем новое.
+            //  • Привязка по КАРТЕ или СЛОВУ говорит «перевод туда-то — это пополнение», и
+            //    перестаёт действовать, как только операция перестала быть переводом. Тогда
+            //    зачисление откатывается, а сама связь с целью снимается — иначе «перевод другу»,
+            //    переназванный в расход, навсегда остался бы засчитанным в накопления, и удаление
+            //    строки откатило бы его ВТОРОЙ раз.
+            val accountRouted = tx.goalId != null && transferRouter.isAccountRouted(tx)
+            val dropGoalLink  = tx.goalId != null && leftTransfer && !accountRouted
+            val resign        = accountRouted && newAmount != tx.amountKopecks
+
+            if (dropGoalLink || resign) transferRouter.onTransactionReversed(tx)
 
             val updated = tx.copy(
                     type           = newType,
@@ -218,12 +225,12 @@ class TransactionsViewModel @Inject constructor(
                     merchant       = merchant.ifBlank { null },
                     categoryId     = categoryId,
                     description    = note,
-                    goalId         = tx.goalId,
+                    goalId         = if (dropGoalLink) null else tx.goalId,
                     transferPairId = if (leftTransfer) null else tx.transferPairId,
                     updatedAt      = System.currentTimeMillis(),
             )
             txRepo.update(updated)
-            if (amountFlipped) transferRouter.onManualRowInserted(updated)
+            if (resign) transferRouter.onManualRowInserted(updated)
         }
     }
 

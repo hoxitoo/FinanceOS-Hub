@@ -14,7 +14,7 @@ import com.financeos.hub.data.repositories.TransferRouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -63,11 +63,18 @@ class GoalsViewModel @Inject constructor(
     }
 
     /**
-     * Темп пересчитывается при каждом изменении истории, а не один раз при создании VM: положив
-     * деньги на цель, человек тут же открывает расчёт, и устаревший темп показал бы старый срок.
+     * Собственный темп накопления. Считается ОДИН раз на подписку, а не на каждое изменение
+     * истории.
+     *
+     * Темп — средний остаток за три ЗАКРЫТЫХ месяца, и сегодняшняя операция на него не влияет по
+     * определению. Подписка на `observeAll()` тянула бы всю таблицу операций при каждой правке
+     * ради значения, которое от неё не зависит. Экран целей открыт подолгу, история бывает в
+     * десятки тысяч строк — это чистая трата на горячем пути.
+     *
+     * Свежести хватает: `WhileSubscribed(5_000)` отпускает поток через пять секунд после ухода с
+     * экрана, и следующее открытие считает заново.
      */
-    private val pace = txRepo.observeAll()
-        .map { txRepo.averageMonthlyNet(3) }
+    private val pace = flow { emit(txRepo.averageMonthlyNet(3)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state = combine(
