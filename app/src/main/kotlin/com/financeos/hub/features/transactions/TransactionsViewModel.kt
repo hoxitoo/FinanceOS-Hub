@@ -276,6 +276,10 @@ class TransactionsViewModel @Inject constructor(
                 txRepo.transferPair(pairId)
                     .filter { it.id != id }
                     .forEach { leg ->
+                        // Вторая нога могла зачислить в свою цель (у сторон перевода цели разные).
+                        // Без этого отката удалённый перевод оставлял бы цель приёмника наполненной
+                        // деньгами, которых больше нет ни на счёте, ни в истории.
+                        if (leg.goalId != null) transferRouter.onTransactionReversed(leg)
                         if (leg.accountId != null && leg.balanceKopecks == null &&
                             leg.source != TransactionSource.PDF
                         ) {
@@ -320,8 +324,7 @@ class TransactionsViewModel @Inject constructor(
                 destAccountId != null && destAccountId != accountId
             ) UUID.randomUUID().toString() else null
 
-            txRepo.insert(
-                TransactionEntity(
+            val row = TransactionEntity(
                     id            = UUID.randomUUID().toString(),
                     smsId         = null,
                     accountId     = accountId,
@@ -341,8 +344,12 @@ class TransactionsViewModel @Inject constructor(
                     transferPairId = pairId,
                     isDeleted     = false,
                     deletedAt     = null,
-                )
             )
+            txRepo.insert(row)
+            // Ручная операция тоже проходит привязку к цели. Раньше этого вызова здесь не было
+            // вовсе: перевод на привязанный счёт цель не двигал, а удаление такой операции цель
+            // уменьшало — зачисления нет, списание есть.
+            transferRouter.onManualRowInserted(row)
             // Reflect the operation on the chosen account's balance so the dashboard stays in sync.
             if (accountId != null) {
                 if (acc != null) {
@@ -361,8 +368,7 @@ class TransactionsViewModel @Inject constructor(
             // этот сдвиг отменить — откатить можно только тот счёт, на котором строка лежит.
             if (pairId != null && destAccountId != null) {
                 accountRepo.getById(destAccountId)?.let { dest ->
-                    txRepo.insert(
-                        TransactionEntity(
+                    val incomingLeg = TransactionEntity(
                             id             = UUID.randomUUID().toString(),
                             smsId          = null,
                             accountId      = dest.id,
@@ -375,8 +381,11 @@ class TransactionsViewModel @Inject constructor(
                             timestamp      = timestamp,
                             currency       = dest.currency,
                             transferPairId = pairId,
-                        )
                     )
+                    txRepo.insert(incomingLeg)
+                    // Цель, привязанная к счёту-ПРИЁМНИКУ, растёт именно на этой ноге: первая
+                    // лежит на счёте-источнике и о приёмнике ничего не знает.
+                    transferRouter.onManualRowInserted(incomingLeg)
                     accountRepo.upsert(dest.copy(
                         balanceKopecks = dest.balanceKopecks + mag,
                         updatedAt      = now,

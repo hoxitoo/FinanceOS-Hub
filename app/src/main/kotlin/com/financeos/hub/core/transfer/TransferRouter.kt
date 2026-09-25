@@ -147,6 +147,35 @@ class TransferRouter @Inject constructor(
     }
 
     /**
+     * Зачисление в цель для строки, которую создало САМО приложение (ручная операция).
+     *
+     * Отдельный вход, а не [onTransactionInserted], и это не дублирование. Тот написан под
+     * банковское сообщение: он двигает баланс встречного счёта (банк присылает перевод одним пушем
+     * на один счёт) и ищет парную строку. У ручной операции обе ноги уже написаны, оба баланса уже
+     * применены — прогон через ту логику добавил бы деньги второй раз и переписал бы `transferPairId`
+     * своим. Поэтому здесь ТОЛЬКО привязка к цели, без балансов и без спаривания.
+     *
+     * До этой правки ручная операция не доходила до маршрутизатора вовсе: перевод на привязанный
+     * счёт цель не двигал, а вот УДАЛЕНИЕ такой операции цель уменьшало (`onTransactionReversed`
+     * вызывался). Зачисления не было, списание было — и «Автопополнение» выглядело сломанным,
+     * потому что таким и было.
+     *
+     * Знак берётся у самой строки: пришли деньги на привязанный счёт — цель растёт, ушли — падает.
+     * Ровно то, что обещает подпись в листе привязки.
+     */
+    suspend fun onManualRowInserted(tx: TransactionEntity) {
+        runCatching {
+            if (tx.type != TransactionType.TRANSFER) return
+            val accountId = tx.accountId ?: return
+            val route = transferRouteRepo.getAllActive().firstOrNull { r ->
+                r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accountId
+            } ?: return
+            goalRepo.contribute(route.goalId, tx.amountKopecks)
+            transactionDao.setGoal(tx.id, route.goalId)
+        }
+    }
+
+    /**
      * Reverses the goal contribution that [onTransactionInserted] applied, so deleting (or
      * un-routing) a transfer that funded a goal restores the goal's progress. Mirrors the
      * original sign exactly:

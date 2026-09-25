@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -74,6 +75,16 @@ fun GoalsScreen(
 
     var historyTarget    by remember { mutableStateOf<GoalEntity?>(null) }
     val historySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var deleteTarget   by remember { mutableStateOf<GoalEntity?>(null) }
+    var completedOpen  by remember { mutableStateOf(false) }
+
+    // Выполненной считается цель, на которой действительно лежит целевая сумма, а не только флаг:
+    // после снятия денег через «−» флаг снимается не сразу, и цель уехала бы под свёрнутый
+    // заголовок вместе с деньгами, которых на ней уже нет.
+    val reached  = { g: GoalEntity -> g.targetKopecks > 0 && g.savedKopecks >= g.targetKopecks }
+    val active    = remember(state.goals) { state.goals.filterNot(reached) }
+    val completed = remember(state.goals) { state.goals.filter(reached) }
 
     Scaffold(
         containerColor = FosColors.Background,
@@ -143,7 +154,7 @@ fun GoalsScreen(
                     }
                 }
             } else {
-                items(state.goals, key = { it.id }) { goal ->
+                items(active, key = { it.id }) { goal ->
                     GoalCard(
                         goal              = goal,
                         onEdit            = { editTarget = goal },
@@ -156,8 +167,59 @@ fun GoalsScreen(
                         },
                         onLink    = { linkTarget = goal },
                         onHistory = { historyTarget = goal },
-                        onDelete  = { vm.deleteGoal(goal.id) },
+                        onDelete  = { deleteTarget = goal },
                     )
+                }
+
+                // Выполненные — вниз и под сворачиваемый заголовок. Удалять их нельзя (это история
+                // накоплений, и на них ещё лежат деньги), а место в начале списка они занимали
+                // наравне с теми, на которые ещё копят.
+                if (completed.isNotEmpty()) {
+                    item(key = "completed_header") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = FosDimens.ItemGap)
+                                .clip(RoundedCornerShape(FosDimens.RadiusCardSmall))
+                                .clickable { completedOpen = !completedOpen }
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment     = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Выполненные",
+                                style = FosType.SectionCap,
+                                color = FosColors.TextSecondary,
+                            )
+                            Text(
+                                completed.size.toString(),
+                                style = FosType.MicroNum,
+                                color = FosColors.Positive,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                if (completedOpen) "▲" else "▼",
+                                style = FosType.Micro,
+                                color = FosColors.TextMuted,
+                            )
+                        }
+                    }
+                    if (completedOpen) {
+                        items(completed, key = { it.id }) { goal ->
+                            GoalCard(
+                                goal      = goal,
+                                onEdit    = { editTarget = goal },
+                                onAdjust  = {
+                                    contributeTarget = goal
+                                    contributeText   = ""
+                                    withdrawMode     = false
+                                },
+                                onLink    = { linkTarget = goal },
+                                onHistory = { historyTarget = goal },
+                                onDelete  = { deleteTarget = goal },
+                            )
+                        }
+                    }
                 }
             }
 
@@ -318,6 +380,38 @@ fun GoalsScreen(
         )
     }
 
+    // Удаление цели — с вопросом. Крестик стоит в одном ряду с «±» и историей, попасть по нему
+    // мимо соседа легко, а отменить нечем: вместе с целью уходят её привязки и вся история
+    // зачислений. Сумма в вопросе — чтобы было видно, что именно теряется.
+    deleteTarget?.let { goal ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor   = FosColors.Surface,
+            title = {
+                Text("Удалить цель?", style = FosType.BodySemi, color = FosColors.TextPrimary)
+            },
+            text = {
+                Text(
+                    "«${goal.name}» — отложено ${FosFormatter.amount(goal.savedKopecks)}. " +
+                        "Цель и её привязки к счетам исчезнут, история зачислений перестанет " +
+                        "показываться. Деньги на счетах останутся на месте.",
+                    style = FosType.Body,
+                    color = FosColors.TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteGoal(goal.id); deleteTarget = null }) {
+                    Text("Удалить", color = FosColors.Negative)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Отмена", color = FosColors.Info)
+                }
+            },
+        )
+    }
+
     // Auto-fund link sheet
     linkTarget?.let { goal ->
         LinkTransferRouteSheet(
@@ -325,6 +419,7 @@ fun GoalsScreen(
             routes         = state.routes,
             cardMasks      = state.cardMasks,
             accounts       = state.accounts,
+            cardOwners     = state.cardOwners,
             onLinkCard     = { mask -> vm.linkCard(goal.id, mask) },
             onLinkKeyword  = { kw -> vm.linkKeyword(goal.id, kw) },
             onLinkAccount  = { accountId -> vm.linkAccount(goal.id, accountId) },

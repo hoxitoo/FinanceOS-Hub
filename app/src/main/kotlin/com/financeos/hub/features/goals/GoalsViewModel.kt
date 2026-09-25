@@ -24,6 +24,13 @@ data class GoalsState(
     val routes: List<TransferRouteEntity> = emptyList(),
     val cardMasks: List<String> = emptyList(),
     val accounts: List<AccountEntity> = emptyList(),
+    /**
+     * Маска карты → имя счёта, к которому она привязана.
+     *
+     * Без этого список карт в листе автопополнения — шестнадцать голых четырёхзначных чисел, и
+     * выбрать из них нужную можно только угадыванием.
+     */
+    val cardOwners: Map<String, String> = emptyMap(),
 )
 
 @HiltViewModel
@@ -62,7 +69,20 @@ class GoalsViewModel @Inject constructor(
         val cards    = arr[3] as List<CardEntity>
 
         val masks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
-        GoalsState(goals = goals, routes = routes, cardMasks = masks, accounts = accounts)
+        val byId  = accounts.associateBy { it.id }
+        val owners = buildMap {
+            // Сначала карты (их привязка к счёту явная), затем маска самого счёта — она и есть
+            // последнее слово, если одна и та же маска встретилась дважды.
+            cards.forEach { c -> byId[c.accountId]?.let { put(c.cardMask, it.name) } }
+            accounts.forEach { a -> a.cardMask?.let { put(it, a.name) } }
+        }
+        GoalsState(
+            goals      = goals,
+            routes     = routes,
+            cardMasks  = masks,
+            accounts   = accounts,
+            cardOwners = owners,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
     fun createGoal(
