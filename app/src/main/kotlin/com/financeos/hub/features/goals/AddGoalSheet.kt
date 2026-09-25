@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.GoalEntity
+import com.financeos.hub.core.finance.GoalPlan
 import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
@@ -87,6 +88,8 @@ fun AddGoalSheet(
     existing        : GoalEntity? = null,
     accounts        : List<AccountEntity> = emptyList(),
     linkedAccountIds: Set<String> = emptySet(),
+    /** Собственный темп накопления, ₽/мес — для строки «вашим темпом» в расчёте. */
+    paceKopecks     : Long? = null,
     onDismiss       : () -> Unit,
     onSave          : (
         name            : String,
@@ -230,11 +233,27 @@ fun AddGoalSheet(
             )
         }
 
+        // ── Расчёт ───────────────────────────────────────────────────────────────
+        // Считается прямо здесь и пересчитывается на каждый ввод: вопрос «сколько откладывать»
+        // возникает ровно в тот момент, когда ставишь сумму и срок, а не на отдельном экране,
+        // куда надо ещё раз перенести те же цифры.
+        val savedNow = existing?.savedKopecks ?: 0L
+        if (targetKopecks > 0) {
+            val plan = GoalPlan.outlook(
+                savedKopecks  = savedNow,
+                targetKopecks = targetKopecks,
+                startedAt     = startedAt,
+                deadlineAt    = deadline,
+                paceKopecks   = paceKopecks,
+            )
+            GoalPlanBlock(plan, paceKopecks)
+        }
+
         // ── Привязка счетов ──────────────────────────────────────────────────────
         if (accounts.isNotEmpty()) {
             FieldCaption("ПРИВЯЗАТЬ СЧЁТ")
             Text(
-                "Переводы на привязанный счёт будут добавляться к цели, переводы с него — вычитаться.",
+                "Цель будет следовать за деньгами на этом счёте: приход прибавляется, расход вычитается.",
                 style = FosType.Micro,
                 color = FosColors.TextSecondary,
             )
@@ -296,6 +315,103 @@ fun AddGoalSheet(
 
 /** Какое из двух полей даты сейчас выбирают — одно состояние на один календарь. */
 private enum class DateField { START, DEADLINE }
+
+/**
+ * Расчёт по цели: сколько осталось, сколько откладывать, успеваете ли своим темпом.
+ *
+ * Каждая строка появляется, только когда есть из чего её посчитать. Пустая заглушка вроде
+ * «— ₽ в месяц» выглядит как сломанный расчёт, хотя на деле не хватает срока или истории.
+ */
+@Composable
+private fun GoalPlanBlock(plan: GoalPlan.Outlook, paceKopecks: Long?) {
+    FieldCaption("РАСЧЁТ")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(FosDimens.RadiusButton))
+            .background(FosColors.Surface2)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (plan.remainingKopecks == 0L) {
+            Text("Цель набрана", style = FosType.BodySemi, color = FosColors.Positive)
+            return@Column
+        }
+
+        PlanLine("Осталось собрать", FosFormatter.amount(plan.remainingKopecks), FosColors.TextPrimary)
+
+        when {
+            plan.monthsLeft == null ->
+                Text(
+                    "Укажите срок — и здесь появится, сколько откладывать в месяц.",
+                    style = FosType.Micro,
+                    color = FosColors.TextMuted,
+                )
+            plan.monthsLeft <= 0 ->
+                PlanLine(
+                    "Срок уже наступил",
+                    FosFormatter.amount(plan.requiredMonthly ?: plan.remainingKopecks),
+                    FosColors.Warning,
+                )
+            else -> {
+                PlanLine(
+                    "Откладывать в месяц",
+                    FosFormatter.amount(plan.requiredMonthly ?: 0L),
+                    FosColors.Info,
+                )
+                PlanLine(
+                    "Месяцев до срока",
+                    plan.monthsLeft.toString(),
+                    FosColors.TextSecondary,
+                )
+            }
+        }
+
+        // Собственный темп — не прогноз, а факт: средний остаток за три закрытых месяца.
+        if (paceKopecks != null && paceKopecks > 0L) {
+            plan.monthsAtCurrentPace?.let { months ->
+                PlanLine(
+                    "Вашим темпом (${FosFormatter.compact(paceKopecks)}/мес)",
+                    "$months мес.",
+                    if (plan.onTrack == false) FosColors.Warning else FosColors.TextSecondary,
+                )
+            }
+            if (plan.onTrack == false) {
+                Text(
+                    "Текущего темпа к сроку не хватает.",
+                    style = FosType.Micro,
+                    color = FosColors.Warning,
+                )
+            }
+        }
+
+        plan.elapsedShare?.let { share ->
+            Text(
+                "Прошло ${(share * 100).toInt()} % срока",
+                style = FosType.MicroNum,
+                color = FosColors.TextMuted,
+            )
+        }
+
+        Text(
+            "Без учёта процентов: цель — копилка, а не вклад.",
+            style = FosType.Micro,
+            color = FosColors.TextMuted,
+        )
+    }
+}
+
+@Composable
+private fun PlanLine(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color) {
+    Row(
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically,
+    ) {
+        Text(label, style = FosType.Micro, color = FosColors.TextSecondary)
+        Text(value, style = FosType.SmallBold, color = valueColor)
+    }
+}
 
 @Composable
 private fun FieldCaption(text: String) {

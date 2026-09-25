@@ -193,13 +193,6 @@ class TransactionsViewModel @Inject constructor(
         note       : String?,
     ) {
         viewModelScope.launch {
-            // Reclassifying away from TRANSFER (e.g. "перевод другу" → расход) must undo any goal
-            // routing this transfer applied, otherwise the goal stays inflated by money now counted
-            // as a plain expense/income.
-            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            if (leftTransfer && tx.goalId != null) {
-                transferRouter.onTransactionReversed(tx)
-            }
             // Re-sign the amount to match the new type: expense negative, income positive; a transfer
             // keeps its original direction. Magnitude is preserved, so balances are unaffected — only
             // how analytics counts the row changes.
@@ -209,20 +202,28 @@ class TransactionsViewModel @Inject constructor(
                 TransactionType.INCOME   ->  mag
                 TransactionType.TRANSFER -> tx.amountKopecks
             }
-            txRepo.update(
-                tx.copy(
+            // Смена типа разрывает спаривание переводов (пара — это две ноги ОДНОГО перевода),
+            // но привязку к цели больше не рвёт: цель следует за деньгами на счёте независимо от
+            // того, назвали операцию тратой или переводом.
+            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
+            // Знак мог перевернуться (расход → доход). Зачисление в цель считается по знаку строки,
+            // поэтому старое надо снять и применить новое — иначе цель осталась бы с прежним
+            // вкладом, вдвое разошедшимся с историей.
+            val amountFlipped = tx.goalId != null && newAmount != tx.amountKopecks
+            if (amountFlipped) transferRouter.onTransactionReversed(tx)
+
+            val updated = tx.copy(
                     type           = newType,
                     amountKopecks  = newAmount,
                     merchant       = merchant.ifBlank { null },
                     categoryId     = categoryId,
                     description    = note,
-                    // Once it is no longer a transfer, drop the transfer-only links so it can't be
-                    // re-paired or counted against a goal.
-                    goalId         = if (leftTransfer) null else tx.goalId,
+                    goalId         = tx.goalId,
                     transferPairId = if (leftTransfer) null else tx.transferPairId,
                     updatedAt      = System.currentTimeMillis(),
-                )
             )
+            txRepo.update(updated)
+            if (amountFlipped) transferRouter.onManualRowInserted(updated)
         }
     }
 

@@ -14,6 +14,7 @@ import com.financeos.hub.data.repositories.TransferRouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -31,6 +32,14 @@ data class GoalsState(
      * выбрать из них нужную можно только угадыванием.
      */
     val cardOwners: Map<String, String> = emptyMap(),
+    /**
+     * Собственный темп накопления — средний остаток за три ЗАКРЫТЫХ месяца.
+     *
+     * Текущий месяц исключён намеренно (та же ловушка, что в калькуляторе и в пилларах оценки):
+     * 3-го числа зарплата уже пришла, а расходы ещё нет, и темп вышел бы вдвое выше правды.
+     * `null` — истории ещё нет, и тогда расчёт молчит вместо того, чтобы обещать срок.
+     */
+    val paceKopecks: Long? = null,
 )
 
 @HiltViewModel
@@ -53,11 +62,20 @@ class GoalsViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     }
 
+    /**
+     * Темп пересчитывается при каждом изменении истории, а не один раз при создании VM: положив
+     * деньги на цель, человек тут же открывает расчёт, и устаревший темп показал бы старый срок.
+     */
+    private val pace = txRepo.observeAll()
+        .map { txRepo.averageMonthlyNet(3) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val state = combine(
         goalRepo.observeActive(),
         transferRouteRepo.observeAll(),
         accountRepo.observeAll(),
         cardRepo.observeAll(),
+        pace,
     ) { arr ->
         @Suppress("UNCHECKED_CAST")
         val goals    = arr[0] as List<GoalEntity>
@@ -67,6 +85,7 @@ class GoalsViewModel @Inject constructor(
         val accounts = arr[2] as List<AccountEntity>
         @Suppress("UNCHECKED_CAST")
         val cards    = arr[3] as List<CardEntity>
+        val paceNow  = arr[4] as Long?
 
         val masks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
         val byId  = accounts.associateBy { it.id }
@@ -80,8 +99,9 @@ class GoalsViewModel @Inject constructor(
             goals      = goals,
             routes     = routes,
             cardMasks  = masks,
-            accounts   = accounts,
-            cardOwners = owners,
+            accounts    = accounts,
+            cardOwners  = owners,
+            paceKopecks = paceNow,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
@@ -119,24 +139,22 @@ class GoalsViewModel @Inject constructor(
         }
     }
 
-    fun addContribution(goal: GoalEntity, amountKopecks: Long) {
-        // Delegate to the single clamping/completion code path so manual and routed
-        // contributions behave identically (floor-clamp, target-clamp, updatedAt refresh).
-        viewModelScope.launch { goalRepo.contribute(goal.id, amountKopecks) }
-    }
-
     /**
-     * Takes [amountKopecks] back out of a goal — money spent on it, or set aside by mistake.
+     * Ставит НА цели ровно [totalKopecks]: приложение само считает, сколько прибавилось или убыло.
      *
-     * Runs through the very same [GoalRepository.contribute] with a negated amount, so a withdrawal
-     * inherits everything a contribution already gets right: the mutex against concurrent routed
-     * transfers, the floor at zero, and the clearing of `completedAt` when the goal drops back below
-     * its target (without which a card keeps claiming "выполнено" over money that is no longer there).
+     * Так человек и знает свои накопления — «на счёте лежит 45 000», а не «с прошлого раза стало
+     * больше на 5 000». Разностью приходилось считать в уме, и ошибка в этом счёте попадала прямо
+     * в цель: ввёл полную сумму вместо прибавки — цель прыгнула вдвое, и откатить это можно было
+     * только такой же ручной разностью.
+     *
+     * Под капотом — та же [GoalRepository.contribute] со знаковой разностью: у неё один мьютекс с
+     * автоматическими зачислениями и одно место, где цель закрывается и открывается обратно.
+     * Отдельная «установка» мимо неё разошлась бы с этой логикой при первой же правке.
      */
-    fun withdrawContribution(goal: GoalEntity, amountKopecks: Long) {
-        val magnitude = kotlin.math.abs(amountKopecks)
-        if (magnitude <= 0L) return
-        viewModelScope.launch { goalRepo.contribute(goal.id, -magnitude) }
+    fun setSavedTotal(goal: GoalEntity, totalKopecks: Long) {
+        val delta = totalKopecks.coerceAtLeast(0L) - goal.savedKopecks
+        if (delta == 0L) return
+        viewModelScope.launch { goalRepo.contribute(goal.id, delta) }
     }
 
     fun updateGoal(

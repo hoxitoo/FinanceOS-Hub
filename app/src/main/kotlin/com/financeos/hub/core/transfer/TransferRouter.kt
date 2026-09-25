@@ -5,6 +5,7 @@ import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.database.entities.TransferMatchType
+import com.financeos.hub.core.database.entities.TransferRouteEntity
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.data.repositories.GoalRepository
 import com.financeos.hub.data.repositories.TransferRouteRepository
@@ -42,12 +43,23 @@ class TransferRouter @Inject constructor(
         counterpartyMask: String?,
     ) {
         runCatching {
-            if (tx.type != TransactionType.TRANSFER) return
-            val magnitude = abs(tx.amountKopecks)
-            val outgoing  = tx.amountKopecks < 0
-
             // (A) Goal routing
             val routes = transferRouteRepo.getAllActive()
+
+            // Цель, привязанная к СЧЁТУ, следует за деньгами на этом счёте — любыми, не только
+            // переводами. Пополнили накопительный счёт зачислением — цель выросла; сняли —
+            // упала. До этого зачисление на привязанный счёт цель не двигало вовсе, и
+            // «автопополнение» работало ровно в одном случае из трёх (инвариант #31).
+            //
+            // Остальное ниже — про переводы, и по делу: спаривание ног и маршруты по карте
+            // получателя существуют только у переводов.
+            if (tx.type != TransactionType.TRANSFER) {
+                routeByOwnAccount(tx, routes)
+                return
+            }
+
+            val magnitude = abs(tx.amountKopecks)
+            val outgoing  = tx.amountKopecks < 0
 
             // A transfer touches up to TWO tracked accounts:
             //   • the account this SMS/push is booked on (tx.accountId — the source for an
@@ -164,15 +176,27 @@ class TransferRouter @Inject constructor(
      * Ровно то, что обещает подпись в листе привязки.
      */
     suspend fun onManualRowInserted(tx: TransactionEntity) {
-        runCatching {
-            if (tx.type != TransactionType.TRANSFER) return
-            val accountId = tx.accountId ?: return
-            val route = transferRouteRepo.getAllActive().firstOrNull { r ->
-                r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accountId
-            } ?: return
-            goalRepo.contribute(route.goalId, tx.amountKopecks)
-            transactionDao.setGoal(tx.id, route.goalId)
-        }
+        runCatching { routeByOwnAccount(tx, transferRouteRepo.getAllActive()) }
+    }
+
+    /**
+     * Единственное правило привязки «цель ↔ счёт»: сколько денег пришло на счёт — столько и
+     * прибавилось к цели, сколько ушло — столько убавилось.
+     *
+     * Знак берётся у самой строки, поэтому правило одинаково работает для зачисления, траты и
+     * перевода, а откат (`onTransactionReversed`) — это тот же знак наоборот. Один расчёт на все
+     * способы создать операцию: банковский пуш, импорт, ручной ввод.
+     */
+    private suspend fun routeByOwnAccount(
+        tx: TransactionEntity,
+        routes: List<TransferRouteEntity>,
+    ) {
+        val accountId = tx.accountId ?: return
+        val route = routes.firstOrNull { r ->
+            r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accountId
+        } ?: return
+        goalRepo.contribute(route.goalId, tx.amountKopecks)
+        transactionDao.setGoal(tx.id, route.goalId)
     }
 
     /**
@@ -188,17 +212,23 @@ class TransferRouter @Inject constructor(
         runCatching {
             val goalId = tx.goalId ?: return
             val magnitude = abs(tx.amountKopecks)
-            val accountRoute = transferRouteRepo.getAllActive().firstOrNull {
-                it.goalId == goalId && it.matchType == TransferMatchType.ACCOUNT
+            val goalRoutes = transferRouteRepo.getAllActive().filter { it.goalId == goalId }
+            // Сначала ищем привязку именно к СВОЕМУ счёту строки, и только потом — любую другую.
+            // У цели может быть несколько привязанных счетов (выбор в форме множественный), и
+            // «первая попавшаяся привязка типа ACCOUNT» с приходом на второй счёт давала обратный
+            // знак: удаление зачисления УВЕЛИЧИВАЛО бы цель.
+            val ownRoute = goalRoutes.firstOrNull {
+                it.matchType == TransferMatchType.ACCOUNT && it.matchValue == tx.accountId
             }
+            val anyAccountRoute = goalRoutes.firstOrNull { it.matchType == TransferMatchType.ACCOUNT }
             // Mirror exactly what onTransactionInserted applied to the goal:
             //  • own-account leg (route on tx.accountId)  → signed amount (tx.amountKopecks)
             //  • counterparty leg (route on the dest acct) → the opposite sign
             //  • CARD/KEYWORD                              → +magnitude (outgoing only)
             val appliedDelta = when {
-                accountRoute == null -> magnitude
-                accountRoute.matchValue == tx.accountId -> tx.amountKopecks
-                else -> -tx.amountKopecks
+                ownRoute != null        -> tx.amountKopecks
+                anyAccountRoute != null -> -tx.amountKopecks
+                else                    -> magnitude
             }
             goalRepo.contribute(goalId, -appliedDelta)
         }
