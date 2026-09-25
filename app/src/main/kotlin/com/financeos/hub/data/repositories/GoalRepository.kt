@@ -20,6 +20,12 @@ class GoalRepository @Inject constructor(
 
     fun observeCompleted(): Flow<List<GoalEntity>> = dao.observeCompleted()
 
+    /** Все цели, включая набранные — их карточки обязаны оставаться на экране. */
+    fun observeAll(): Flow<List<GoalEntity>> = dao.observeAll()
+
+    /** Свежая цель из БД: правка формы обязана накладываться на актуальное `savedKopecks`. */
+    suspend fun getById(id: String): GoalEntity? = dao.getById(id)
+
     suspend fun upsert(goal: GoalEntity) = dao.upsert(goal)
 
     suspend fun updateSaved(id: String, savedKopecks: Long) = dao.updateSaved(id, savedKopecks)
@@ -28,10 +34,16 @@ class GoalRepository @Inject constructor(
      * Adds [amountKopecks] to a goal's saved balance (may be negative to undo),
      * clamping to [0, target] and updating completion state.
      * The mutex prevents a TOCTOU race when two transfers route to the same goal concurrently.
+     *
+     * @return `false`, если цели с таким id больше нет — зачислять некуда.
+     *
+     * Молчаливый выход отсюда стоил дорого: вызывающий считал, что зачисление прошло, и вешал на
+     * операцию `goal_id` удалённой цели. Ответ обязателен, чтобы связь ставилась только когда
+     * деньги реально куда-то легли.
      */
-    suspend fun contribute(goalId: String, amountKopecks: Long) {
+    suspend fun contribute(goalId: String, amountKopecks: Long): Boolean {
         mutex.withLock {
-            val g = dao.getById(goalId) ?: return
+            val g = dao.getById(goalId) ?: return false
             val newSaved  = (g.savedKopecks + amountKopecks).coerceAtLeast(0L)
             val completed = newSaved >= g.targetKopecks
             dao.upsert(
@@ -49,6 +61,7 @@ class GoalRepository @Inject constructor(
                     updatedAt    = System.currentTimeMillis(),
                 )
             )
+            return true
         }
     }
 

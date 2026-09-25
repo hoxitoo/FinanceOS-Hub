@@ -78,7 +78,7 @@ class GoalsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state = combine(
-        goalRepo.observeActive(),
+        goalRepo.observeAll(),
         transferRouteRepo.observeAll(),
         accountRepo.observeAll(),
         cardRepo.observeAll(),
@@ -159,9 +159,15 @@ class GoalsViewModel @Inject constructor(
      * Отдельная «установка» мимо неё разошлась бы с этой логикой при первой же правке.
      */
     fun setSavedTotal(goal: GoalEntity, totalKopecks: Long) {
-        val delta = totalKopecks.coerceAtLeast(0L) - goal.savedKopecks
-        if (delta == 0L) return
-        viewModelScope.launch { goalRepo.contribute(goal.id, delta) }
+        viewModelScope.launch {
+            // Разность считается от СВЕЖЕЙ суммы, а не от той, что была на экране при открытии
+            // диалога. Пока диалог открыт, цель может подрасти автозачислением, и дельта от
+            // устаревшей базы затёрла бы его.
+            val fresh = goalRepo.getById(goal.id) ?: return@launch
+            val delta = totalKopecks.coerceAtLeast(0L) - fresh.savedKopecks
+            if (delta == 0L) return@launch
+            goalRepo.contribute(goal.id, delta)
+        }
     }
 
     fun updateGoal(
@@ -173,14 +179,21 @@ class GoalsViewModel @Inject constructor(
         startedAt     : Long? = goal.startedAt,
     ) {
         viewModelScope.launch {
+            // Правка накладывается на СВЕЖУЮ строку из БД, а не на снимок, сделанный при открытии
+            // листа. `GoalDao.upsert` — это `@Insert(REPLACE)`, он переписывает строку целиком:
+            // зачисление, прилетевшее пушем, пока лист был открыт, исчезало без следа. Окно теперь
+            // шире прежнего — лист длиннее (иконки, расчёт, счета), а `goal_id` получает уже не
+            // только перевод, но и любая операция на привязанном счёте.
+            val fresh = goalRepo.getById(goal.id) ?: return@launch
             goalRepo.upsert(
-                goal.copy(
+                fresh.copy(
                     name          = name,
                     emoji         = emoji,
                     targetKopecks = targetKopecks,
                     deadlineAt    = deadlineAt,
                     startedAt     = startedAt,
-                    isCompleted   = goal.savedKopecks >= targetKopecks,
+                    // Считается по свежей сумме: цель могла набраться, пока лист был открыт.
+                    isCompleted   = fresh.savedKopecks >= targetKopecks,
                     updatedAt     = System.currentTimeMillis(),
                 )
             )
@@ -220,7 +233,14 @@ class GoalsViewModel @Inject constructor(
     }
 
     fun deleteGoal(id: String) {
-        viewModelScope.launch { goalRepo.delete(id) }
+        viewModelScope.launch {
+            // Привязки снимаются ПЕРЕД удалением цели: у `transfer_routes` нет внешнего ключа на
+            // `goals`, и осиротевший маршрут продолжал бы ловить переводы — а зачислять их было бы
+            // некуда. Диалог удаления прямо обещает, что привязки исчезнут; до этой правки не
+            // исчезали.
+            transferRouteRepo.removeGoalRoutes(id)
+            goalRepo.delete(id)
+        }
     }
 
     // --- Auto-fund (transfer routing) links ---

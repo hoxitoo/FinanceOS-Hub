@@ -28,4 +28,15 @@ interface TransferRouteDao {
      *  stale route to a now-dead account id (which silently stops funding it). */
     @Query("UPDATE transfer_routes SET is_active = 0 WHERE match_type = 'ACCOUNT' AND match_value = :accountId")
     suspend fun deactivateByAccountValue(accountId: String)
+
+    /**
+     * Снимает все привязки удалённой цели.
+     *
+     * У `transfer_routes` нет внешнего ключа на `goals`, поэтому строки переживали свою цель и
+     * продолжали ловить переводы: `routeByOwnAccount` берёт ПЕРВЫЙ подходящий маршрут, и сирота,
+     * стоящая раньше, перехватывала зачисления у новой цели на том же счёте. Та же уборка, что
+     * `deactivateByAccountValue` делает при удалении счёта.
+     */
+    @Query("UPDATE transfer_routes SET is_active = 0 WHERE goal_id = :goalId")
+    suspend fun deactivateByGoal(goalId: String)
 }

@@ -203,34 +203,21 @@ class TransactionsViewModel @Inject constructor(
                 TransactionType.TRANSFER -> tx.amountKopecks
             }
             val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            // Судьба зачисления в цель зависит от ТОГО, ЧЕМ цель привязана.
-            //
-            //  • Привязка к СЧЁТУ говорит «деньги на этом счёте — это цель», и она верна для траты
-            //    ровно так же, как для перевода. Тип поменялся — пересчитываем знак: расход стал
-            //    доходом, значит старое зачисление снимаем и применяем новое.
-            //  • Привязка по КАРТЕ или СЛОВУ говорит «перевод туда-то — это пополнение», и
-            //    перестаёт действовать, как только операция перестала быть переводом. Тогда
-            //    зачисление откатывается, а сама связь с целью снимается — иначе «перевод другу»,
-            //    переназванный в расход, навсегда остался бы засчитанным в накопления, и удаление
-            //    строки откатило бы его ВТОРОЙ раз.
-            val accountRouted = tx.goalId != null && transferRouter.isAccountRouted(tx)
-            val dropGoalLink  = tx.goalId != null && leftTransfer && !accountRouted
-            val resign        = accountRouted && newAmount != tx.amountKopecks
-
-            if (dropGoalLink || resign) transferRouter.onTransactionReversed(tx)
-
-            val updated = tx.copy(
+            // Пересчёт зачисления в цель живёт в маршрутизаторе — он один на оба экрана правки.
+            transferRouter.applyRetype(tx, newType, newAmount) { goalId ->
+                val updated = tx.copy(
                     type           = newType,
                     amountKopecks  = newAmount,
                     merchant       = merchant.ifBlank { null },
                     categoryId     = categoryId,
                     description    = note,
-                    goalId         = if (dropGoalLink) null else tx.goalId,
+                    goalId         = goalId,
                     transferPairId = if (leftTransfer) null else tx.transferPairId,
                     updatedAt      = System.currentTimeMillis(),
-            )
-            txRepo.update(updated)
-            if (resign) transferRouter.onManualRowInserted(updated)
+                )
+                txRepo.update(updated)
+                updated
+            }
         }
     }
 

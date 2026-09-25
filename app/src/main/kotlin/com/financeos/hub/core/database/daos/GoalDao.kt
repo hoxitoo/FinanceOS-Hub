@@ -16,6 +16,18 @@ interface GoalDao {
     @Query("SELECT * FROM goals WHERE is_completed = 1 ORDER BY completed_at DESC")
     fun observeCompleted(): Flow<List<GoalEntity>>
 
+    /**
+     * ВСЕ цели, достигнутые в конце.
+     *
+     * Экрану целей нужны именно все: набранная цель не перестаёт существовать, на ней лежат
+     * деньги, и их может понадобиться снять. Список, отфильтрованный по `is_completed = 0`,
+     * убирал карточку с экрана в тот самый момент, когда сумма сошлась, — вместе с «±», правкой,
+     * историей и удалением. Календарю и калькулятору по-прежнему нужны только незакрытые:
+     * у набранной цели нечего планировать.
+     */
+    @Query("SELECT * FROM goals ORDER BY is_completed ASC, deadline_at ASC")
+    fun observeAll(): Flow<List<GoalEntity>>
+
     @Query("SELECT * FROM goals WHERE id = :id")
     suspend fun getById(id: String): GoalEntity?
 

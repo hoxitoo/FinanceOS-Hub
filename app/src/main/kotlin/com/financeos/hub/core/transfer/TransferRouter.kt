@@ -100,8 +100,9 @@ class TransferRouter @Inject constructor(
                 val route = routes.firstOrNull { r ->
                     r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accId
                 } ?: continue
-                goalRepo.contribute(route.goalId, delta)
-                transactionDao.setGoal(tx.id, route.goalId)
+                if (goalRepo.contribute(route.goalId, delta)) {
+                    transactionDao.setGoal(tx.id, route.goalId)
+                }
                 return   // routed; skip pairing
             }
 
@@ -117,8 +118,9 @@ class TransferRouter @Inject constructor(
                     }
                 }
                 if (match != null) {
-                    goalRepo.contribute(match.goalId, magnitude)
-                    transactionDao.setGoal(tx.id, match.goalId)
+                    if (goalRepo.contribute(match.goalId, magnitude)) {
+                        transactionDao.setGoal(tx.id, match.goalId)
+                    }
                     return   // routed to goal; don't also pair
                 }
                 // (C) Push fallback: unrouted outgoing transfer >= 1000 RUB
@@ -180,6 +182,38 @@ class TransferRouter @Inject constructor(
     }
 
     /**
+     * Смена типа операции — с пересчётом зачисления в цель, в ОДНОМ месте на все экраны.
+     *
+     * Правку операции открывают из двух мест (экран «Операции» и лист на главной), и до этого у
+     * каждого была своя копия этой логики. Копии разошлись ровно тогда, когда правило поменялось:
+     * на главной осталось старое «рвать связь при уходе из перевода», и правка расхода в доход на
+     * привязанном счёте оставляла цель с прежним знаком — расхождение в две суммы, а следующее
+     * удаление строки уводило цель ещё ниже. Поэтому решение и порядок действий живут здесь, а
+     * вызывающий отвечает только за свои поля.
+     *
+     * [write] получает `goalId`, который должна сохранить обновлённая строка, и обязан её записать
+     * и вернуть — откат и повторное зачисление считаются вокруг этой записи.
+     */
+    suspend fun applyRetype(
+        old      : TransactionEntity,
+        newType  : TransactionType,
+        newAmount: Long,
+        write    : suspend (goalId: String?) -> TransactionEntity,
+    ) {
+        val leftTransfer = old.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
+        // Привязка к СЧЁТУ верна для любого типа операции: деньги на этом счёте — это цель.
+        // Привязка по КАРТЕ или СЛОВУ говорит «ПЕРЕВОД туда-то — пополнение» и перестаёт
+        // действовать, как только операция перестала быть переводом.
+        val accountRouted = old.goalId != null && isAccountRouted(old)
+        val dropGoalLink  = old.goalId != null && leftTransfer && !accountRouted
+        val resign        = accountRouted && newAmount != old.amountKopecks
+
+        if (dropGoalLink || resign) onTransactionReversed(old)
+        val updated = write(if (dropGoalLink) null else old.goalId)
+        if (resign) onManualRowInserted(updated)
+    }
+
+    /**
      * Привязана ли цель этой строки к ЕЁ СЧЁТУ (а не к карте получателя или слову в СМС).
      *
      * Разница решает судьбу зачисления при смене типа операции. Привязка к счёту говорит «деньги
@@ -214,8 +248,13 @@ class TransferRouter @Inject constructor(
         val route = routes.firstOrNull { r ->
             r.matchType == TransferMatchType.ACCOUNT && r.matchValue == accountId
         } ?: return
-        goalRepo.contribute(route.goalId, tx.amountKopecks)
-        transactionDao.setGoal(tx.id, route.goalId)
+        // Связь ставится, только если деньги реально легли на живую цель. Маршрут удалённой цели
+        // мог пережить её (у `transfer_routes` нет внешнего ключа на `goals`), и тогда операция
+        // получала `goal_id`, которого не существует: откатывать при удалении нечего, а в истории
+        // цели такая строка не показывается никогда.
+        if (goalRepo.contribute(route.goalId, tx.amountKopecks)) {
+            transactionDao.setGoal(tx.id, route.goalId)
+        }
     }
 
     /**
