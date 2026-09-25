@@ -218,6 +218,7 @@ fun DashboardScreen(
                 TransactionRow(
                     transaction  = tx,
                     categoryName = state.categoryName(tx.categoryId),
+                    source       = state.sourceOf(tx),
                     onCredit     = tx.accountId in creditAccountIds,
                     onClick      = { selectedTx = tx },
                 )

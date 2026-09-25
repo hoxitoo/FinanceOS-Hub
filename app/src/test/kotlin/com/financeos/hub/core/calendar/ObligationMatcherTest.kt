@@ -50,10 +50,11 @@ class ObligationMatcherTest {
         currency: String = "RUB",
         deleted : Boolean = false,
         id      : String = "t1",
+        category: String? = null,
     ) = TransactionEntity(
         id            = id,
         accountId     = account,
-        categoryId    = null,
+        categoryId    = category,
         type          = type,
         source        = TransactionSource.MANUAL,
         amountKopecks = amount,
@@ -194,7 +195,7 @@ class ObligationMatcherTest {
             transactions = listOf(later, onTime),
             zone         = zone,
         )
-        assertEquals("onTime", matches.single().transaction.id)
+        assertEquals("onTime", matches.single().primary.id)
     }
 
     @Test
@@ -262,5 +263,128 @@ class ObligationMatcherTest {
             zone         = zone,
         )
         assertTrue(matches.isEmpty())
+    }
+
+    // ── Счёт, оплаченный по частям ──────────────────────────────────────────────
+
+    @Test
+    fun `two payments on one day close a bill neither of them covers alone`() {
+        // Реальный случай: объявлено «телефон и интернет 2 000», в тот же день ушли 550 и 1 500.
+        // По отдельности ни одна не похожа на счёт, вместе — это он и есть. Раньше обязательство
+        // висело просроченным, хотя деньги заплачены.
+        val bill = rent(amount = 2_000_00L)
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-550_00L,   due, id = "phone"),
+                tx(-1_500_00L, due, id = "internet"),
+            ),
+            zone = zone,
+        )
+        assertEquals(1, matches.size)
+        assertEquals(setOf("phone", "internet"), matches.single().transactions.map { it.id }.toSet())
+        // Основной считается самая крупная часть — её показывает карточка события.
+        assertEquals("internet", matches.single().primary.id)
+    }
+
+    @Test
+    fun `parts spread across different days are not one bill`() {
+        // Счёт оплачивают за один присест. Разрешив складывать траты всей недели, мы получили бы
+        // ту самую жадность: любые две покупки рано или поздно сложатся в нужную сумму.
+        val bill = rent(amount = 2_000_00L)
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-550_00L,   due,              id = "phone"),
+                tx(-1_500_00L, due.plusDays(2),  id = "internet"),
+            ),
+            zone = zone,
+        )
+        assertTrue("разные дни — это не один счёт", matches.isEmpty())
+    }
+
+    @Test
+    fun `crumbs cannot top a sum up to the target`() {
+        // 1 600 + 300 + 100 = ровно 2 000, но две последние части — мелочь. Без порога доли любая
+        // сумма добирается случайными покупками дня, и счёт «закрывается» чем попало.
+        // 1 600 в одиночку в допуск ±15 % не укладывается, так что остаться должно НИЧЕГО.
+        val bill = rent(amount = 2_000_00L)
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-1_600_00L, due, id = "big"),
+                tx(-300_00L,   due, id = "crumb1"),
+                tx(-100_00L,   due, id = "crumb2"),
+            ),
+            zone = zone,
+        )
+        assertTrue("мелочь не должна добивать сумму", matches.isEmpty())
+    }
+
+    @Test
+    fun `parts with conflicting categories are two different expenses`() {
+        val bill = rent(amount = 2_000_00L)
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-550_00L,   due, id = "food",  category = "cat_food"),
+                tx(-1_500_00L, due, id = "shoes", category = "cat_shopping"),
+            ),
+            zone = zone,
+        )
+        assertTrue("две разные категории — это две траты, а не счёт", matches.isEmpty())
+    }
+
+    @Test
+    fun `the obligation's own category rules the parts out`() {
+        val bill = rent(amount = 2_000_00L).copy(categoryId = "cat_telecom")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-550_00L,   due, id = "a", category = "cat_food"),
+                tx(-1_500_00L, due, id = "b", category = "cat_food"),
+            ),
+            zone = zone,
+        )
+        assertTrue("обязательство объявлено в другой категории", matches.isEmpty())
+    }
+
+    @Test
+    fun `a single exact payment wins over any combination`() {
+        // Если счёт закрывается одной операцией, складывать соседние незачем.
+        val bill = rent(amount = 2_000_00L)
+        val matches = ObligationMatcher.match(
+            payments     = listOf(bill),
+            dueDates     = mapOf(bill.id to due),
+            transactions = listOf(
+                tx(-2_000_00L, due, id = "exact"),
+                tx(-900_00L,   due, id = "half1"),
+                tx(-1_100_00L, due, id = "half2"),
+            ),
+            zone = zone,
+        )
+        assertEquals(listOf("exact"), matches.single().transactions.map { it.id })
+    }
+
+    @Test
+    fun `a part used by one obligation cannot close another`() {
+        // Иначе один платёж закрыл бы два счёта сразу, и «Свободно» выросло бы вдвое.
+        val first  = rent(amount = 2_000_00L)
+        val second = rent(amount = 2_000_00L).copy(id = "rent2")
+        val matches = ObligationMatcher.match(
+            payments     = listOf(first, second),
+            dueDates     = mapOf(first.id to due, second.id to due),
+            transactions = listOf(
+                tx(-550_00L,   due, id = "phone"),
+                tx(-1_500_00L, due, id = "internet"),
+            ),
+            zone = zone,
+        )
+        assertEquals("обе части ушли первому обязательству", 1, matches.size)
     }
 }

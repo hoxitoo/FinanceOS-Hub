@@ -62,8 +62,23 @@ data class PlannedPaymentEntity(
      */
     @ColumnInfo(name = "auto_source") val autoSource: String? = null,
 
-    /** Операция, закрывшая последний период. Только ссылка — саму операцию не трогаем. */
+    /**
+     * Операция, закрывшая последний период, — самая крупная её часть. Только ссылка, саму операцию
+     * не трогаем.
+     */
     @ColumnInfo(name = "last_matched_tx_id") val lastMatchedTxId: String? = null,
+
+    /**
+     * ВСЕ операции, закрывшие последний период, через запятую.
+     *
+     * Счёт бывает оплачен по частям (телефон отдельно, интернет отдельно), и тогда занятыми обязаны
+     * считаться все части. Хранить одну значило бы оставить вторую свободной: она закрыла бы
+     * соседнее обязательство, и один платёж посчитался бы дважды.
+     *
+     * Строка, а не отдельная таблица: частей две-три, они всегда читаются целиком вместе со своим
+     * обязательством, и связь односторонняя — операция об обязательстве по-прежнему не знает ничего.
+     */
+    @ColumnInfo(name = "matched_tx_ids") val matchedTxIds: String? = null,
 
     /** Докуда уже закрыто: дата периода, для которого нашлась операция. */
     @ColumnInfo(name = "matched_through") val matchedThrough: Long? = null,
@@ -89,3 +104,17 @@ data class PlannedPaymentEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
 )
+
+/**
+ * Части последнего закрытого периода как список.
+ *
+ * Старые записи знают только `lastMatchedTxId` — до миграции v18→v19 частей не было вовсе, — и
+ * откат на него нужен, чтобы уже сопоставленная операция не считалась свободной сразу после
+ * обновления.
+ */
+val PlannedPaymentEntity.matchedTxIdList: List<String>
+    get() = matchedTxIds
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: listOfNotNull(lastMatchedTxId)

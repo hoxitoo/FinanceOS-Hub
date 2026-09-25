@@ -80,6 +80,20 @@ object SubscriptionDetector {
     /** Насколько сумма может гулять и всё ещё считаться той же подпиской. Цены поднимают. */
     private const val AMOUNT_TOLERANCE = 0.25
 
+    /**
+     * Насколько могут разойтись цены ДВУХ РАЗНЫХ групп, чтобы счесть их одной подпиской.
+     *
+     * На порядок строже [AMOUNT_TOLERANCE], и это не перестраховка, а конкретный случай: у человека
+     * две подписки ChatGPT — 19,99 через Google Play и 22,40 напрямую в OpenAI. Между ними 10,8 %,
+     * и общий допуск в 25 % слил бы их в одну строку, занизив расходы ровно там, где человек
+     * специально сказал, что подписок две. Внутри одной группы допуск остаётся широким: там речь о
+     * подорожании одного и того же списания, а здесь — о вопросе «одно ли это списание вообще».
+     *
+     * Совпадать должна именно ЦЕНА: одна и та же подписка под разными описаниями банка стоит
+     * одинаково до копейки, разные — почти никогда.
+     */
+    private const val MERGE_PRICE_TOLERANCE = 0.02
+
     /** Насколько интервал может гулять: месяц это и 28, и 31 день, плюс выходные банка. */
     private const val PERIOD_TOLERANCE = 0.30
 
@@ -93,6 +107,7 @@ object SubscriptionDetector {
         return charges
             .mapNotNull { charge -> groupKey(charge)?.let { it to charge } }
             .groupBy({ it.first }, { it.second })
+            .let(::mergeSamePriceGroups)
             .mapNotNull { (key, group) -> analyse(key, group, now) }
             .sortedWith(compareByDescending<Subscription> { it.evidence == Evidence.Labelled }
                 .thenByDescending { it.monthlyKopecks })
@@ -105,6 +120,61 @@ object SubscriptionDetector {
     private fun groupKey(charge: Charge): Pair<String, String>? {
         val name = MerchantNames.groupKey(charge.merchant ?: charge.description) ?: return null
         return name to charge.currency
+    }
+
+    /**
+     * Схлопывает группы одного бренда, у которых СОВПАДАЕТ ЦЕНА.
+     *
+     * `MerchantNames.groupKey` намеренно различает продукты одного бренда по уточнению из строки
+     * биллинга — иначе «ADOBE *CREATIVE CLOUD» и «ADOBE *ACROBAT» слились бы в одну подписку. Но
+     * та же строка у одного и того же сервиса приходит от банка по-разному («ChatGPT», «CHATGPT
+     * SUBSC», через разных посредников), и одна подписка разъезжалась на две-три строки: на экране
+     * человек видел шесть подписок вместо трёх и не понимал, за что платит дважды.
+     *
+     * Цена разрешает этот спор лучше, чем текст: разные продукты одного бренда стоят разного, а
+     * одна и та же подписка стоит одинаково, как её ни назови. Поэтому группы сливаются, только
+     * если их типичные суммы совпадают в пределах [MERGE_PRICE_TOLERANCE] — допуска НАМНОГО более
+     * узкого, чем внутригрупповой, чтобы две настоящие подписки одного бренда (19,99 и 22,40)
+     * остались двумя строками.
+     *
+     * Цена этого решения известна и принята: ДВЕ одинаковые по стоимости подписки одного бренда
+     * (два аккаунта ChatGPT по 22,40 $) покажутся одной строкой, и месячный итог будет занижен.
+     * Случай редкий, а обратная ошибка — дубликаты у каждого, кому банк меняет описание, — была
+     * ежедневной.
+     */
+    private fun mergeSamePriceGroups(
+        groups: Map<Pair<String, String>, List<Charge>>,
+    ): Map<Pair<String, String>, List<Charge>> {
+        val merged = LinkedHashMap<Pair<String, String>, MutableList<Charge>>()
+
+        // По убыванию числа списаний: самая обжитая группа становится «главной», к ней
+        // присоединяются осколки, а не наоборот.
+        for ((key, group) in groups.entries.sortedByDescending { it.value.size }) {
+            val (name, currency) = key
+            val brand   = name.substringBefore('|')
+            val typical = median(group.map { it.amountKopecks })
+
+            // Бренд обязан быть ОПОЗНАН: у безымянных строк `groupKey` кладёт в ту же позицию весь
+            // очищенный текст, и «совпадение по первой части» стало бы случайным — два разных
+            // продавца с одинаковым чеком слиплись бы в подписку.
+            val host = if (!MerchantNames.isKnownBrand(brand)) null else merged.entries
+                .firstOrNull { (otherKey, otherGroup) ->
+                    otherKey.second == currency &&
+                        otherKey.first.substringBefore('|') == brand &&
+                        samePrice(median(otherGroup.map { it.amountKopecks }), typical)
+                }?.key
+
+            if (host != null) merged.getValue(host).addAll(group)
+            else merged[key] = group.toMutableList()
+        }
+        return merged
+    }
+
+    /** Одна ли это цена — с точностью до копеечного расхождения, а не до подорожания. */
+    private fun samePrice(a: Long, b: Long): Boolean {
+        if (a <= 0L || b <= 0L) return false
+        val base = maxOf(a, b)
+        return abs(a - b).toDouble() <= base * MERGE_PRICE_TOLERANCE
     }
 
     private fun analyse(

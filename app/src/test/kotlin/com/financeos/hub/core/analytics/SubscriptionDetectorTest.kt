@@ -208,4 +208,78 @@ class SubscriptionDetectorTest {
         )
         assertTrue(SubscriptionDetector.detect(charges, now).isEmpty())
     }
+
+    // ── Дубликаты одной подписки ────────────────────────────────────────────────
+
+    @Test
+    fun `one subscription billed under different descriptors is one row`() {
+        // С устройства: одна и та же подписка приходила от банка по-разному, и человек видел
+        // шесть строк вместо трёх, не понимая, за что платит дважды. Цена разрешает этот спор
+        // лучше текста: одна подписка стоит одинаково, как её ни назови.
+        val charges = listOf(
+            charge(60, 22_40, "OPENAI *CHATGPT",           category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(30, 22_40, "VTS OPENAI *CHATGPT SUBSC", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(1,  22_40, "ChatGPT",                   category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+        )
+        val subs = SubscriptionDetector.detect(charges, now)
+
+        assertEquals("одна подписка — одна строка", 1, subs.size)
+        assertEquals(3, subs.single().chargeCount)
+    }
+
+    @Test
+    fun `two subscriptions of one brand at different prices stay apart`() {
+        // У человека их действительно две: 19,99 через одного посредника и 22,40 через другого.
+        // Слить их значило бы занизить месячные расходы.
+        val charges = listOf(
+            charge(60, 19_99, "GOOGLE *ChatGPT", currency = "USD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(30, 19_99, "GOOGLE *ChatGPT", currency = "USD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(45, 22_40, "OPENAI *CHATGPT", currency = "USD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(15, 22_40, "OPENAI *CHATGPT", currency = "USD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+        )
+        val subs = SubscriptionDetector.detect(charges, now)
+
+        assertEquals(2, subs.size)
+        assertEquals(setOf(19_99L, 22_40L), subs.map { it.typicalKopecks }.toSet())
+    }
+
+    @Test
+    fun `the same price in different currencies is still two rows`() {
+        // 19,99 $ и 19,99 ₽ — это не одна подписка. Складывать валюты нельзя, курса у офлайн-
+        // приложения нет, и совпадение цифр тут ничего не значит.
+        val charges = listOf(
+            charge(30, 19_99, "ChatGPT", currency = "USD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(15, 19_99, "ChatGPT", currency = "RUB", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+        )
+        val subs = SubscriptionDetector.detect(charges, now)
+
+        assertEquals(2, subs.size)
+        assertEquals(setOf("USD", "RUB"), subs.map { it.currency }.toSet())
+    }
+
+    @Test
+    fun `different products of one brand keep their own rows`() {
+        // Creative Cloud и Acrobat стоят разного — цена и разводит их по строкам.
+        val charges = listOf(
+            charge(60, 2_999_00, "ADOBE *CREATIVE CLOUD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(30, 2_999_00, "ADOBE *CREATIVE CLOUD", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(45,   499_00, "ADOBE *ACROBAT",        category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+        )
+        val subs = SubscriptionDetector.detect(charges, now)
+
+        assertEquals(2, subs.size)
+    }
+
+    @Test
+    fun `merging never reaches across unnamed merchants`() {
+        // У безымянной строки в ключе лежит весь очищенный текст, и «совпадение по первой части»
+        // стало бы случайным: два разных магазина с одинаковым чеком слились бы в подписку.
+        val charges = listOf(
+            charge(30, 500_00, "Кофейня у дома", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+            charge(15, 500_00, "Булочная напротив", category = SubscriptionDetector.SUBSCRIPTION_CATEGORY),
+        )
+        val subs = SubscriptionDetector.detect(charges, now)
+
+        assertEquals("разные продавцы — разные строки", 2, subs.size)
+    }
 }

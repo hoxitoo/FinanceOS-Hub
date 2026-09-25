@@ -25,13 +25,37 @@ import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosTone
+import com.financeos.hub.ui.theme.bankBrand
 import com.financeos.hub.ui.theme.FosType
+
+/**
+ * Откуда пришла операция — какая карта какого банка.
+ *
+ * [prominent] решает не строка и не банк, а СПИСОК: заметность зависит от того, насколько источник
+ * редок среди того, что сейчас на экране. У человека с двенадцатью счетами в двух банках цветная
+ * метка на каждой строке — это не метка, а фон; ровно по той же причине расход в этом списке не
+ * красится красным кантом. Поэтому доминирующий источник говорит тихо, а редкий — цветом: глаз
+ * ловит исключение, а не повторяющийся фон.
+ *
+ * Считает это [com.financeos.hub.features.transactions.TransactionsState.sourceOf], а не строка:
+ * строка о соседях ничего не знает.
+ */
+data class TxSource(
+    /** Что писать: «•• 6703», иначе имя счёта. */
+    val label    : String,
+    /** Имя банка — из него берётся цвет бренда. */
+    val bank     : String,
+    /** Выделять цветом (редкий источник) или оставить тихой серой подписью (доминирующий). */
+    val prominent: Boolean,
+)
 
 @Composable
 fun TransactionRow(
     transaction  : TransactionEntity,
     categoryName : String,
     modifier     : Modifier = Modifier,
+    /** Метка источника. `null` — не показывать (экран одного счёта, где она ничего не различает). */
+    source       : TxSource? = null,
     /**
      * Операция прошла по КРЕДИТНОЙ карте, то есть потрачены деньги банка, а не свои.
      *
@@ -70,6 +94,34 @@ fun TransactionRow(
                 maxLines = 1,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
+                source?.let { src ->
+                    val brand = bankBrand(src.bank)
+                    if (src.prominent) {
+                        // Редкий источник: цвет банка в заливке. Это единственная цветная деталь
+                        // слева, и она честно означает «а вот это — не как обычно».
+                        Text(
+                            text     = src.label,
+                            style    = FosType.MicroNum,
+                            color    = brand.bg,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                                .background(brand.bg.copy(alpha = 0.16f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                    } else {
+                        // Доминирующий источник: та же информация, но тоном подписи. Убрать её
+                        // совсем нельзя — тогда на строке не написано, чья это карта, — а
+                        // повторять цветом двадцать раз подряд значит выключить цвет как признак.
+                        Text(
+                            text     = src.label,
+                            style    = FosType.MicroNum,
+                            color    = FosColors.TextMuted,
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (onCredit) {
                     // Плашка, а не цвет суммы: цвет уже занят направлением операции (правило #2),
                     // и красить кредитную покупку иначе значило бы сломать единственный признак,
