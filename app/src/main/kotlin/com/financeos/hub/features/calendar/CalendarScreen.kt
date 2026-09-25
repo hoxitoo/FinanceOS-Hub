@@ -196,7 +196,14 @@ fun CalendarScreen(
                         val editable = state.planned.firstOrNull {
                             event.kind == EventKind.PLANNED && it.id == event.sourceId
                         }
-                        EventRow(event, onClick = editable?.let { p -> { editing = p; sheetOpen = true } })
+                        EventRow(
+                            event    = event,
+                            onClick  = editable?.let { p -> { editing = p; sheetOpen = true } },
+                            // Закрыть период руками можно только у объявленного платежа: платёж по
+                            // кредитке и конец беспроцентного периода приложение считает само, и
+                            // «оплачено» там означало бы спор с банком.
+                            onSettle = editable?.let { p -> { vm.settle(p, event.date) } },
+                        )
                     }
                 }
             } else if (!state.isLoading) {
@@ -487,7 +494,18 @@ private fun EventDot(event: CalendarEvent) {
 // ── Строки ───────────────────────────────────────────────────────────────────
 
 @Composable
-private fun EventRow(event: CalendarEvent, onClick: (() -> Unit)? = null) {
+private fun EventRow(
+    event  : CalendarEvent,
+    onClick: (() -> Unit)? = null,
+    /**
+     * Отметить платёж сделанным вручную.
+     *
+     * Эвристика сопоставления намеренно осторожна и молчит при любом сомнении — значит обязана быть
+     * кнопка, которой человек закрывает период сам. Без неё единственным исходом «приложение не
+     * узнало мой платёж» остаётся вечная просрочка, которую нечем снять.
+     */
+    onSettle: (() -> Unit)? = null,
+) {
     val tone = when {
         !event.affectsFree            -> FosTone.Info
         event.kind == EventKind.CREDIT_DUE -> FosTone.Warning
@@ -533,6 +551,13 @@ private fun EventRow(event: CalendarEvent, onClick: (() -> Unit)? = null) {
             )
             if (!event.affectsFree) {
                 Text("срок", style = FosType.Micro, color = FosColors.TextMuted)
+            } else if (onSettle != null) {
+                TextButton(
+                    onClick        = onSettle,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                ) {
+                    Text("оплачено", style = FosType.Micro, color = FosColors.Positive)
+                }
             }
         }
     }

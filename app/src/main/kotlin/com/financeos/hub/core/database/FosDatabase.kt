@@ -37,7 +37,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -367,6 +367,22 @@ abstract class FosDatabase : RoomDatabase() {
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `goals` ADD COLUMN `started_at` INTEGER")
+            }
+        }
+
+        /**
+         * `planned_payments.matched_tx_ids` — ВСЕ операции, закрывшие период, а не только одна.
+         *
+         * Счёт бывает оплачен по частям, и тогда занятыми обязаны считаться все части: хранить одну
+         * значило бы оставить вторую свободной, и она закрыла бы соседнее обязательство — один
+         * платёж посчитался бы дважды.
+         *
+         * Столбец добавляется пустым. Заполнять его из `last_matched_tx_id` незачем: старые
+         * сопоставления были одиночными, и следующий же проход сборщика запишет их как надо.
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `matched_tx_ids` TEXT")
             }
         }
 

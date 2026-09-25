@@ -51,11 +51,14 @@ interface PlannedPaymentDao {
     @Query(
         """
         UPDATE planned_payments
-        SET last_matched_tx_id = :txId, matched_through = :through, updated_at = :now
+        SET last_matched_tx_id = :txId,
+            matched_tx_ids     = :txIds,
+            matched_through    = :through,
+            updated_at         = :now
         WHERE id = :id
         """
     )
-    suspend fun markMatched(id: String, txId: String?, through: Long?, now: Long)
+    suspend fun markMatched(id: String, txId: String?, txIds: String?, through: Long?, now: Long)
 
     /**
      * Снять отметку и запомнить отвергнутую операцию, чтобы сборщик не поставил её обратно.
@@ -67,10 +70,11 @@ interface PlannedPaymentDao {
     @Query(
         """
         UPDATE planned_payments
-        SET rejected_tx_id = last_matched_tx_id,
+        SET rejected_tx_id     = last_matched_tx_id,
             last_matched_tx_id = NULL,
-            matched_through = NULL,
-            updated_at = :now
+            matched_tx_ids     = NULL,
+            matched_through    = NULL,
+            updated_at         = :now
         WHERE id = :id
         """
     )

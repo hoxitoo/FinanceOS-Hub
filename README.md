@@ -33,11 +33,13 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Transfer routing** | Переводы (СБП/перевод) распознаются как TRANSFER и сами засчитываются в цель по привязке к счёту / карте / слову в СМС — **включая переводы, внесённые вручную**: перевод НА привязанный счёт добавляется к цели, С него — вычитается. Переводы между своими счетами спариваются, и net worth не меняется |
 | **Budget envelopes** | Monthly/weekly limits per category, dynamic color bar (green→amber→red), alerts throttled to **once per budget per month, max 2/day** (persisted, survives restart) |
 | **Savings goals** | Компактные карточки с пиксель-артом по теме цели; кольцо выполнения показывает **процент внутри себя** и красится в цвет темы. **Расчёт прямо в форме цели**: сколько осталось, сколько откладывать в месяц к сроку, за сколько наберётся вашим темпом и хватает ли его. Правка суммы — вводом **текущего остатка**, разницу считает приложение. Привязка к счёту: цель следует за деньгами на нём — приход прибавляется, расход вычитается. Форма: иконки по девяти категориям в два столбца, «Начало накопления» и «Срок» рядом, счета чипами банк→счёт; удаление спрашивает подтверждение, выполненные цели — под сворачиваемым заголовком |
-| **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
+| **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total. Одно и то же списание, которое банк присылает под разными описаниями («ChatGPT», «VTS OPENAI *CHATGPT SUBSC»), показывается ОДНОЙ строкой: одинаковая цена у одного сервиса — это одна подписка. Две настоящие подписки на один сервис по разной цене (19,99 и 22,40) остаются двумя строками |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
 | **Календарь и «Свободно»** | Главное число экрана — не остаток и не прогноз, а «сколько можно потратить, ничего не сломав»: деньги на счетах минус незакрытые обязательства до горизонта минус ваш резерв. Горизонт по умолчанию — до **следующего поступления**, а не до конца месяца. Ожидаемая зарплата показывается, но НЕ прибавляется. Источники: объявленные платежи, платёж по кредитке, конец беспроцентного периода, найденные подписки, дедлайны целей |
 | **Закрытие обязательств** | Когда в истории появляется подходящая операция (та же валюта, то же направление, ±15 % по сумме, окно −5/+7 дней, счёт если указан), обязательство помечается оплаченным и перестаёт вычитаться из «Свободно». Сопоставление намеренно осторожное: при сомнении обязательство остаётся открытым, а любую отметку можно снять кнопкой «Отвязать» |
+| **Счёт, оплаченный по частям** | «Телефон, интернет 2 000 ₽», закрытые двумя переводами по 550 и 1 500 ₽ в один день, больше не висят просрочкой: приложение складывает операции ОДНОГО дня, если их не больше трёх, каждая — заметная часть суммы (≥ 20 %), а их категории не противоречат друг другу |
+| **«оплачено» вручную** | Платёж наличными, перевод с чужой карты, счёт, разбитый непохожим образом — этого приложение не увидит никогда. Кнопка на строке объявленного платежа закрывает ровно эту дату; следующий период откроется как обычно, а «Отвязать» возвращает всё назад |
 | **Savings calculator** | Отдельный экран с тремя режимами: что накопится за срок, за сколько наберётся нужная сумма, сколько для этого откладывать. Капитализация (месяц/квартал/год/без), взнос в начале или конце месяца, ежегодная индексация взноса, инфляция → «в сегодняшних деньгах», НДФЛ 13 %, эффективная ставка, разбивка «своё / проценты» столбиками и таблицей по годам, и **точка перелома** — год, когда проценты начинают приносить больше ваших взносов. Подставляет ваш собственный темп накопления и суммы ваших целей |
 | **Backup / restore** | Экспорт восьми наборов данных (счета, карты, категории, цели, бюджеты, привязки, плановые платежи, операции) в файл; восстановление additive, идемпотентное и не ломающее внешние ключи. **Файл НЕ зашифрован** — это обычный JSON, читаемый любым текстовым редактором: ключ Android Keystore привязан к устройству, и зашифрованная копия не открывалась ровно там, где копия и нужна, — на новом телефоне и после переустановки. Храните её как документ с полной историей ваших финансов, потому что это она и есть |
 | **Notifications** | Budget alerts, weekly summaries, critical insights, update-available (4 channels) |
@@ -92,7 +94,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v18** (17 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v19** (18 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -105,7 +107,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v18 — 18 categories, ~216 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v19 — 18 categories, ~216 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only
@@ -164,7 +166,7 @@ CI (`.github/workflows/android.yml`) runs all three on every PR targeting `dev` 
 | `MerchantNamesTest` | нормализация названий продавца |
 | `PdfTransactionParserTest` | Alfa statement layout, logical-row reconstruction |
 | `CreditMathTest` | долг, свободный лимит, цикл, минимальный платёж, проценты |
-| `PaymentDatesTest` · `FreeMoneyTest` · `ObligationMatcherTest` | календарь: даты, «Свободно», сопоставление |
+| `PaymentDatesTest` · `FreeMoneyTest` · `ObligationMatcherTest` | календарь: даты, «Свободно», сопоставление, счёт по частям |
 | `SavingsMathTest` | калькулятор накоплений (24 случая) |
 | `BehavioralAnalyzerTest` | all 7 public methods + edge cases (28 cases) |
 | `InsightGeneratorTest` | all 6 rules + sort order (28 cases) |

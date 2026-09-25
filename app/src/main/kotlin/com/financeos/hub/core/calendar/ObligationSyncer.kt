@@ -1,5 +1,6 @@
 package com.financeos.hub.core.calendar
 
+import com.financeos.hub.core.database.entities.matchedTxIdList
 import com.financeos.hub.data.repositories.PlannedPaymentRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import kotlinx.coroutines.CoroutineScope
@@ -58,7 +59,10 @@ class ObligationSyncer @Inject constructor(
                 // Занятыми считаются операции только ЖИВЫХ обязательств. Держать их за удалёнными
                 // значило бы, что подтверждённая заново подписка не может закрыться той самой
                 // операцией, которой закрывалась раньше: удалённая строка стерегла бы её вечно.
-                val taken = planned.mapNotNullTo(HashSet()) { it.lastMatchedTxId }
+                // ВСЕ части, а не только основная: счёт, оплаченный двумя переводами, занимает обе
+                // операции. Оставь вторую свободной — она закроет соседнее обязательство, и один
+                // платёж посчитается дважды.
+                val taken = planned.flatMapTo(HashSet()) { it.matchedTxIdList }
 
                 val matches = ObligationMatcher.match(
                     payments     = planned,
@@ -67,10 +71,14 @@ class ObligationSyncer @Inject constructor(
                     zone         = zone,
                 )
                 for (m in matches) {
-                    if (m.payment.lastMatchedTxId == m.transaction.id) continue
+                    val ids = m.transactions.map { it.id }
+                    // Основной считается самая крупная часть: именно её показывает карточка
+                    // события, и менять её местами при каждом проходе незачем.
+                    val ordered = listOf(m.primary.id) + ids.filterNot { it == m.primary.id }
+                    if (m.payment.matchedTxIdList.toSet() == ordered.toSet()) continue
                     plannedRepo.markMatched(
                         id                 = m.payment.id,
-                        txId               = m.transaction.id,
+                        txIds              = ordered,
                         throughEpochMillis = m.dueDate.atStartOfDay(zone).toInstant().toEpochMilli(),
                     )
                 }
