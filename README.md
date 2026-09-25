@@ -6,11 +6,12 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 | Feature | Details |
 |---------|---------|
-| **Auto-import** | Reads SMS from 12 banks (11 RU + МБанк KG); imports last 90 days on request; SMS is **opt-in** — a fresh install never reads messages until you say so |
+| **Auto-import** | Reads SMS from 13 banks (12 RU + МБанк KG); imports last 90 days on request; SMS is **opt-in** — a fresh install never reads messages until you say so |
 | **Push capture** | `PushNotificationListener` captures bank app notifications in real-time alongside SMS; reads **every** text extra (title/text/bigText/subText/summary/info/inbox lines/ticker) so a balance line in any field is seen |
+| **Автопереподключение чтения пушей** | Разрешение на доступ к уведомлениям и работающая служба — разные вещи: Android рвёт привязку при каждом обновлении APK и при перезагрузке, а разрешение остаётся, и экран настроек уверенно пишет «обрабатываются». Приложение чинит привязку само — после обновления и перезагрузки, плюс ежечасная мягкая проверка; если система сбросила само разрешение, приходит уведомление со ссылкой в нужный экран настроек |
 | **Real-time** | New transactions appear instantly via `SmsReceiver` BroadcastReceiver (with `goAsync()`); cross-channel SMS↔push dedup within ±5 min |
 | **Marketing filter** | `PromoFilter` drops credit-card offers and cashback ads before any parser runs — a "лимит 163 000 ₽" promo is never booked as a transfer |
-| **Smart categorization** | Deterministic dictionary classifier (~183 merchant rules across 18 categories incl. transit, marketplaces, bookmakers, subscriptions, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning). **Rules always win over the model** — it is frozen at 13 labels and cannot name a category added later |
+| **Smart categorization** | Deterministic dictionary classifier (~216 merchant rules across 18 categories incl. transit, marketplaces, bookmakers, subscriptions, income); optional pre-trained TFLite ML layer (inference-only, no on-device learning). **Rules always win over the model** — it is frozen at 13 labels and cannot name a category added later |
 | **Subscriptions category** | Netflix, Яндекс Плюс, Кинопоиск, СберПрайм, YouTube, iCloud, Adobe и ещё три десятка сервисов идут в отдельную категорию «Подписки», а не в «Развлечения»: билет в кино — разовая покупка, ежемесячное списание — совсем другая строка бюджета |
 | **Account linking** | Card mask from SMS/push (e.g. ··2548) auto-links transactions to the correct account; the bank's «Остаток» is applied as an authoritative snapshot, with a recency guard so a fresher manual edit is never reverted |
 | **Credit cards** | `AccountKind.CREDIT` — the balance is a **debt**, never mixed into net worth. Dashboard tile (free limit + debt + deadline) opens a dedicated screen: payment amount and date, interest-free period bar, rate, utilisation, repayment, per-card history |
@@ -20,23 +21,24 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Multi-currency** | RUB / USD / EUR / KGS (сом) per account **and per transaction**; hero shows each currency on its own line |
 | **Защита ввода** | Смахнуть заполненную форму вниз больше нельзя молча: приложение спросит, выйти ли без сохранения. Пустая или не тронутая форма закрывается сразу — вопрос на каждое закрытие приучал бы отвечать «да» не глядя. Работает во всех формах: операция, цель, категория, бюджет, счёт, условия кредитки, погашение, обязательство |
 | **Выбор счёта** | Двухшаговый: карточка банка → её счета с маской и остатком. Один и тот же выбор в ручной операции и в обязательстве |
-| **Manual entry** | Add (bank→account picker, income presets, Расход/Доход/**Перевод**), edit, delete; transfers credit the destination account too |
+| **Manual entry** | Add (bank→account picker, income presets, Расход/Доход/**Перевод**), edit, delete. Перевод пишется **двумя строками** с общей меткой пары — по одной на каждый счёт, поэтому удаление откатывает оба, а не только тот, на котором лежит запись |
+| **Фильтры операций** | Одна строка: лупа-поиск (раскрывается по нажатию), меню «Тип операции» (Все / Расходы / Доходы / **Переводы**) и «Дата» — календарь на один день или период. Пустой список при выставленном фильтре честно пишет «Ничего не найдено», а не «Операций пока нет» |
 | **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
 | **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
 | **Financial score** | 0–100 across 4 pillars; rendered as a **multi-colour donut** (one arc per pillar, dimmed shortfall) so a weak pillar is visible at a glance |
 | **Behavioral analytics** | Heatmap, fatigue curve, payday effect, impulse classification, anomaly detection, subscription gaps |
 | **Analytics period** | Месяц / 6 мес / Год / Всё время chips drive the category + daily breakdown (the health score keeps its own point-in-time window by design) |
 | **Category drill-down** | Interactive pseudo-3D pie — tap a slice to explode it, then open every operation of that category for this **and** last month |
-| **Transfer routing** | Bank transfers (СБП/перевод) classified as TRANSFER; auto-routed to savings goals by account / card / keyword, or paired between accounts so net worth is unchanged |
+| **Transfer routing** | Переводы (СБП/перевод) распознаются как TRANSFER и сами засчитываются в цель по привязке к счёту / карте / слову в СМС — **включая переводы, внесённые вручную**: перевод НА привязанный счёт добавляется к цели, С него — вычитается. Переводы между своими счетами спариваются, и net worth не меняется |
 | **Budget envelopes** | Monthly/weekly limits per category, dynamic color bar (green→amber→red), alerts throttled to **once per budget per month, max 2/day** (persisted, survives restart) |
-| **Savings goals** | Goal cards with 9 bundled pixel-art backdrops, **± dialog to add or withdraw**, per-goal **history** of routed operations, link by account / card / keyword |
+| **Savings goals** | Компактные карточки с пиксель-артом по теме цели; кольцо выполнения показывает **процент внутри себя** и красится в цвет темы. **Расчёт прямо в форме цели**: сколько осталось, сколько откладывать в месяц к сроку, за сколько наберётся вашим темпом и хватает ли его. Правка суммы — вводом **текущего остатка**, разницу считает приложение. Привязка к счёту: цель следует за деньгами на нём — приход прибавляется, расход вычитается. Форма: иконки по девяти категориям в два столбца, «Начало накопления» и «Срок» рядом, счета чипами банк→счёт; удаление спрашивает подтверждение, выполненные цели — под сворачиваемым заголовком |
 | **Subscriptions** | Auto-detected recurring expenses, missed-payment alerts, monthly total |
 | **Insights & narratives** | 8 Russian narrative templates, CRITICAL/WARNING/INFO severity alerts |
 | **What-if simulator** | Interactive sliders for 6/12/24-month savings projections |
 | **Календарь и «Свободно»** | Главное число экрана — не остаток и не прогноз, а «сколько можно потратить, ничего не сломав»: деньги на счетах минус незакрытые обязательства до горизонта минус ваш резерв. Горизонт по умолчанию — до **следующего поступления**, а не до конца месяца. Ожидаемая зарплата показывается, но НЕ прибавляется. Источники: объявленные платежи, платёж по кредитке, конец беспроцентного периода, найденные подписки, дедлайны целей |
 | **Закрытие обязательств** | Когда в истории появляется подходящая операция (та же валюта, то же направление, ±15 % по сумме, окно −5/+7 дней, счёт если указан), обязательство помечается оплаченным и перестаёт вычитаться из «Свободно». Сопоставление намеренно осторожное: при сомнении обязательство остаётся открытым, а любую отметку можно снять кнопкой «Отвязать» |
 | **Savings calculator** | Отдельный экран с тремя режимами: что накопится за срок, за сколько наберётся нужная сумма, сколько для этого откладывать. Капитализация (месяц/квартал/год/без), взнос в начале или конце месяца, ежегодная индексация взноса, инфляция → «в сегодняшних деньгах», НДФЛ 13 %, эффективная ставка, разбивка «своё / проценты» столбиками и таблицей по годам, и **точка перелома** — год, когда проценты начинают приносить больше ваших взносов. Подставляет ваш собственный темп накопления и суммы ваших целей |
-| **Backup / restore** | Full 9-table export to a `.fose` file, AES-GCM-256 encrypted via Android Keystore; restore is additive, idempotent and FK-safe |
+| **Backup / restore** | Экспорт восьми наборов данных (счета, карты, категории, цели, бюджеты, привязки, плановые платежи, операции) в файл; восстановление additive, идемпотентное и не ломающее внешние ключи. **Файл НЕ зашифрован** — это обычный JSON, читаемый любым текстовым редактором: ключ Android Keystore привязан к устройству, и зашифрованная копия не открывалась ровно там, где копия и нужна, — на новом телефоне и после переустановки. Храните её как документ с полной историей ваших финансов, потому что это она и есть |
 | **Notifications** | Budget alerts, weekly summaries, critical insights, update-available (4 channels) |
 | **Deep-links** | Notification taps navigate directly to the relevant screen (allowlisted routes) |
 | **Settings** | Hero variant, animations/atmosphere/cat mode, budget alert threshold, biometric lock, ML toggle, SMS opt-in, categories CRUD, backup, updates |
@@ -61,19 +63,23 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | P3 | МТС Банк | MTSB | ru.mtsbank.mobilebank |
 | P3 | Почта Банк | POSTABANK | ru.pochtabank.android |
 | P3 | Россельхозбанк | RSHB | ru.rshb.mbank |
+| P3 | МКБ | MKB, МКБ, MKBMOBILE | ru.mkb.mobilebank, ru.mkb.android |
 | KG | МБанк (Кыргызстан) | MBANK | com.maanavan.mb_kyrgyzstan |
+
+Каждый банк — отдельный `BankParser`, подключённый одной строкой `@Binds @IntoSet`. Двенадцать из
+тринадцати закрыты юнит-тестами; у `MkbParser` теста пока нет.
 
 ## Screens
 
 1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (без обязательств — приглашение в календарь, с ними — само число), accounts with volumetric bank cards, clickable recent transactions
-2. **Transactions** — grouped list, search, filter chips (All/Expense/Income), swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, "↑ CSV" export, "↓ PDF" import
+2. **Transactions** — сгруппированный по дням список; одна строка фильтров — 🔍 (поиск раскрывается по нажатию), «Тип операции» (Все / Расходы / Доходы / Переводы) и «Дата» (один день или период); swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, «↑ Экспорт» (CSV), «↓ Импорт» (PDF)
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
    - **Категории** — interactive 3D pie (tap to explode), ТОП-3 траты, full category list; tap any category for a month-vs-month drill-down of its operations
    - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
    - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
-5. **Goals** — pixel-art goal cards, ± dialog to add **or withdraw**, «История ›» of routed operations, 🔗 link transfers by account / card / keyword, «🧮 Калькулятор» in the header
+5. **Goals** — карточки целей с артом по теме, кольцо с процентом внутри, ряд действий (история / ± / 🔗 / удалить), «Калькулятор» по центру шапки; форма цели с категориями иконок, датами начала и срока, выбором счетов чипами
 6. **Калькулятор** — three modes over one monthly simulation; fine-tuning panel; «ваш темп» and goal chips prefill from your own data; every figure is explicitly labelled an estimate
 7. **Календарь** — «Свободно» героем с разложенной арифметикой (счета − обязательства − резерв), два режима — полоса ближайших дат и сетка месяца (точки по видам событий, выбранный день фильтрует список), список событий с пометкой источника (цифра банка / объявлено вами / найдено), подтверждение найденных подписок одним касанием, раздел «уже прошло» с возможностью отвязать
 8. **Кредитные карты** — total free limit and debt, per-card block (payment amount and date large, interest-free period bar, rate, utilisation, «Погасить»), combined history across cards
@@ -85,12 +91,12 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v14**, amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v18** (17 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
 - **PdfBox-Android 2.0.27.0** — statement import
-- **Android Keystore (AES-GCM-256)** — encrypted backups
+- **Android Keystore (AES-GCM-256)** — только расшифровка старых `.fose`-копий; новые пишутся открытым JSON
 - **Clean Architecture + MVVM**
 
 ## Project Structure
@@ -98,10 +104,11 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v17 — 18 categories, ~183 merchant rules)
-│   ├── parser/         # BankParser, ParserEngine, 12 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser
+│   ├── database/       # Entities, DAOs, FosDatabase (v18 — 18 categories, ~216 merchant rules)
+│   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
-│   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import), PushNotificationListener
+│   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only
+│   ├── auth/           # BiometricHelper
 │   ├── account/        # AccountLinker (card→account resolution, authoritative balance, orphan re-link)
 │   ├── credit/         # CreditMath (debt, free limit, cycle, min payment, interest), CreditNoticeApplier
 │   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
@@ -110,20 +117,25 @@ app/
 │   ├── analytics/      # AnalyticsEngine, ScoreCalculator, InsightGenerator, BehavioralAnalyzer, NarrativeEngine
 │   ├── ml/             # ModelLoader, TextFeatureExtractor, MLCategoryClassifier, SpendingPredictor, BehavioralCluster
 │   ├── pdf/            # PdfImporter, PdfTransactionParser
-│   ├── backup/         # BackupManager, BackupCrypto (AES-GCM via Keystore)
+│   ├── backup/         # BackupManager (plain JSON), BackupCrypto (legacy .fose decryption only)
 │   ├── update/         # UpdateChecker, UpdateCheckWorker
-│   └── notifications/  # NotificationHelper (4 channels + deep-links + permission guard)
+│   └── notifications/  # NotificationHelper (4 channels + deep-links + permission guard),
+│                       # PushNotificationListener, ListenerHealth, ListenerRebindReceiver,
+│                       # ListenerWatchdogWorker, ListenerNotice
 ├── data/
 │   ├── repositories/   # Tx, Account, Card, Category, Budget, Goal, TransferRoute
 │   └── preferences/    # UserPreferences (DataStore)
 ├── di/                 # DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule
-├── features/           # dashboard, transactions, analytics, budget, goals, calculator, calendar, subscriptions, categories, credit, onboarding, settings
+├── features/           # dashboard, transactions, analytics, budget, goals, calculator, calendar, subscriptions, categories, credit, onboarding, settings, auth (LockScreen)
 ├── navigation/         # FosNavHost, FosRoutes, bottom nav
 ├── widget/             # BalanceWidget
 └── ui/
-    ├── theme/          # FosColors, FosType, FosDimens, FosSurface (огранка карточек), FosTheme, FosFormatter, AmountVisualTransformation, Shimmer
-    └── components/     # TransactionRow, FosSection (заголовки + «?»), LineChart, ScoreRing, ScoreDonut, Pie3D, AnalyticsCharts,
-                        # GoalRing, GoalArt, HeatmapGrid, ExpensePyramid, WhatIfSimulator,
+    ├── theme/          # FosColors, FosType, FosDimens, FosSurface (огранка карточек), FosTheme, FosFormatter,
+    │                   # AmountVisualTransformation, Shimmer, BankColors, BioluminescentIndication
+    └── components/     # FosFormSheet (подтверждение выхода из формы), AccountPicker (банк → счёт),
+                        # TransactionRow, FosSection (заголовки + «?»), LineChart, ScoreRing, ScoreDonut, Pie3D,
+                        # AnalyticsCharts, WaterfallChart, SpendSeries, SpendTimeline, ForecastExplanation,
+                        # GoalRing, GoalArt, HeatmapGrid, ExpensePyramid, WhatIfSimulator, AnimatedAmount,
                         # SwipeToRevealDelete, CatMascot, ParticleLayer, CurrencyReef, ShimmerCardFx
 ```
 
@@ -137,16 +149,25 @@ app/
 
 CI (`.github/workflows/android.yml`) runs all three on every PR targeting `dev` or `main`.
 
-**Unit tests** (`app/src/test/`):
+**Unit tests** (`app/src/test/`) — 29 файлов, 364 случая:
 
 | Suite | Coverage |
 |-------|----------|
-| 12 × `*ParserTest` | every bank parser, ~7 cases each |
+| 12 × `*ParserTest` | по банку, ~7 случаев каждый (`MkbParser` пока не покрыт) |
+| `GoalIconsTest` | каждая иконка цели получает подложку своей категории, глифы не повторяются |
 | `TransferPatternsTest` | transfer detection, card-mask extraction, stem anchoring |
+| `RealPushFormatsTest` | форматы пушей, снятые с устройства: входящий СБП, `RUR`, списание по счёту |
+| `SberCreditPushTest` | покупка по кредитке и напоминание о платеже |
+| `CyrillicCaseTest` | `ciRegex` против `IGNORE_CASE`: «ПОКУПКА» не теряется |
 | `PromoFilterTest` | marketing pushes are dropped, real operations pass |
+| `MerchantNamesTest` | нормализация названий продавца |
 | `PdfTransactionParserTest` | Alfa statement layout, logical-row reconstruction |
+| `CreditMathTest` | долг, свободный лимит, цикл, минимальный платёж, проценты |
+| `PaymentDatesTest` · `FreeMoneyTest` · `ObligationMatcherTest` | календарь: даты, «Свободно», сопоставление |
+| `SavingsMathTest` | калькулятор накоплений (24 случая) |
 | `BehavioralAnalyzerTest` | all 7 public methods + edge cases (28 cases) |
 | `InsightGeneratorTest` | all 6 rules + sort order (28 cases) |
+| `ScoreCalculatorCushionTest` · `SubscriptionDetectorTest` · `SpendTimelineTest` | подушка, подписки, полоса трат |
 
 There are **no instrumented/UI tests** — screen behaviour, gestures and Compose rendering are
 verified by review, not automatically.
@@ -223,5 +244,5 @@ dev   ← integration branch
 - Deep-link routes are validated against an allowlist before navigation (prevents attacker-controlled crash via exported Activity)
 - `PushNotificationListener` → `TransactionSource.PUSH` requires user to explicitly enable the notification listener in system Settings
 - SMS reading is **opt-in** (`sms_realtime_enabled`, default `false`) — a fresh install never touches the inbox until the user enables it
-- Backups are encrypted with an AES-GCM-256 key held in the Android Keystore (hardware-backed where available); the `FOSENC1:` header keeps older plaintext exports restorable
+- **Backups are NOT encrypted.** The export is plain JSON: the earlier AES-GCM-256 key lived in the Android Keystore and was **device-bound**, so an encrypted copy could not be restored on a new phone or after a reinstall — it protected the file from its owner. `BackupCrypto.decrypt` is kept only to read legacy `.fose` files. A backup therefore holds the full transaction history in clear text; treat the file accordingly and don't drop it in a shared folder. Restoring real protection means a user passphrase, never a device key
 - `UpdateChecker` refuses any release asset URL that is not `https://` before opening a connection

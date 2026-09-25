@@ -48,16 +48,33 @@ enum class GoalArtKind(
     SAVINGS  (R.drawable.goal_art_savings,   Color(0xFF4DFFA0)),
 }
 
-/** Emoji → theme. Mirrors the emoji list offered in AddGoalSheet. */
+/**
+ * Цвет темы для ЭЛЕМЕНТА УПРАВЛЕНИЯ (кольцо прогресса), а не для подложки.
+ *
+ * Отличается от [GoalArtKind.tint] ровно в одном месте: у «Накоплений» тон совпадает с
+ * `FosColors.Positive` байт в байт. На подложке под альфой 0.2 это незаметно, а вот кольцо в полную
+ * силу читалось бы как «цель достигнута» по правилу цвета #1 — и так на каждой копилке с нулевым
+ * прогрессом. Мятный рядом, но это не тот токен.
+ */
+val GoalArtKind.accent: Color
+    get() = if (this == GoalArtKind.SAVINGS) Color(0xFF63E6BE) else tint
+
+/**
+ * Emoji → theme. Зеркало групп `ICON_GROUPS` в `AddGoalSheet`.
+ *
+ * Списки обязаны совпадать: иконка выбирает не только глиф, но и подложку карточки, и иконка без
+ * темы молча получает «покупки». Добавляя иконку в форму, добавляй строку и сюда.
+ */
 private val EMOJI_KIND = mapOf(
-    "🏠" to GoalArtKind.HOME,      "🛋" to GoalArtKind.HOME,
-    "🚗" to GoalArtKind.CAR,
-    "✈" to GoalArtKind.VACATION,  "🏖" to GoalArtKind.VACATION,
+    "🏠" to GoalArtKind.HOME,      "🛋" to GoalArtKind.HOME,     "🔑" to GoalArtKind.HOME,
+    "🚗" to GoalArtKind.CAR,       "🏍" to GoalArtKind.CAR,      "🚲" to GoalArtKind.CAR,
+    "✈" to GoalArtKind.VACATION,  "🏖" to GoalArtKind.VACATION, "🗺" to GoalArtKind.VACATION,
     "📱" to GoalArtKind.TECH,     "💻" to GoalArtKind.TECH,     "🎸" to GoalArtKind.TECH,
-    "📚" to GoalArtKind.EDUCATION,"🎓" to GoalArtKind.EDUCATION,
-    "💊" to GoalArtKind.HEALTH,   "🏋" to GoalArtKind.HEALTH,
-    "🎁" to GoalArtKind.GIFT,     "💍" to GoalArtKind.GIFT,
-    "💰" to GoalArtKind.SAVINGS,  "⭐" to GoalArtKind.SAVINGS,
+    "📚" to GoalArtKind.EDUCATION,"🎓" to GoalArtKind.EDUCATION,"🗣" to GoalArtKind.EDUCATION,
+    "💊" to GoalArtKind.HEALTH,   "🏋" to GoalArtKind.HEALTH,   "🦷" to GoalArtKind.HEALTH,
+    "🎁" to GoalArtKind.GIFT,     "💍" to GoalArtKind.GIFT,     "🎂" to GoalArtKind.GIFT,
+    "💰" to GoalArtKind.SAVINGS,  "⭐" to GoalArtKind.SAVINGS,  "🐷" to GoalArtKind.SAVINGS,
+    "🛍" to GoalArtKind.PURCHASE, "👟" to GoalArtKind.PURCHASE, "🛒" to GoalArtKind.PURCHASE,
 )
 
 /** Name keywords → theme, checked when the emoji says nothing useful. */

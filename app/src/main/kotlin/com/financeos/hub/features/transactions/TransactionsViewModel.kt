@@ -193,13 +193,6 @@ class TransactionsViewModel @Inject constructor(
         note       : String?,
     ) {
         viewModelScope.launch {
-            // Reclassifying away from TRANSFER (e.g. "перевод другу" → расход) must undo any goal
-            // routing this transfer applied, otherwise the goal stays inflated by money now counted
-            // as a plain expense/income.
-            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            if (leftTransfer && tx.goalId != null) {
-                transferRouter.onTransactionReversed(tx)
-            }
             // Re-sign the amount to match the new type: expense negative, income positive; a transfer
             // keeps its original direction. Magnitude is preserved, so balances are unaffected — only
             // how analytics counts the row changes.
@@ -209,20 +202,22 @@ class TransactionsViewModel @Inject constructor(
                 TransactionType.INCOME   ->  mag
                 TransactionType.TRANSFER -> tx.amountKopecks
             }
-            txRepo.update(
-                tx.copy(
+            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
+            // Пересчёт зачисления в цель живёт в маршрутизаторе — он один на оба экрана правки.
+            transferRouter.applyRetype(tx, newType, newAmount) { goalId ->
+                val updated = tx.copy(
                     type           = newType,
                     amountKopecks  = newAmount,
                     merchant       = merchant.ifBlank { null },
                     categoryId     = categoryId,
                     description    = note,
-                    // Once it is no longer a transfer, drop the transfer-only links so it can't be
-                    // re-paired or counted against a goal.
-                    goalId         = if (leftTransfer) null else tx.goalId,
+                    goalId         = goalId,
                     transferPairId = if (leftTransfer) null else tx.transferPairId,
                     updatedAt      = System.currentTimeMillis(),
                 )
-            )
+                txRepo.update(updated)
+                updated
+            }
         }
     }
 
@@ -276,6 +271,10 @@ class TransactionsViewModel @Inject constructor(
                 txRepo.transferPair(pairId)
                     .filter { it.id != id }
                     .forEach { leg ->
+                        // Вторая нога могла зачислить в свою цель (у сторон перевода цели разные).
+                        // Без этого отката удалённый перевод оставлял бы цель приёмника наполненной
+                        // деньгами, которых больше нет ни на счёте, ни в истории.
+                        if (leg.goalId != null) transferRouter.onTransactionReversed(leg)
                         if (leg.accountId != null && leg.balanceKopecks == null &&
                             leg.source != TransactionSource.PDF
                         ) {
@@ -320,8 +319,7 @@ class TransactionsViewModel @Inject constructor(
                 destAccountId != null && destAccountId != accountId
             ) UUID.randomUUID().toString() else null
 
-            txRepo.insert(
-                TransactionEntity(
+            val row = TransactionEntity(
                     id            = UUID.randomUUID().toString(),
                     smsId         = null,
                     accountId     = accountId,
@@ -341,8 +339,12 @@ class TransactionsViewModel @Inject constructor(
                     transferPairId = pairId,
                     isDeleted     = false,
                     deletedAt     = null,
-                )
             )
+            txRepo.insert(row)
+            // Ручная операция тоже проходит привязку к цели. Раньше этого вызова здесь не было
+            // вовсе: перевод на привязанный счёт цель не двигал, а удаление такой операции цель
+            // уменьшало — зачисления нет, списание есть.
+            transferRouter.onManualRowInserted(row)
             // Reflect the operation on the chosen account's balance so the dashboard stays in sync.
             if (accountId != null) {
                 if (acc != null) {
@@ -361,8 +363,7 @@ class TransactionsViewModel @Inject constructor(
             // этот сдвиг отменить — откатить можно только тот счёт, на котором строка лежит.
             if (pairId != null && destAccountId != null) {
                 accountRepo.getById(destAccountId)?.let { dest ->
-                    txRepo.insert(
-                        TransactionEntity(
+                    val incomingLeg = TransactionEntity(
                             id             = UUID.randomUUID().toString(),
                             smsId          = null,
                             accountId      = dest.id,
@@ -375,8 +376,11 @@ class TransactionsViewModel @Inject constructor(
                             timestamp      = timestamp,
                             currency       = dest.currency,
                             transferPairId = pairId,
-                        )
                     )
+                    txRepo.insert(incomingLeg)
+                    // Цель, привязанная к счёту-ПРИЁМНИКУ, растёт именно на этой ноге: первая
+                    // лежит на счёте-источнике и о приёмнике ничего не знает.
+                    transferRouter.onManualRowInserted(incomingLeg)
                     accountRepo.upsert(dest.copy(
                         balanceKopecks = dest.balanceKopecks + mag,
                         updatedAt      = now,

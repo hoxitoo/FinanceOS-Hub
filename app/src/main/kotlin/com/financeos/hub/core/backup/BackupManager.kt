@@ -198,7 +198,7 @@ class BackupManager @Inject constructor(
     private fun GoalEntity.toJson() = JSONObject().apply {
         put("id", id); put("name", name); put("emoji", emoji)
         put("targetKopecks", targetKopecks); put("savedKopecks", savedKopecks)
-        putNullable("deadlineAt", deadlineAt)
+        putNullable("deadlineAt", deadlineAt); putNullable("startedAt", startedAt)
         put("isCompleted", isCompleted); putNullable("completedAt", completedAt)
         put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
@@ -289,6 +289,7 @@ class BackupManager @Inject constructor(
         targetKopecks = getLong("targetKopecks"),
         savedKopecks = optLong("savedKopecks", 0L),
         deadlineAt = optLongOrNull("deadlineAt"),
+        startedAt = optLongOrNull("startedAt"),
         isCompleted = optBoolean("isCompleted", false),
         completedAt = optLongOrNull("completedAt"),
         createdAt = optLong("createdAt", System.currentTimeMillis()),

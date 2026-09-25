@@ -14,6 +14,7 @@ import com.financeos.hub.data.repositories.TransferRouteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -24,6 +25,21 @@ data class GoalsState(
     val routes: List<TransferRouteEntity> = emptyList(),
     val cardMasks: List<String> = emptyList(),
     val accounts: List<AccountEntity> = emptyList(),
+    /**
+     * Маска карты → имя счёта, к которому она привязана.
+     *
+     * Без этого список карт в листе автопополнения — шестнадцать голых четырёхзначных чисел, и
+     * выбрать из них нужную можно только угадыванием.
+     */
+    val cardOwners: Map<String, String> = emptyMap(),
+    /**
+     * Собственный темп накопления — средний остаток за три ЗАКРЫТЫХ месяца.
+     *
+     * Текущий месяц исключён намеренно (та же ловушка, что в калькуляторе и в пилларах оценки):
+     * 3-го числа зарплата уже пришла, а расходы ещё нет, и темп вышел бы вдвое выше правды.
+     * `null` — истории ещё нет, и тогда расчёт молчит вместо того, чтобы обещать срок.
+     */
+    val paceKopecks: Long? = null,
 )
 
 @HiltViewModel
@@ -46,11 +62,27 @@ class GoalsViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     }
 
+    /**
+     * Собственный темп накопления. Считается ОДИН раз на подписку, а не на каждое изменение
+     * истории.
+     *
+     * Темп — средний остаток за три ЗАКРЫТЫХ месяца, и сегодняшняя операция на него не влияет по
+     * определению. Подписка на `observeAll()` тянула бы всю таблицу операций при каждой правке
+     * ради значения, которое от неё не зависит. Экран целей открыт подолгу, история бывает в
+     * десятки тысяч строк — это чистая трата на горячем пути.
+     *
+     * Свежести хватает: `WhileSubscribed(5_000)` отпускает поток через пять секунд после ухода с
+     * экрана, и следующее открытие считает заново.
+     */
+    private val pace = flow { emit(txRepo.averageMonthlyNet(3)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val state = combine(
-        goalRepo.observeActive(),
+        goalRepo.observeAll(),
         transferRouteRepo.observeAll(),
         accountRepo.observeAll(),
         cardRepo.observeAll(),
+        pace,
     ) { arr ->
         @Suppress("UNCHECKED_CAST")
         val goals    = arr[0] as List<GoalEntity>
@@ -60,17 +92,33 @@ class GoalsViewModel @Inject constructor(
         val accounts = arr[2] as List<AccountEntity>
         @Suppress("UNCHECKED_CAST")
         val cards    = arr[3] as List<CardEntity>
+        val paceNow  = arr[4] as Long?
 
         val masks = (accounts.mapNotNull { it.cardMask } + cards.map { it.cardMask }).distinct()
-        GoalsState(goals = goals, routes = routes, cardMasks = masks, accounts = accounts)
+        val byId  = accounts.associateBy { it.id }
+        val owners = buildMap {
+            // Сначала карты (их привязка к счёту явная), затем маска самого счёта — она и есть
+            // последнее слово, если одна и та же маска встретилась дважды.
+            cards.forEach { c -> byId[c.accountId]?.let { put(c.cardMask, it.name) } }
+            accounts.forEach { a -> a.cardMask?.let { put(it, a.name) } }
+        }
+        GoalsState(
+            goals      = goals,
+            routes     = routes,
+            cardMasks  = masks,
+            accounts    = accounts,
+            cardOwners  = owners,
+            paceKopecks = paceNow,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalsState())
 
     fun createGoal(
-        name           : String,
-        emoji          : String,
-        targetKopecks  : Long,
-        deadlineAt     : Long?,
-        linkedAccountId: String? = null,
+        name            : String,
+        emoji           : String,
+        targetKopecks   : Long,
+        deadlineAt      : Long?,
+        startedAt       : Long? = null,
+        linkedAccountIds: Set<String> = emptySet(),
     ) {
         viewModelScope.launch {
             val goalId = UUID.randomUUID().toString()
@@ -82,39 +130,44 @@ class GoalsViewModel @Inject constructor(
                     targetKopecks = targetKopecks,
                     savedKopecks  = 0L,
                     deadlineAt    = deadlineAt,
+                    startedAt     = startedAt,
                 )
             )
-            if (linkedAccountId != null) {
+            linkedAccountIds.forEach { accountId ->
                 transferRouteRepo.addRoute(
                     TransferRouteEntity(
                         id         = UUID.randomUUID().toString(),
                         goalId     = goalId,
                         matchType  = TransferMatchType.ACCOUNT,
-                        matchValue = linkedAccountId,
+                        matchValue = accountId,
                     )
                 )
             }
         }
     }
 
-    fun addContribution(goal: GoalEntity, amountKopecks: Long) {
-        // Delegate to the single clamping/completion code path so manual and routed
-        // contributions behave identically (floor-clamp, target-clamp, updatedAt refresh).
-        viewModelScope.launch { goalRepo.contribute(goal.id, amountKopecks) }
-    }
-
     /**
-     * Takes [amountKopecks] back out of a goal — money spent on it, or set aside by mistake.
+     * Ставит НА цели ровно [totalKopecks]: приложение само считает, сколько прибавилось или убыло.
      *
-     * Runs through the very same [GoalRepository.contribute] with a negated amount, so a withdrawal
-     * inherits everything a contribution already gets right: the mutex against concurrent routed
-     * transfers, the floor at zero, and the clearing of `completedAt` when the goal drops back below
-     * its target (without which a card keeps claiming "выполнено" over money that is no longer there).
+     * Так человек и знает свои накопления — «на счёте лежит 45 000», а не «с прошлого раза стало
+     * больше на 5 000». Разностью приходилось считать в уме, и ошибка в этом счёте попадала прямо
+     * в цель: ввёл полную сумму вместо прибавки — цель прыгнула вдвое, и откатить это можно было
+     * только такой же ручной разностью.
+     *
+     * Под капотом — та же [GoalRepository.contribute] со знаковой разностью: у неё один мьютекс с
+     * автоматическими зачислениями и одно место, где цель закрывается и открывается обратно.
+     * Отдельная «установка» мимо неё разошлась бы с этой логикой при первой же правке.
      */
-    fun withdrawContribution(goal: GoalEntity, amountKopecks: Long) {
-        val magnitude = kotlin.math.abs(amountKopecks)
-        if (magnitude <= 0L) return
-        viewModelScope.launch { goalRepo.contribute(goal.id, -magnitude) }
+    fun setSavedTotal(goal: GoalEntity, totalKopecks: Long) {
+        viewModelScope.launch {
+            // Разность считается от СВЕЖЕЙ суммы, а не от той, что была на экране при открытии
+            // диалога. Пока диалог открыт, цель может подрасти автозачислением, и дельта от
+            // устаревшей базы затёрла бы его.
+            val fresh = goalRepo.getById(goal.id) ?: return@launch
+            val delta = totalKopecks.coerceAtLeast(0L) - fresh.savedKopecks
+            if (delta == 0L) return@launch
+            goalRepo.contribute(goal.id, delta)
+        }
     }
 
     fun updateGoal(
@@ -123,23 +176,71 @@ class GoalsViewModel @Inject constructor(
         emoji         : String,
         targetKopecks : Long,
         deadlineAt    : Long?,
+        startedAt     : Long? = goal.startedAt,
     ) {
         viewModelScope.launch {
+            // Правка накладывается на СВЕЖУЮ строку из БД, а не на снимок, сделанный при открытии
+            // листа. `GoalDao.upsert` — это `@Insert(REPLACE)`, он переписывает строку целиком:
+            // зачисление, прилетевшее пушем, пока лист был открыт, исчезало без следа. Окно теперь
+            // шире прежнего — лист длиннее (иконки, расчёт, счета), а `goal_id` получает уже не
+            // только перевод, но и любая операция на привязанном счёте.
+            val fresh = goalRepo.getById(goal.id) ?: return@launch
             goalRepo.upsert(
-                goal.copy(
+                fresh.copy(
                     name          = name,
                     emoji         = emoji,
                     targetKopecks = targetKopecks,
                     deadlineAt    = deadlineAt,
-                    isCompleted   = goal.savedKopecks >= targetKopecks,
+                    startedAt     = startedAt,
+                    // Считается по свежей сумме: цель могла набраться, пока лист был открыт.
+                    isCompleted   = fresh.savedKopecks >= targetKopecks,
                     updatedAt     = System.currentTimeMillis(),
                 )
             )
         }
     }
 
+    /**
+     * Приводит привязки цели к счетам в точности к [accountIds]: недостающие добавляет, лишние
+     * снимает.
+     *
+     * Отдельным действием, а не внутри [updateGoal], потому что это запись в ДРУГУЮ таблицу
+     * (`transfer_routes`), и у неё своя семантика: снятая привязка — это `is_active = 0`, а не
+     * удаление строки. Трогаются только маршруты типа ACCOUNT: привязки по карте и ключевому слову
+     * живут в отдельном листе, и форма цели о них ничего не знает — стереть их заодно значило бы
+     * молча отменить чужую настройку.
+     */
+    fun syncAccountRoutes(goalId: String, accountIds: Set<String>) {
+        viewModelScope.launch {
+            val current = transferRouteRepo.getAllActive()
+                .filter { it.goalId == goalId && it.matchType == TransferMatchType.ACCOUNT }
+
+            current.filterNot { it.matchValue in accountIds }
+                .forEach { transferRouteRepo.removeRoute(it.id) }
+
+            val already = current.map { it.matchValue }.toSet()
+            (accountIds - already).forEach { accountId ->
+                transferRouteRepo.addRoute(
+                    TransferRouteEntity(
+                        id         = UUID.randomUUID().toString(),
+                        goalId     = goalId,
+                        matchType  = TransferMatchType.ACCOUNT,
+                        matchValue = accountId,
+                    )
+                )
+            }
+        }
+    }
+
     fun deleteGoal(id: String) {
-        viewModelScope.launch { goalRepo.delete(id) }
+        viewModelScope.launch {
+            // Привязки снимаются ПЕРЕД удалением цели: у `transfer_routes` нет внешнего ключа на
+            // `goals`, и осиротевший маршрут продолжал бы ловить переводы — а зачислять их было бы
+            // некуда. Диалог удаления прямо обещает, что привязки исчезнут; до этой правки не
+            // исчезали.
+            transferRouteRepo.removeGoalRoutes(id)
+            goalRepo.delete(id)
+        }
     }
 
     // --- Auto-fund (transfer routing) links ---

@@ -227,25 +227,29 @@ class DashboardViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            if (leftTransfer && tx.goalId != null) transferRouter.onTransactionReversed(tx)
             val mag = kotlin.math.abs(tx.amountKopecks)
             val newAmount = when (newType) {
                 TransactionType.EXPENSE  -> -mag
                 TransactionType.INCOME   ->  mag
                 TransactionType.TRANSFER -> tx.amountKopecks
             }
-            txRepo.update(
-                tx.copy(
+            // Тот же `applyRetype`, что и на экране «Операции». Своя копия этой логики здесь уже
+            // была и уже разошлась с оригиналом: правка расхода в доход на привязанном к цели
+            // счёте оставляла цель с прежним знаком.
+            transferRouter.applyRetype(tx, newType, newAmount) { goalId ->
+                val updated = tx.copy(
                     type           = newType,
                     amountKopecks  = newAmount,
                     merchant       = merchant.ifBlank { null },
                     categoryId     = categoryId,
                     description    = note,
-                    goalId         = if (leftTransfer) null else tx.goalId,
+                    goalId         = goalId,
                     transferPairId = if (leftTransfer) null else tx.transferPairId,
                     updatedAt      = System.currentTimeMillis(),
                 )
-            )
+                txRepo.update(updated)
+                updated
+            }
         }
     }
 

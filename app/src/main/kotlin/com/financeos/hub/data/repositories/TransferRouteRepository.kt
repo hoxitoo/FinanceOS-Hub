@@ -22,4 +22,7 @@ class TransferRouteRepository @Inject constructor(
 
     /** Remove ACCOUNT-type goal links pointing at [accountId] — called when that account is deleted. */
     suspend fun removeAccountRoutes(accountId: String) = dao.deactivateByAccountValue(accountId)
+
+    /** Снимает привязки удалённой цели — иначе они перехватывают зачисления у следующей. */
+    suspend fun removeGoalRoutes(goalId: String) = dao.deactivateByGoal(goalId)
 }

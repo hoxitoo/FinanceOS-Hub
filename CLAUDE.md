@@ -10,7 +10,7 @@ shows analytics.
 - **Platform:** Android (Kotlin + Jetpack Compose, BOM 2024.06)
 - **Package:** `com.financeos.hub`
 - **Min SDK:** 26, **Target:** 34
-- **DB schema:** Room v17
+- **DB schema:** Room v18
 - **Distribution:** sideloaded APK from GitHub Releases + in-app self-update
 
 ## Branch Strategy
@@ -24,8 +24,27 @@ dev   ← integration (PR from feature branches)
 ## Build & verification
 The project **cannot be built in this container** (no Android SDK; the network policy blocks the
 AGP download). **CI is the compiler:** `.github/workflows/android.yml` runs `test` +
-`assembleDebug` + `lintDebug` on any PR targeting `dev` or `main`. Open a **draft PR to `dev`** to
-get a compile check without touching the release pipeline (which only fires on push to `main`).
+`assembleDebug` + `lintDebug` on any PR targeting `dev` or `main`.
+
+### Ошибки процесса, которые повторялись чаще всего
+- **Пуш в ветку САМ ПО СЕБЕ не запускает ничего.** Workflow висит на `pull_request` к `dev`/`main`,
+  поэтому без открытого PR коммит не компилируется вообще, а ожидание «сейчас придёт CI»
+  затягивается на часы. Порядок ровно такой: коммит → пуш → **сразу открыть PR к `dev`** →
+  дождаться `Build & Test` → и только потом говорить, что код собирается. Без зелёного CI любая
+  фраза «готово» — догадка: локально нет ни компилятора, ни Android SDK.
+- **После squash-мержа ветка «отстаёт», хотя всё её содержимое уже в `dev`.** История в `dev`
+  переписана в один коммит, и обычный пуш будет отвергнут. Правильно — начать ветку заново от
+  свежего `dev` (`git checkout -B <branch> origin/dev`), а не мержить и не копить.
+- **Релиз — это ДВА PR:** ветка → `dev`, затем `dev` → `main`. Пуш в `main` запускает
+  `release-apk.yml`, который и собирает APK с новым номером сборки.
+- **`dev` → `main` сливается МЕРЖ-КОММИТОМ, а не squash.** Squash кладёт в `main` новый коммит с
+  тем же содержимым, но с другой историей: `main` и `dev` расходятся, база слияния остаётся в
+  прошлом, и следующий релиз приходит с конфликтом в файлах, которые правились в обеих волнах
+  (первым — этот файл). Хуже того, конфликтный PR не собирается вообще: GitHub не может построить
+  merge-ref, и CI по нему просто не запускается — выглядит как «проверки не пришли».
+  Squash уместен на первом шаге (ветка → `dev`), где история ветки и правда лишняя.
+- **Документация — часть правки, а не последующая уборка.** Всё, что стоит помнить, идёт в этот
+  файл В ТОМ ЖЕ PR. Проверено на себе: инварианты, записанные «потом», не записываются.
 
 There are no instrumented/UI tests — gestures, rendering and screen behaviour are verified by
 review and reasoning only. State that honestly when reporting.
@@ -37,14 +56,17 @@ Clean Architecture + MVVM + Hilt + Room + Compose + Coroutines/Flow
 app/
 ├── core/
 │   ├── database/     (entities, daos, converters, FosDatabase, migrations)
-│   ├── parser/       (BankParser, ParserEngine, banks/, TransferPatterns, PromoFilter, AmountParser)
+│   ├── parser/       (BankParser, ParserEngine, banks/ — 13 штук, TransferPatterns, PromoFilter,
+│   │                  CreditNoticeParser, AmountParser, MerchantNames, CyrillicRegex/ciRegex)
 │   ├── classifier/   (DictionaryClassifier, CategoryDefaults)
-│   ├── sms/          (SmsReader, SmsReceiver, PushNotificationListener)
+│   ├── sms/          (SmsReader, SmsReceiver — ТОЛЬКО SMS)
+│   ├── auth/         (BiometricHelper)
 │   ├── account/      (AccountLinker)
 │   ├── credit/       (CreditMath — debt, free limit, cycle, min payment, due payment;
 │   │                  CreditNoticeApplier)
 │   ├── transfer/     (TransferRouter)
-│   ├── finance/      (SavingsMath — накопления: прогноз, срок, требуемый взнос)
+│   ├── finance/      (SavingsMath — вклад: прогноз, срок, требуемый взнос;
+│   │                  GoalPlan — копилка без процентов: остаток, взнос к сроку, свой темп)
 │   ├── calendar/     (CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher,
 │   │                  ObligationSyncer)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
@@ -54,18 +76,20 @@ app/
 │   ├── pdf/          (PdfImporter, PdfTransactionParser)
 │   ├── backup/       (BackupManager, BackupCrypto)
 │   ├── update/       (UpdateChecker, UpdateCheckWorker)
-│   └── notifications/(NotificationHelper — 4 channels)
+│   └── notifications/(NotificationHelper — 4 channels; **PushNotificationListener живёт ЗДЕСЬ**,
+│                      не в sms/; ListenerHealth + ListenerRebindReceiver + ListenerWatchdogWorker
+│                      + ListenerNotice — живучесть привязки службы)
 ├── data/
 │   ├── repositories/ (Tx, Account, Card, Category, Budget, Goal, TransferRoute)
 │   └── preferences/  (UserPreferences via DataStore)
 ├── di/               (DatabaseModule, ParserModule, RepositoryModule, MLModule, AnalyticsModule)
 ├── features/         (dashboard, transactions, analytics, budget, goals, calculator, calendar,
-│                      subscriptions, categories, credit, onboarding, settings)
+│                      subscriptions, categories, credit, onboarding, settings, auth/LockScreen)
 ├── navigation/       (FosNavHost, FosRoutes)
 ├── widget/           (BalanceWidget)
 └── ui/
     ├── theme/        (FosColors, FosType, FosDimens, FosSurface, FosTheme, FosFormatter,
-    │                  AmountVisualTransformation, Shimmer)
+    │                  AmountVisualTransformation, Shimmer, BankColors, BioluminescentIndication)
     └── components/   (FosFormSheet — лист формы с подтверждением выхода; AccountPicker —
                        выбор банк→счёт; остальное см. README)
 ```
@@ -104,20 +128,25 @@ app/
 
 ## SMS Deduplication
 `smsId = "${sender}_${timestamp}_${body.hashCode()}"` — checked before insert, then
-`existsSimilarSmsOrPush(|amount|, ±5 min)` catches the SMS↔push twin of the same event.
+`existsSimilarSmsOrPush(signedAmount, ±5 min)` catches the SMS↔push twin of the same event.
+Сумма **знаковая**, не по модулю — см. инвариант #14, иначе вторая нога перевода между своими
+счетами молча съедается.
 
 ## Categories (18)
 13 расходных + 3 доходных + «Букмекер» + «Подписки». Список **append-only** — см. инвариант #9.
 «Подписки» отделены от «Развлечений»: кинотеатр и купленная в Steam игра — разовая покупка,
 Netflix и Яндекс Плюс — ежемесячное списание, и в бюджете это разные вещи.
 
-## Supported Banks (12)
+## Supported Banks (13)
 - **P1:** Сбербанк, Т-Банк, ВТБ, Альфа-Банк, Газпромбанк
 - **P2:** Райффайзен, Росбанк, Открытие
-- **P3:** МТС Банк, Почта Банк, Россельхозбанк
+- **P3:** МТС Банк, Почта Банк, Россельхозбанк, **МКБ**
 - **KG:** МБанк (multi-currency USD/KGS/EUR/RUB)
 
-All 12 have unit tests (~7 cases each).
+12 из 13 закрыты тестами (~7 случаев на банк). **`MkbParser` теста не имеет** — он
+зарегистрирован в `ParserModule` и работает, но его форматы («Карта *5933 Покупка 1500р Магазин
+Остаток 24686.88р») ничем не закреплены: любая правка `TransferPatterns` или `AmountParser` может
+сломать его молча. Тест на него — дешёвый и давно напрашивающийся долг.
 
 ---
 
@@ -235,8 +264,12 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] 12 bank parsers + `ParserEngine` (@IntoSet DI) + `TransferPatterns` + `PromoFilter`
 - [x] `SmsReceiver` (real-time, `goAsync`), `SmsReader` (90-day import), `PushNotificationListener`
       (reads **every** notification text extra)
+- [x] Живучесть привязки службы уведомлений (`core/notifications/`): `ListenerHealth` отличает
+      ВЫДАННОЕ РАЗРЕШЕНИЕ от РАБОТАЮЩЕЙ службы, `ListenerRebindReceiver` чинит привязку после
+      обновления APK и перезагрузки, `ListenerWatchdogWorker` раз в час просит мягко,
+      `ListenerNotice` сообщает, если жёсткий перезапуск сбросил разрешение — см. инвариант #28
 - [x] SMS is **opt-in** (`sms_realtime_enabled`, default false)
-- [x] `DictionaryClassifier` (~183 rules, 18 категорий), `CategoryDefaults.forType` income fallback.
+- [x] `DictionaryClassifier` (~216 rules, 18 категорий), `CategoryDefaults.forType` income fallback.
       **Словарь идёт ПЕРВЫМ, модель — вторая.** Модель заморожена на 13 метках и категории,
       добавленные позже («Букмекер», «Подписки»), назвать не может; при обратном порядке они
       остались бы навсегда пустыми.
@@ -261,8 +294,13 @@ Everything below is **implemented and shipped** unless marked otherwise.
       detail/edit sheet with source diagnostics, «↑ Экспорт» CSV, «↓ Импорт» PDF, manual add incl.
       **Перевод** with destination account)
 - [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
-- [x] Budget (envelopes, CRUD, throttled alerts), Goals (9 bundled art backdrops, history,
-      🔗 routing, ручное пополнение И снятие через ±)
+- [x] Budget (envelopes, CRUD, throttled alerts)
+- [x] Цели — карточка с кольцом выполнения (процент ВНУТРИ кольца, цвет по теме цели), действия
+      в ряд (история / ± / привязка / удалить, удаление с подтверждением), «Калькулятор» словом
+      по центру шапки, выполненные цели под сворачиваемым заголовком «Выполненные» внизу.
+      Форма цели: иконки разложены по девяти категориям в два столбца (без бокового скролла),
+      компактные яркие поля, ДВЕ даты — «Начало» (v17→v18, `goals.started_at`) и «Срок»,
+      привязка счетов чипами банк→счёт с множественным выбором и подтверждением выхода
 - [x] Subscriptions, Categories CRUD, Settings, Onboarding
 - [x] Калькулятор накоплений — `features/calculator`, вход из «Целей» (🧮). Три режима, тонкая
       настройка, разбивка «своё / проценты», столбики и таблица по годам. Подставляет ваш темп
@@ -273,8 +311,10 @@ Everything below is **implemented and shipped** unless marked otherwise.
       найденные подписки, дедлайны целей. Два режима: полоса и **сетка месяца** — сетка работает
       фильтром, выбранный день оставляет в списке только свои события.
 - [x] Кредитные карты — плитка на главной (под hero, один вставочный пункт → все 3 варианта героя)
-      + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного периода,
-      ставка, утилизация, история операций, лист редактирования условий)
+      + экран `features/credit` (сводка, блок на карту с датой/суммой платежа, полоса беспроцентного
+      периода, ставка, утилизация, история операций, лист редактирования условий). Экран сжат:
+      свободный лимит и утилизация не дублируются, условия тарифа свёрнуты под «Тариф ▾» —
+      переполненный экран из одинаковых строк не читается, а листается
 
 ## Analytics
 - [x] `ScoreCalculator` (4 pillars, 0–100) + `ScoreDonut` multi-colour rendering
@@ -289,7 +329,10 @@ Everything below is **implemented and shipped** unless marked otherwise.
 - [x] Interpreter calls are `Mutex`-guarded (TFLite `Interpreter` is not thread-safe)
 
 ## Platform
-- [x] Backup/restore — 9 tables (включая `planned_payments`) → `.fose`, AES-GCM-256 via Android Keystore, additive + FK-safe
+- [x] Backup/restore — 8 наборов (accounts, cards, categories, goals, budgets, routes,
+      **planned**, transactions) → файл **открытого JSON**, restore additive + FK-safe.
+      **Копия НЕ шифруется** — см. инвариант #27. `BackupCrypto` остался только на чтение старых
+      `.fose`, и в коде он вызывается ровно в одном месте — в `restoreFrom`
 - [x] Notifications — 4 channels, allowlisted deep-links, permission-guarded
 - [x] Biometric lock (fail-open, device-PIN escape hatch), 2×2 home-screen widget
 - [x] In-app self-update + `UpdateCheckWorker` (12 h) + `release-apk.yml` pipeline
@@ -316,13 +359,23 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Transfers** | TRANSFER as a first-class type, `TransferRouter`, goal auto-routing by account/card/keyword, bidirectional account routing |
 | **Shimmer** | «Анимации» + «Атмосфера» layers (particles, tilt/sheen, breathing hero, bioluminescent ripple, currency reef) |
 | **Cat mode** | Mood-matched mascot + paw particles, mood tiers identical to the score tiers |
-| **Distribution** | Release pipeline, in-app updater, background update notifications, encrypted backups |
+| **Distribution** | Release pipeline, in-app updater, background update notifications, резервные копии (шифрование ключом устройства позже снято — инвариант #27) |
 | **Credit cards** | `AccountKind`, схема v10→v12, плитка + экран, разбор реальных пушей Сбера, погашение переводом, оценка процентов |
 | **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
 | **UI system** | `FosSurface` — огранка карточек по роли (Raised/Rail/Sunken/Outline/Plain) + тон по правилам цвета; `FosSectionHeader`; `fosCardEdge` для карточек с артом на всю площадь; пояснение прогноза трат |
 | **Подписки + калькулятор** | Категория «Подписки» (v13→v14) с переводом старых правил стриминга через UPDATE; словарь стал приоритетнее замороженной модели; `SavingsMath` + экран калькулятора накоплений |
 
 | **Календарь** | `planned_payments` (v15→v16), `CalendarEvent`/`PaymentDates`/`CalendarBuilder`/`FreeMoney`/`ObligationMatcher`, экран календаря, плитка «Свободно» на главной, подтверждение найденных подписок |
+| **Календарь: сетка + отчёт с устройства** | Сетка месяца как фильтр; `ObligationSyncer` (запись сопоставления вне экрана); `rejected_tx_id` (v16→v17); отсечка по `createdAt`; вход в календарь перестал быть условным (инвариант #21) |
+| **Защита ввода** | `FosFormSheet` — подтверждение выхода из заполненной формы через `confirmValueChange`; `AccountPicker` (банк → счёт) вынесен в общий компонент |
+| **Кириллица в разборе** | `ciRegex()` с `(?u)`: `IGNORE_CASE` на JVM сворачивает только ASCII, и пуш капсом молча терялся. 55 паттернов переписаны, `CyrillicCaseTest` фиксирует поведение |
+| **Реальные пуши** | Входящий перевод по СБП («Перевод … от …» — это приход), `RUR` как рубль, списание по номеру счёта, `RealPushFormatsTest` |
+| **Живучесть службы уведомлений** | `ListenerHealth`/`ListenerRebindReceiver`/`ListenerWatchdogWorker`/`ListenerNotice` — автоматическое переподключение после обновления APK и перезагрузки (инвариант #28) |
+| **Переводы двумя ногами** | Ручной перевод пишется двумя строками с общим `transferPairId`, удаление откатывает оба счёта (инвариант #16 распространён с погашения на любой перевод) |
+| **Операции: фильтры** | Одна строка фильтров — лупа-поиск, меню «Тип операции» с **Переводами**, фильтр по дате (день/период); «↓ Импорт»/«↑ Экспорт»; убран двойной системный отступ (инварианты #25, #26) |
+| **Цели: карточка и форма** | Процент внутри кольца и цвет по теме цели; карточка вдвое ниже (действия в ряд); иконки по категориям в два столбца вместо ленты вбок; `goals.started_at` (v17→v18); привязка счетов чипами банк→счёт с множественным выбором — и в режиме правки она наконец сохраняется (инвариант #29) |
+| **Цели: расчёт и остаток** | `GoalPlan` (`core/finance/`) — сколько осталось, сколько откладывать в месяц, успевает ли собственный темп; блок «РАСЧЁТ» прямо в форме цели. Ручная правка суммы — вводом ОСТАТКА (инвариант #32). Привязка к счёту засчитывает любое движение денег на нём (инвариант #31) |
+| **Цели: автопополнение и список** | Ручная операция дошла до маршрутизатора (инвариант #30 — раньше зачисления не было, а списание при удалении было); лист автопополнения перестроен (что привязано — сверху, счета по банкам, карты с именами, ручной ввод под «Ещё», повторный тап отвязывает); удаление цели спрашивает подтверждение; выполненные цели — под сворачиваемым заголовком внизу |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
 *Hard-won invariants* above; the rest are visible in `git log`.
@@ -334,6 +387,11 @@ Everything below is **implemented and shipped** unless marked otherwise.
   `currency` column stays RUB).
 - An internal transfer whose two legs arrive more than 10 min apart can't be paired.
 - Sberbank `parsePush()` anchors on «В запасе:» — other balance labels need coverage.
+- У обязательства помнится **одна** отвергнутая операция (`rejected_tx_id`), не список. Отвязать
+  вторую подходящую операцию того же обязательства нечем — она встанет на место первой.
+- `MkbParser` не покрыт тестами (13-й банк, добавлен вместе с отображением карт).
+- Резервная копия — открытый JSON (инвариант #27); класть её в общую папку нельзя.
+- Пополнение брокерского счёта считается расходом — см. «Инвестиции» ниже.
 
 ---
 
@@ -344,11 +402,23 @@ Everything below is **implemented and shipped** unless marked otherwise.
   платежа BKS Mir Investitsiy») сейчас считается тратой и занижает финансовое здоровье, хотя деньги
   никуда не делись. Это дешёвая правка с немедленным эффектом; экран и события в календаре — вторым
   заходом.
+- **Тест на `MkbParser`** — 13-й банк работает и ничем не закреплён. Дешевле всего сделать сразу.
+- **Шифрование копии парольной фразой** — вернуть защиту, не повторяя ключ устройства
+  (инвариант #27). До этого README честно пишет, что копия открытая.
 - Polish: localization review, dark-mode visual QA
 - Consider: cross-channel dedup window tuning (currently ±5 min, conservative)
-- Consider: encrypt the backup with a user PIN (the key is device-scoped, no extra auth today)
 - Consider: signed **release** APK channel (keystore in GitHub Secrets)
 - Await more Sberbank push format variants
+
+## Перед большой правкой — короткий чек-лист
+1. Прочитать инварианты по затрагиваемой области: они описывают дефекты, которые УЖЕ возвращались.
+2. Схема БД растёт только миграцией; категория добавляется ДВУМЯ операциями (инвариант #9 и #18).
+3. Новый экран/лист с вводом — через `FosFormSheet`; новая карточка — через `FosSurface`,
+   не `clip + background`.
+4. Кириллический паттерн — только `ciRegex()`.
+5. Изменилось поведение, которое человек увидит, — строка в README; появился дефект, который
+   может вернуться, — инвариант здесь. В ТОМ ЖЕ PR.
+6. Коммит → пуш → **PR к `dev`** → зелёный CI. Без него «собирается» — это гипотеза.
 
 ## Credit cards — remaining work
 Заходы 1–2 (фундамент + плитка/экран) сделаны. Осталось:
@@ -517,6 +587,131 @@ rowid). Дубликат паттерна с новым id встанет поз
 вчерашний день или тип «Переводы», решит, что история потерялась. Пустое состояние смотрит на ВСЕ
 сужения сразу (поиск, тип, даты, категория), а не на одно.
 
+### 27. Резервная копия НЕ шифруется — и это решение, а не недоделка
+Первая версия шифровала экспорт AES-GCM-256 ключом из Android Keystore. Ключ **привязан к
+устройству**, поэтому копия не открывалась ровно там, где копия и нужна: на новом телефоне и после
+переустановки. Защита от постороннего обернулась защитой от владельца, и `d3154fd` перевёл экспорт
+на открытый JSON. `BackupCrypto.decrypt` остался только чтобы читать старые `.fose`, и вызывается
+в единственном месте — `restoreFrom`, с откатом на UTF-8.
+
+Отсюда два следствия, и оба обязательны:
+- **Файл копии — это полная финансовая история открытым текстом.** Любая документация, обещающая
+  шифрование, — ложь пользователю о приватности; в README и здесь это написано прямо.
+- Вернуть шифрование можно **только с ключом, который человек может унести с собой** (PIN/парольная
+  фраза, KDF). Ключ устройства — уже пройденный тупик, повторять его нельзя.
+
+### 28. Разрешение на доступ к уведомлениям ≠ работающая служба
+`NotificationManagerCompat.getEnabledListenerPackages()` читает СПИСОК РАЗРЕШЕНИЙ. Android рвёт
+привязку `PushNotificationListener` при обновлении APK (а приложение раздаётся файлом и обновляется
+часто), при перезагрузке и при агрессивном энергосбережении — разрешение при этом остаётся. Экран
+настроек зелёными буквами писал «уведомления обрабатываются», пока не обрабатывалось ничего:
+молчаливый отказ, который ещё и успокаивает.
+
+- `requestRebind` (мягкая просьба) **после обновления APK не поднимает службу** — проверено на
+  One UI. Единственное, что работает, — перезапуск компонента через `setComponentEnabledSetting`.
+- Перезапуск компонента иногда СБРАСЫВАЕТ разрешение. Поэтому он делается не чаще раза в сутки,
+  повторное включение стоит в `finally`, а при потере разрешения человек получает уведомление —
+  догадаться самому невозможно, операции просто перестают появляться.
+- Ежечасный сторож делает **только мягкую** просьбу. Жёсткий перезапуск по расписанию — это
+  лотерея с разрешением пользователя раз в час.
+
+### 29. Элемент управления, который ничего не меняет, хуже отсутствующего
+В форме цели был выбор счёта, и в режиме ПРАВКИ он просто не доезжал до сохранения: колбэк
+принимал пять значений и выбрасывал пятое (`onSave = { …, _ -> }`). Человек выбирал счёт, нажимал
+«Сохранить», получал закрытый лист — и ни ошибки, ни привязки. Отсутствующая кнопка отправила бы
+искать привязку в другом месте (лист «🔗» умел это всегда); присутствующая — убедила, что дело
+сделано.
+
+Причина глубже опечатки: привязка цели к счёту живёт не в самой цели, а в `transfer_routes`, и
+форма, правящая ОДНУ таблицу, молча не могла записать в другую. Поэтому счета синхронизируются
+отдельным действием (`syncAccountRoutes`), и оно трогает только маршруты типа ACCOUNT — привязки
+по карте и ключевому слову настраиваются в другом листе, и стереть их заодно значило бы отменить
+чужую настройку.
+
+Проверка при правке формы: ДОХОДИТ ли каждое поле до записи. Поле, которое некуда сохранить,
+удаляется из формы, а не оставляется «на будущее».
+
+### 30. Операция, созданную приложением, проходит мимо конвейера, через который идёт банковская
+`TransferRouter.onTransactionInserted` вызывается из `SmsReceiver`, `SmsReader` и
+`PushNotificationListener` — и НЕ вызывался из `insertManual`. Ручной перевод на привязанный к цели
+счёт цель не двигал. При этом УДАЛЕНИЕ такой операции честно звало `onTransactionReversed`:
+зачисления не было, списание было, и цель могла уйти в минус относительно собственной истории.
+«Автопополнение не работает» — это оно и было.
+
+Чинить прямым вызовом того же метода нельзя: он написан под банковское сообщение. Банк присылает
+перевод ОДНИМ пушем на ОДИН счёт, поэтому метод сам двигает баланс встречного счёта и ищет парную
+строку. У ручной операции обе ноги уже написаны и оба баланса уже применены — тот же код добавил бы
+деньги второй раз и переписал бы `transferPairId` своим. Поэтому у ручных строк свой узкий вход
+`onManualRowInserted`: только привязка к цели, без балансов и без спаривания.
+
+Правило шире одного места: **у каждого способа создать операцию должен быть один и тот же список
+последствий.** Добавляя источник (импорт, виджет, шаблон), проверь по списку: баланс счёта,
+привязка к цели, сопоставление обязательства, дедуп. Пропущенный пункт не падает — он молча
+не случается.
+
+### 31. Цель, привязанная к счёту, следует за ДЕНЬГАМИ на нём, а не за типом операции
+Первая версия двигала цель только переводами: `onTransactionInserted` выходил первой же строкой,
+если тип не TRANSFER. На накопительном счёте это значило, что зачисление («Зачисление 50 000 ₽»)
+цель не двигает, хотя деньги пришли ровно туда, куда копят. Правило теперь одно и знаковое:
+пришло на привязанный счёт — прибавилось, ушло — убавилось, независимо от того, назвали операцию
+зачислением, тратой или переводом.
+
+Следствия, которые придётся держать в голове:
+- **Привязка к карте, с которой тратят, будет дёргать цель на каждой покупке.** Это не дефект, а
+  прямое следствие правила; в листе привязки так и написано, чтобы выбор был осознанным.
+- **Смена типа операции в правке меняет ЗНАК** (расход → доход): старое зачисление снимается,
+  новое применяется. Раньше правка типа просто отвязывала операцию от цели, и цель оставалась с
+  вкладом, которого в истории больше нет.
+- Откат (`onTransactionReversed`) обязан искать привязку **именно к счёту этой строки**. У цели
+  может быть несколько привязанных счетов, и «первая попавшаяся привязка типа ACCOUNT» давала
+  обратный знак: удаление зачисления УВЕЛИЧИВАЛО бы цель.
+- Привязка НЕ переносит деньги, уже лежащие на счёте: она описывает будущие движения. Стартовую
+  сумму человек ставит сам.
+
+### 32. Ручную правку суммы цели человек вводит ОСТАТКОМ, а не разностью
+Было «прибавить / снять» — и это требовало считать в уме: на цели 40 000, стало 45 000, вводи
+5 000. Ошибка в этом счёте попадала прямо в цель (ввёл 45 000 вместо 5 000 — цель прыгнула), а
+откатить её можно было только такой же ручной разностью. Человек знает СВОЙ ОСТАТОК, а не дельту;
+разность считает приложение и показывает её до нажатия. Поле открывается заполненным текущей
+суммой, поэтому случайное «Сохранить» ничего не меняет.
+
+Внутри — та же `GoalRepository.contribute` со знаковой разностью: у неё мьютекс общий с
+автоматическими зачислениями и единственное место, где цель закрывается и открывается обратно.
+
+### 33. Запрос списка не должен прятать то, ради чего на список смотрят
+Экран целей читал `observeActive()` — `WHERE is_completed = 0`. Цель исчезала с экрана ровно в тот
+момент, когда сумма сходилась: ни снять деньги, ни поправить, ни посмотреть историю, ни удалить.
+Вместе с ней оказался мёртвым и весь раздел «Выполненные», и ветки оформления достигнутой цели —
+код, который невозможно увидеть.
+
+Фильтр «активные» законен там, где закрытая запись действительно не нужна (календарь, калькулятор —
+у набранной цели нечего планировать), и незаконен в списке, который эту запись показывает. Решает
+ЭКРАН, а не запрос: `observeAll()` + разделение в UI.
+
+Проверка при добавлении раздела в список: доходят ли до него данные вообще. Раздел, который не
+может наполниться, не падает — он просто никогда не появляется.
+
+### 34. Ссылка без внешнего ключа переживает своего владельца
+У `transfer_routes` нет `ForeignKey` на `goals`, и удаление цели оставляло её привязки живыми.
+Маршрутизатор берёт ПЕРВЫЙ подходящий маршрут — сирота, стоящая раньше, перехватывала зачисления у
+новой цели на том же счёте, и та не пополнялась вообще. Диалог удаления при этом прямо обещал, что
+привязки исчезнут.
+
+Две меры, и обе нужны: `deactivateByGoal` при удалении цели (как `deactivateByAccountValue` при
+удалении счёта — там этот случай давно закрыт) и `contribute`, возвращающая `false`, когда цели уже
+нет. Без второй операция получала `goal_id` несуществующей цели: откатывать при удалении нечего, в
+истории цели такая строка не появится никогда.
+
+### 35. Форма пишет поверх СВЕЖЕЙ строки, а не поверх снимка
+`GoalDao.upsert` — это `@Insert(REPLACE)`, он переписывает строку целиком. Форма правки держала
+снимок цели, сделанный при открытии, и сохранение затирало `savedKopecks`: зачисление, прилетевшее
+пушем, пока лист открыт, исчезало без следа. То же с «сколько отложено сейчас» — разность считалась
+от суммы, показанной при открытии диалога.
+
+Правило: перед записью перечитать строку и наложить на неё только те поля, которые правит форма.
+Окно тем шире, чем длиннее форма и чем чаще приходят автоматические изменения, — а оба множителя
+в этом заходе выросли.
+
 ### Реальные форматы пушей (проверено на устройстве)
 Тела склеены так же, как их собирает `PushNotificationListener`: заголовок, затем текст, через
 пробел. Все они закреплены тестами (`SberCreditPushTest`, `RealPushFormatsTest`) — менять тексты
@@ -566,10 +761,14 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Parsers | `app/src/main/kotlin/com/financeos/hub/core/parser/` |
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
+| Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (29 файлов, 364 случая) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`
 - User-facing overview: `README.md`
 - Goal art generation prompts: `docs/GOAL_ART_PROMPTS.md`
+- `docs/DESIGN_HANDOFF.md` — **архив** (бриф на дизайн-ревью, август 2025). Концепция «Мерцание»
+  по нему реализована; как источник о текущем состоянии не годится и помечен об этом сверху.
 - Colour tokens: `FosColors.kt` · Typography: `FosType.kt`
 - Огранка карточек: `ui/theme/FosSurface.kt` · Заголовки и «?»-пояснения: `ui/components/FosSection.kt`
