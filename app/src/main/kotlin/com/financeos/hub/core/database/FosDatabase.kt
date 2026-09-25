@@ -37,7 +37,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -354,6 +354,19 @@ abstract class FosDatabase : RoomDatabase() {
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `rejected_tx_id` TEXT")
+            }
+        }
+
+        /**
+         * `goals.started_at` — когда человек начал копить.
+         *
+         * Столбец добавляется ПУСТЫМ, а не заполняется из `created_at`: цель заводят позже, чем
+         * начинают копить, и подстановка даты создания молча сократила бы срок у каждой
+         * существующей цели. Пустое значение честно означает «не указано».
+         */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `goals` ADD COLUMN `started_at` INTEGER")
             }
         }
 

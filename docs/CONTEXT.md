@@ -43,13 +43,15 @@ TextDark      = #3A4358
 
 ## Database Schema
 
-Room schema **version 17**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
+Room schema **version 18**. Every migration is registered in `DatabaseModule.addMigrations(...)`.
 
 | Migration | Change |
 |-----------|--------|
+| 1→2 | `cards` table (card mask → account, `onDelete = CASCADE`) |
 | 2→3 | `transactions.goal_id`, `transactions.transfer_pair_id`, `transfer_routes` table |
 | 3→4 | indexes on `goal_id` / `transfer_pair_id` |
 | 4→5 | re-seed categories + merchant rules (income categories, transit rules) |
+| 5→6 | `transactions.source_mask`, `transactions.counterparty_mask` |
 | 6→7 | `transactions.balance_kopecks` |
 | 7→8 | `transactions.currency` (`NOT NULL DEFAULT 'RUB'`) |
 | 8→9 | `transactions.raw_text` (captured message body, for diagnostics) |
@@ -57,9 +59,13 @@ Room schema **version 17**. Every migration is registered in `DatabaseModule.add
 | 10→12 | `accounts.kind` + credit terms (limit, APR, statement day, due days, interest-free days) |
 | 12→13 | credit payment notice: `accounts.due_payment_kopecks`, `accounts.due_payment_at` |
 | 13→14 | category `cat_subs` + **`UPDATE`** of six streaming rules onto it (see invariant #18) |
-| 14→15 | surgical category fixes for rows mis-labelled by the frozen model |
+| 14→15 | re-seed + surgical `UPDATE` категорий для строк, которые замороженная модель пометила мимо (ИИ-сервисы и хостинг → «Подписки») |
 | 15→16 | `planned_payments` table (calendar obligations) |
 | 16→17 | `planned_payments.rejected_tx_id` — какую операцию человек отверг кнопкой «Отвязать» |
+| 17→18 | `goals.started_at` — когда начали копить; добавляется ПУСТЫМ, не из `created_at` |
+
+Схема растёт **только** миграцией: сборка падает при несоответствии, а `fallbackToDestructiveMigration`
+в этом проекте означал бы «стереть всю историю операций пользователя при обновлении».
 
 ### TransactionEntity
 ```
@@ -117,9 +123,13 @@ isActive: Boolean
 ```
 id, name, emoji
 targetKopecks, savedKopecks: Long
-deadlineAt: Long?
+deadlineAt: Long?           ← срок, необязательный
+startedAt: Long?            ← начало накопления; отдельно от createdAt (цель заводят позже,
+                              чем начинают копить, и дата создания молча сократила бы срок)
 isCompleted: Boolean
 ```
+Привязка цели к счёту лежит НЕ здесь, а в `transfer_routes` (`matchType = ACCOUNT`). Форма цели
+правит её отдельным действием `GoalsViewModel.syncAccountRoutes` — см. инвариант #29.
 
 ### PlannedPaymentEntity (`planned_payments`)
 ```
@@ -188,7 +198,7 @@ premium» содержит в себе «ozon» (r071, Покупки), кото
 
 ## Categorisation — how it actually works
 Two-stage, **deterministic** — there is no on-device learning loop:
-1. `DictionaryClassifier` — ~183 seeded merchant rules (literal/regex substring match on
+1. `DictionaryClassifier` — ~216 seeded merchant rules (literal/regex substring match on
    `merchant + description`, lowercased, first match wins, compiled once and cached).
 2. `MLCategoryClassifier` (optional, behind the ML toggle) — a **pre-trained, frozen**
    TFLite model (`merchant_classifier.tflite`, 256→13 softmax). Inference only; the
@@ -338,6 +348,58 @@ val amtColor = when (tx.type) {
 ```
 Deletion is **swipe-left-to-reveal + tap the trash** (`SwipeToRevealDelete`), never an
 auto-dismiss on a flick.
+
+### Строка фильтров
+Одна строка на три чипа: 🔍 (поиск раскрывается полем ниже), «Тип операции» (`DropdownMenu` по
+`TxFilter` — Все / Расходы / Доходы / **Переводы**) и «Дата» (`DateRangePicker` в собственном
+`Dialog`). Раньше это занимало три полосы — поле поиска во всю ширину, ряд чипов и баннер
+категории, — то есть треть экрана до первой операции.
+
+- Сужения собраны в `Filters` и приходят одним потоком: `combine` принимает не больше пяти,
+  а фильтров уже четыре плюс сами данные.
+- Дата сравнивается **по дням**, не по меткам времени: иначе выбранный день обрезался бы по
+  полуночи и терял вечерние покупки.
+- `DateRangePicker` отдаёт UTC-полночь, и обратно берётся дата по UTC — перевод через системную
+  зону сдвинул бы день восточнее Гринвича.
+- Свой `Dialog` вместо `DatePickerDialog`: тот держит содержимое в коробке 360×568 dp, которую
+  календарь отрезка занимает целиком, и кнопки уезжают за край.
+- Закрытие лупы снимает и сам запрос — свёрнутый фильтр, продолжающий прятать часть истории,
+  необнаружим.
+- Пустое состояние смотрит на ВСЕ сужения (инвариант #26 в `CLAUDE.md`).
+
+## Служба чтения пушей: привязка ≠ разрешение (`core/notifications/`)
+
+| Файл | Роль |
+|---|---|
+| `PushNotificationListener` | сама служба; читает все текстовые extra уведомления |
+| `ListenerHealth` | факты (когда подключилась, отвалилась, когда был последний банковский пуш), мягкая просьба, жёсткий перезапуск компонента, честный ответ «работает ли сейчас» |
+| `ListenerRebindReceiver` | `MY_PACKAGE_REPLACED` + `BOOT_COMPLETED` → чинит привязку, `goAsync()` |
+| `ListenerWatchdogWorker` | раз в час, **только мягкая** просьба, `ExistingPeriodicWorkPolicy.KEEP` |
+| `ListenerNotice` | уведомление «доступ пропал» со ссылкой в системные настройки; без Hilt — поднимается из ресивера, где графа может не быть |
+
+`getEnabledListenerPackages()` читает список РАЗРЕШЕНИЙ, а не живых привязок, поэтому настройки
+писали «уведомления обрабатываются», когда не обрабатывалось ничего. Состояние «подключена сейчас»
+живёт в процессе (`@Volatile`), и это правильно: служба работает в том же процессе, поэтому
+«процесс перезапустился» и «привязки нет» — одно и то же.
+
+`ListenerHealth` намеренно на `SharedPreferences`, а не на DataStore: писать надо из колбэков
+службы синхронно, читать — из composable без ожидания. Подробности и подводные камни жёсткого
+перезапуска — инвариант #28 в `CLAUDE.md`.
+
+## Backup — открытый JSON, не шифровка
+
+`BackupManager.exportTo` пишет `buildJson()` как есть: восемь наборов (accounts, cards, categories,
+goals, budgets, routes, planned, transactions) плюс `schema`/`exportedAt`/`app`. Шифрование ключом
+Android Keystore было снято в `d3154fd`: ключ привязан к устройству, и копия не открывалась ровно
+там, где нужна, — на новом телефоне и после переустановки.
+
+`restoreFrom` сначала пробует `BackupCrypto.decrypt` (старые `.fose`), при неудаче читает как
+UTF-8. Импорт снимает висячие ссылки до вставки — Room включает внешние ключи, и одна строка с
+несуществующим родителем оборвала бы всё восстановление. Отключённые `planned_payments` попадают
+в копию намеренно: `auto_source` отключённой строки — память о том, что подписку уже подтверждали.
+
+Следствие для документации и интерфейса: **обещать шифрование нельзя**. Возвращать его можно
+только с парольной фразой пользователя — см. инвариант #27.
 
 ## Screen: Analytics
 
@@ -524,6 +586,26 @@ Alerts, anomalies, narratives. `InsightCard` uses a coloured LEFT BORDER only, n
 Берётся БЛИЖАЙШАЯ к сроку операция, а не первая подходящая: список идёт по убыванию времени, и
 «первая» означает «самая свежая».
 
+## Расчёт по цели (`core/finance/GoalPlan.kt`)
+
+Отдельно от `SavingsMath` намеренно. Тот считает ВКЛАД — ставка, капитализация, налог, индексация
+взноса. Цель здесь — копилка: сколько положили, столько и лежит. Проценты в расчёте цели обещали бы
+доход, которого приложение не видит, и человек сравнил бы прогноз с реальным остатком не в пользу
+приложения.
+
+| Поле `Outlook` | Смысл |
+|---|---|
+| `remainingKopecks` | сколько ещё не отложено |
+| `monthsLeft` | полных месяцев до срока, по КАЛЕНДАРЮ (не делением дней на 30) |
+| `requiredMonthly` | сколько откладывать в месяц; округление ВВЕРХ — вниз оставило бы цель недобранной ровно в срок |
+| `monthsAtCurrentPace` | за сколько наберётся своим темпом; `null`, если дольше 600 месяцев |
+| `onTrack` | хватает ли темпа к сроку; `null` — сравнивать не с чем |
+| `elapsedShare` | доля прошедшего срока — ради этого и нужна дата начала: «собрано 20 %» звучит одинаково на второй месяц из двенадцати и на одиннадцатый |
+
+Прошедший срок не превращается в «0 ₽ в месяц»: делить на ноль месяцев нельзя, а ноль означал бы,
+что всё в порядке. Вся недостающая сумма показывается как «нужно сейчас». Набранная цель не
+планируется вовсе — «откладывайте 0 ₽» не совет. Всё закреплено в `GoalPlanTest`.
+
 ## Money input fields
 
 All five money fields (account balance edit, add-account balance, add-transaction amount, goal
@@ -539,11 +621,17 @@ contribution, budget limit) share one contract:
 
 ---
 
-## Behavioral Analytics Vision (Phase 2)
+## Behavioral Analytics Vision (Phase 2) — ИСХОДНОЕ ЗАДАНИЕ, УЖЕ ВЫПОЛНЕНО
 
-> Source: product spec. Most features implemented in pure Kotlin. TFLite only for Phase 3 ML clustering.
+> **Статус: отгружено целиком** — и Phase 2A (чистый Kotlin), и Phase 3 (TFLite). Раздел оставлен
+> как ОПИСАНИЕ ЭВРИСТИК: пороги («импульс = до 2 000 ₽ между 21:00 и 06:00», «аномалия = выше
+> средней за 3 месяца в 1.3 раза») лежат только здесь, а в интерфейсе объясняются человеку через
+> «?»-бейджи. Менять эвристику — значит править и этот текст, и подпись в приложении.
+>
+> **«Implementation priority order» в конце раздела — история, а не план.** Всё перечисленное
+> существует; за текущим планом идите в `CLAUDE.md` → *Next Steps*.
 
-### Phase 2A — Pure Kotlin (no ML, implement next)
+### Phase 2A — Pure Kotlin (shipped)
 
 #### Spending Heatmap
 - 7×24 grid (X = day of week, Y = hour of day)
@@ -609,7 +697,7 @@ contribution, budget limit) share one contract:
 - Variable: everything else
 - Ratio shown as metric: "Вы контролируете X% расходов"
 
-### Phase 3 — TFLite ML (requires pre-trained model)
+### Phase 3 — TFLite ML (shipped; модели заморожены, обучения на устройстве нет)
 
 #### Behavioral Clustering
 - Input features: hour-of-day, day-of-week, category, amount bucket, merchant frequency
@@ -627,7 +715,7 @@ contribution, budget limit) share one contract:
 - Better than dictionary lookup for unknown merchants
 - TFLite text embedding model
 
-### Implementation priority order (Phase 2A)
+### Implementation priority order (Phase 2A) — исторический порядок, всё пройдено
 1. `HeatmapGrid.kt` — visual impact, pure Canvas
 2. Payday effect + budget fatigue → `AnalyticsEngine` methods
 3. Category anomaly alerts → `InsightGenerator` rules
@@ -713,13 +801,20 @@ the preference was known — a tester with a broken sensor had to reinstall and 
 
 ---
 
-## Roadmap — Planned Features (Account Types & Card UI)
+## Roadmap — Account Types & Card UI
 
-> Status: **PLANNED, not yet implemented.** Design notes captured so the work can be picked up later.
-> Foundational dependency: all three account-related items below want a new
-> `AccountEntity.kind: AccountKind (CASH | INVESTMENT | CREDIT | SAVINGS)` column
-> (DB migration v6→v7) and a net-worth aggregation split by kind. Build that first,
-> then layer the rest. The branded-card UI is an independent UI-only track.
+> **Что из этого раздела уже сделано, а что нет** (проверено по коду 25.09.2026):
+>
+> | Пункт | Статус |
+> |---|---|
+> | `AccountEntity.kind` + разделение net worth по виду счёта | **сделано**, миграции 10→12 (не v6→v7, как планировалось) |
+> | 4. Кредитные карты | **сделано целиком** — экран, разбор пушей, погашение переводом, оценка процентов |
+> | 3. Брокерские счета | **не сделано** — колонка `INVESTMENT` существует, её никто не читает |
+> | 1. Реестр банков | **не сделано** — дублирование в четырёх местах живо |
+> | 2. Фирменные карты | **не сделано** — ждёт референсов от пользователя |
+>
+> Ниже — исходные заметки. Раздел про кредитки оставлен намеренно: он объясняет, ПОЧЕМУ
+> погашение проводится переводом, и это до сих пор главная ловушка этой области.
 
 ### 1. Bank registry — single source of truth (refactor)
 **Problem:** a bank's name/colour/letter/keywords are currently duplicated across
@@ -782,7 +877,11 @@ data class BankBrand(
   the existing `TransferRouter` (same mechanism as goal funding).
 
 ### Suggested implementation order
-1. `AccountKind` column + migration + net-worth split by kind (foundation)
-2. Credit cards (excluded from balance, transfer-routed repayments)
-3. Investment accounts (separate subtotal, transfer-routed top-ups)
+1. ~~`AccountKind` column + migration + net-worth split by kind~~ — сделано (v10→v12)
+2. ~~Credit cards (excluded from balance, transfer-routed repayments)~~ — сделано
+3. **Investment accounts** — следующий заход. Начинать с РАСПОЗНАВАНИЯ, а не с экрана:
+   пополнение брокерского счёта («Получатель платежа BKS Mir Investitsiy», реальный пуш Альфы)
+   сейчас проводится расходом и занижает финансовое здоровье, хотя деньги никуда не делись.
+   Порядок: правило распознавания → `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
+   → `EventKind.INVESTMENT` в календаре (место уже зарезервировано, нужна одна `fromInvestments(...)`).
 4. Bank registry refactor + branded card UI (independent UI track; do once references arrive)
