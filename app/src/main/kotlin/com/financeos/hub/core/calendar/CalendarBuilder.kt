@@ -113,7 +113,10 @@ object CalendarBuilder {
                             id            = "credit_due:${card.accountId}:${due.dueDate}",
                             date          = due.dueDate,
                             title         = "Платёж · ${card.title}",
-                            amountKopecks = due.amountKopecks,
+                            // ОСТАТОК требования, а не исходная сумма: частичный платёж уменьшает
+                            // то, что ещё уйдёт со счёта, и «Свободно» обязано это видеть. Полностью
+                            // закрытое требование гасится флагом settled ниже.
+                            amountKopecks = due.remainingKopecks,
                             currency      = "RUB",
                             direction     = EventDirection.OUT,
                             kind          = EventKind.CREDIT_DUE,

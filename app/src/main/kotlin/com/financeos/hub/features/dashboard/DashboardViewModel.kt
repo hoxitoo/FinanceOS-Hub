@@ -4,9 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.analytics.AnalyticsEngine
-import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.debtKopecks
-import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.CardEntity
@@ -27,9 +25,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 
@@ -81,9 +76,12 @@ data class CreditSummary(
     val limitKopecks : Long,
     /** limit − debt, floored at 0. */
     val freeKopecks  : Long,
-    /** Days to the nearest payment across all cards; null when no card has its terms configured. */
-    val daysUntilDue : Int?,
 )
+
+// Срока платежа здесь НЕТ намеренно. Он зависит от того, внесён ли платёж, а это видно только по
+// всей истории операций; главный экран читает текущий месяц (`observeCurrentMonth`) и платёж,
+// сделанный до первого числа, посчитал бы несделанным. Срок приходит от календаря — того же
+// источника, что и «Свободно», — и потому обе плитки всегда согласны между собой.
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
@@ -200,30 +198,13 @@ class DashboardViewModel @Inject constructor(
 
     private fun summariseCredit(cards: List<AccountEntity>): CreditSummary? {
         if (cards.isEmpty()) return null
-        val today = LocalDate.now()
         val debt  = cards.sumOf { it.debtKopecks }
         val limit = cards.sumOf { it.creditLimitKopecks ?: 0L }
-        // Soonest deadline wins the tile: with several cards the one about to fall due is the only
-        // one worth surfacing in a single line. Cards with no terms entered contribute nothing.
-        val soonest = cards
-            .mapNotNull { card ->
-                duePayment(
-                    reportedAmountKopecks = card.duePaymentKopecks,
-                    reportedDueDate       = card.duePaymentAt?.let {
-                        Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate()
-                    },
-                    cycle                = creditCycle(card.statementDay, card.dueDays, today),
-                    statementDebtKopecks = card.debtKopecks,
-                    today                = today,
-                )?.daysUntilDue
-            }
-            .minOrNull()
         return CreditSummary(
             cardCount    = cards.size,
             debtKopecks  = debt,
             limitKopecks = limit,
             freeKopecks  = (limit - debt).coerceAtLeast(0L),
-            daysUntilDue = soonest,
         )
     }
 

@@ -9,6 +9,7 @@ import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.creditUtilization
 import com.financeos.hub.core.credit.debtKopecks
 import com.financeos.hub.core.credit.duePayment
+import com.financeos.hub.core.credit.repaidSince
 import com.financeos.hub.core.credit.freeLimitKopecks
 import com.financeos.hub.core.credit.InterestFreeWindow
 import com.financeos.hub.core.credit.MinimumPaymentOutlook
@@ -144,6 +145,9 @@ class CreditCardsViewModel @Inject constructor(
                 cycle                 = cycle,
                 statementDebtKopecks  = stillDue,
                 today                 = today,
+                // Погашения ПОСЛЕ напоминания закрывают его: банк о них уже не сообщит, и без
+                // вычитания карта просит ту же сумму, сколько бы человек ни внёс.
+                repaidSinceNoticeKopecks = repaidSince(accountTx, account.duePaymentSeenAt),
             )
 
             CreditCardState(
@@ -165,10 +169,15 @@ class CreditCardsViewModel @Inject constructor(
                 // Once a payment is missed the tariff switches to the penalty rate («неустойка,
                 // если пропустить обязательный платёж»), so an overdue card is not charged the
                 // ordinary purchase rate. Falls back to the ordinary rate when no penalty is set.
+                // ВНЕСЁННЫЙ платёж не просрочен, даже когда его срок уже позади: неустойку берут за
+                // пропущенный обязательный платёж, а он сделан. Без этой проверки карта писала бы
+                // «внесён» зелёным и тут же «срок прошёл, проценты идут» с оценкой по штрафной
+                // ставке — два противоположных утверждения в одном блоке.
                 interestSoFar       = accruedInterest(
                     debtKopecks = account.debtKopecks,
                     aprBp       = account.penaltyAprBp ?: account.aprBp,
-                    days        = due?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
+                    days        = due?.takeIf { !it.isSettled }
+                        ?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
                 ),
                 minimumOutlook      = minimumPaymentOutlook(
                     debtKopecks  = account.debtKopecks,

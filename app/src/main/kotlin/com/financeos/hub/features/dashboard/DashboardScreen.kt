@@ -152,7 +152,16 @@ fun DashboardScreen(
         // forecast chips in ALL THREE hero variants from a single insertion point. Adding it inside
         // each hero would mean three edits and one of them eventually forgotten.
         state.credit?.let { credit ->
-            item { CreditSummaryTile(credit = credit, onClick = onCreditClick) }
+            item {
+                CreditSummaryTile(
+                    credit = credit,
+                    // Срок — из календаря: только он видит всю историю и знает, что платёж уже
+                    // внесён. Пока календарь считает, срок не показывается вовсе: «неизвестно»
+                    // честнее, чем устаревшее «через 4 дня» по оплаченной карте.
+                    daysUntilDue = calendar.nextCreditDueInDays.takeIf { !calendar.isLoading },
+                    onClick = onCreditClick,
+                )
+            }
         }
 
         // «Свободно» — прямо под кредиткой, по той же причине: одна точка вставки на все три
