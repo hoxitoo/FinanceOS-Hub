@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.analytics.SubscriptionDetector
 import com.financeos.hub.core.calendar.CalendarBuilder
 import com.financeos.hub.core.calendar.CalendarEvent
+import com.financeos.hub.core.calendar.EventKind
 import com.financeos.hub.core.calendar.FreeMoney
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.duePayment
+import com.financeos.hub.core.credit.repaidSince
 import com.financeos.hub.core.credit.nearestInterestFreeWindow
 import com.financeos.hub.core.credit.statementDueDebt
 import com.financeos.hub.core.database.entities.AccountEntity
@@ -31,6 +33,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.abs
@@ -56,6 +59,14 @@ data class CalendarState(
     val accounts   : List<AccountEntity> = emptyList(),
     /** Объявленные обязательства, чтобы открыть строку на редактирование по её sourceId. */
     val planned    : List<PlannedPaymentEntity> = emptyList(),
+    /**
+     * Дней до ближайшего НЕЗАКРЫТОГО платежа по кредитке; null — платить нечего или срок неизвестен.
+     *
+     * Живёт здесь, а не на главной: чтобы понять, внесён ли платёж, нужна вся история операций, а
+     * главный экран читает только текущий месяц. Считая там, плитка кредитки подгоняла бы «платёж
+     * через 4 дня» по уже оплаченной карте — и расходилась бы с «Свободно» рядом.
+     */
+    val nextCreditDueInDays: Int? = null,
     val today      : LocalDate = LocalDate.now(),
 )
 
@@ -104,29 +115,37 @@ class CalendarViewModel @Inject constructor(
                 val accountTx = txList.filter { it.accountId == account.id }
                 val cycle = creditCycle(account.statementDay, account.dueDays, today)
                 val statementDebt = statementDueDebt(account, accountTx, cycle, zone)
+                val due = duePayment(
+                    reportedAmountKopecks = account.duePaymentKopecks,
+                    reportedDueDate       = account.duePaymentAt
+                        ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() },
+                    // Тот же зачёт, что и на экране кредитки: две копии этого правила разошлись
+                    // бы, и «Свободно» вычитало бы платёж, который карта уже считает внесённым.
+                    repaidSinceNoticeKopecks = repaidSince(accountTx, account.duePaymentSeenAt),
+                    cycle                 = cycle,
+                    // Тот же расчёт, что и на экране кредитки. Взять здесь весь текущий долг
+                    // значило бы показать в календаре одну сумму к оплате, а на карте — другую,
+                    // и обе выдать за платёж по одной и той же выписке.
+                    statementDebtKopecks  = statementDebt,
+                    today                 = today,
+                )
                 CalendarBuilder.CreditObligation(
                     accountId = account.id,
                     title     = account.name,
-                    duePayment = duePayment(
-                        reportedAmountKopecks = account.duePaymentKopecks,
-                        reportedDueDate       = account.duePaymentAt
-                            ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() },
-                        cycle                 = cycle,
-                        // Тот же расчёт, что и на экране кредитки. Взять здесь весь текущий долг
-                        // значило бы показать в календаре одну сумму к оплате, а на карте — другую,
-                        // и обе выдать за платёж по одной и той же выписке.
-                        statementDebtKopecks  = statementDebt,
-                        today                 = today,
-                    ),
+                    duePayment = due,
                     interestFree = nearestInterestFreeWindow(
                         transactions     = accountTx,
                         interestFreeDays = account.interestFreeDays,
                         today            = today,
                         zone             = zone,
                     ),
-                    // Долг по выписке закрыт — платить нечего, даже если напоминание банка ещё не
-                    // протухло. Оставить событие живым значило бы вычитать уже уплаченное.
-                    settled = statementDebt <= 0L,
+                    // Платить нечего по любой из двух причин, и обе обязательны.
+                    // Долг по выписке закрыт — это расчётная ветка. Требование банка перекрыто
+                    // платежами после напоминания — это ветка присланной цифры: она живёт своей
+                    // жизнью и до 45 дней держится, даже когда выписка ещё не закрыта. На
+                    // 120-дневной карте работает только вторая: дня выписки там нет, cycle == null,
+                    // и без неё погашенный платёж вычитался бы из «Свободно» ещё полтора месяца.
+                    settled = statementDebt <= 0L || due?.isSettled == true,
                 )
             }
 
@@ -171,6 +190,14 @@ class CalendarViewModel @Inject constructor(
             accounts = accounts,
             planned  = planned,
             today    = today,
+            // По ВСЕМУ окну, а не по upcoming: горизонт «Свободно» обрывается на ближайшем
+            // поступлении и может не дотянуться до срока платежа, а плитка обязана его показать.
+            nextCreditDueInDays = probe
+                // Просроченный платёж НЕ отбрасывается: он самый срочный из всех, и плитка обязана
+                // показать «просрочено», а не молчать, пока банк не пришлёт следующее напоминание.
+                .filter { it.kind == EventKind.CREDIT_DUE && !it.settled }
+                .minByOrNull { it.date }
+                ?.let { ChronoUnit.DAYS.between(today, it.date).toInt() },
         )
     }
         // 800 дней операций, поиск подписок и построение на 90 дней вперёд — это не работа для

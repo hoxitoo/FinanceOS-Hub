@@ -418,4 +418,141 @@ class CreditMathTest {
         assertNull(minPaymentKopecks(50_000_00L, null))
         assertNull(minPaymentKopecks(50_000_00L, 0))
     }
+
+    // ── Платёж, внесённый раньше срока банка ──────────────────────────────────
+
+    private val zone = java.time.ZoneId.of("UTC")
+
+    /** Погашение на кредитке — положительная сумма: долг лежит отрицательным балансом. */
+    private fun repayment(amount: Long, date: LocalDate, id: String = "r1") =
+        com.financeos.hub.core.database.entities.TransactionEntity(
+            id            = id,
+            accountId     = "c1",
+            categoryId    = null,
+            type          = TransactionType.TRANSFER,
+            source        = com.financeos.hub.core.database.entities.TransactionSource.MANUAL,
+            amountKopecks = amount,
+            merchant      = null,
+            description   = null,
+            timestamp     = date.atStartOfDay(zone).toInstant().toEpochMilli(),
+            smsId         = null,
+            currency      = "RUB",
+        )
+
+    private fun millis(date: LocalDate) = date.atStartOfDay(zone).toInstant().toEpochMilli()
+
+    @Test
+    fun `paying before the deadline closes the bank's demand`() {
+        // Случай с устройства: банк попросил 989,84 ₽ до 30 сентября, человек внёс 15 000 ₽ 8-го и
+        // 25 000 ₽ 22-го — а карта продолжала требовать те же 989,84 ₽ до самого срока.
+        val notice = LocalDate.of(2026, 9, 1)
+        val tx = listOf(
+            repayment(15_000_00L, LocalDate.of(2026, 9, 8),  "r1"),
+            repayment(25_000_00L, LocalDate.of(2026, 9, 22), "r2"),
+        )
+        val due = duePayment(
+            reportedAmountKopecks    = 989_84L,
+            reportedDueDate          = LocalDate.of(2026, 9, 30),
+            cycle                    = null,
+            statementDebtKopecks     = 0L,
+            today                    = LocalDate.of(2026, 9, 26),
+            repaidSinceNoticeKopecks = repaidSince(tx, millis(notice)),
+        )!!
+
+        assertEquals(PaymentSource.BANK, due.source)
+        assertEquals("требование банка показывается как было", 989_84L, due.amountKopecks)
+        assertEquals(40_000_00L, due.paidKopecks)
+        assertEquals(0L, due.remainingKopecks)
+        assertTrue("платить в этом периоде больше нечего", due.isSettled)
+    }
+
+    @Test
+    fun `a partial payment leaves only the rest`() {
+        val notice = LocalDate.of(2026, 9, 1)
+        val tx = listOf(repayment(500_00L, LocalDate.of(2026, 9, 8)))
+        val due = duePayment(
+            reportedAmountKopecks    = 989_84L,
+            reportedDueDate          = LocalDate.of(2026, 9, 30),
+            cycle                    = null,
+            statementDebtKopecks     = 0L,
+            today                    = LocalDate.of(2026, 9, 26),
+            repaidSinceNoticeKopecks = repaidSince(tx, millis(notice)),
+        )!!
+
+        assertEquals(489_84L, due.remainingKopecks)
+        assertFalse(due.isSettled)
+    }
+
+    @Test
+    fun `a payment made BEFORE the reminder does not count`() {
+        // Банк считал свою цифру, уже зная о нём. Зачесть — значит посчитать один платёж дважды и
+        // объявить закрытым требование, которое не закрыто; эта ошибка стоит человеку неустойки.
+        val notice = LocalDate.of(2026, 9, 10)
+        val tx = listOf(repayment(40_000_00L, LocalDate.of(2026, 9, 3)))
+        val due = duePayment(
+            reportedAmountKopecks    = 989_84L,
+            reportedDueDate          = LocalDate.of(2026, 9, 30),
+            cycle                    = null,
+            statementDebtKopecks     = 0L,
+            today                    = LocalDate.of(2026, 9, 26),
+            repaidSinceNoticeKopecks = repaidSince(tx, millis(notice)),
+        )!!
+
+        assertEquals(0L, due.paidKopecks)
+        assertEquals(989_84L, due.remainingKopecks)
+        assertFalse(due.isSettled)
+    }
+
+    @Test
+    fun `purchases after the reminder do not settle anything`() {
+        // Покупка увеличивает долг и обязательный платёж не уменьшает.
+        val notice = LocalDate.of(2026, 9, 1)
+        val purchase = repayment(-49_492_00L, LocalDate.of(2026, 9, 8))
+        assertEquals(0L, repaidSince(listOf(purchase), millis(notice)))
+    }
+
+    @Test
+    fun `an unknown reminder date counts nothing`() {
+        // Старая запись без `due_payment_seen_at`: при неизвестном моменте напоминания честнее
+        // просить заплатить ещё раз, чем закрыть требование наугад.
+        val tx = listOf(repayment(40_000_00L, LocalDate.of(2026, 9, 8)))
+        assertEquals(0L, repaidSince(tx, null))
+    }
+
+    @Test
+    fun `a deleted repayment stops counting`() {
+        val notice = LocalDate.of(2026, 9, 1)
+        val tx = listOf(
+            repayment(40_000_00L, LocalDate.of(2026, 9, 8)).copy(isDeleted = true),
+        )
+        assertEquals(0L, repaidSince(tx, millis(notice)))
+    }
+
+    @Test
+    fun `the computed branch is not netted twice`() {
+        // statementDueDebt уже вычел погашения. Вычесть их ещё раз значило бы закрыть выписку
+        // вдвое меньшим платежом, чем нужно.
+        val today = LocalDate.of(2026, 7, 5)
+        val due = duePayment(
+            reportedAmountKopecks    = null,
+            reportedDueDate          = null,
+            cycle                    = creditCycle(30, 20, today),
+            statementDebtKopecks     = 18_699_00L,
+            today                    = today,
+            repaidSinceNoticeKopecks = 5_000_00L,
+        )!!
+
+        assertEquals(PaymentSource.INFERRED, due.source)
+        assertEquals(0L, due.paidKopecks)
+        assertEquals(18_699_00L, due.remainingKopecks)
+    }
+
+    @Test
+    fun `a zero statement is not a settled demand`() {
+        val today = LocalDate.of(2026, 7, 5)
+        val due = duePayment(null, null, creditCycle(30, 20, today), 0L, today)!!
+        // Требования нет вовсе — и «внесён» тут показывать не о чем: банк ничего не просил.
+        assertFalse("нулевое требование — не погашенное требование", due.isSettled)
+        assertEquals(0L, due.remainingKopecks)
+    }
 }
