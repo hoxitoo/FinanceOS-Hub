@@ -1,6 +1,7 @@
 package com.financeos.hub.features.analytics.tabs
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.core.analytics.LifetimeStats
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.ExpensePyramid
 import com.financeos.hub.ui.components.FORECAST_EXPLANATION
@@ -40,7 +42,7 @@ import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.fosHeroCard
 
 @Composable
-fun OverviewTab(state: AnalyticsState) {
+fun OverviewTab(state: AnalyticsState, onLifetimeClick: () -> Unit = {}) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -73,6 +75,14 @@ fun OverviewTab(state: AnalyticsState) {
                     }
                 }
             }
+        }
+
+        // Всего потрачено / заработано — вход на экран «За всё время». Стоит ВНЕ блока оценки:
+        // тот показывается только когда оценка посчиталась, а эта плитка — единственный вход на
+        // свой экран. Единственный вход нельзя делать условным (инвариант #21): пустая история
+        // — это пустое состояние экрана, а не повод его спрятать.
+        item {
+            LifetimeTile(totals = state.lifetimeTotals, onClick = onLifetimeClick)
         }
 
         // User archetype (ML)
@@ -234,6 +244,51 @@ private fun CategoryBar(name: String, kopecks: Long, ratio: Float) {
                     .clip(RoundedCornerShape(FosDimens.RadiusBar))
                     .background(FosColors.Info)
             )
+        }
+    }
+}
+
+/**
+ * Плитка «Всего потрачено / всего заработано» — вход на экран «За всё время».
+ *
+ * Цифры в рублях; остальные валюты складывать с ними нечем, и они живут на самом экране.
+ */
+@Composable
+private fun LifetimeTile(totals: List<LifetimeStats.CurrencyTotal>, onClick: () -> Unit) {
+    val rub = totals.firstOrNull { it.currency == LifetimeStats.BASE_CURRENCY }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(FosDimens.RadiusCard))
+            .clickable(onClick = onClick)
+            .fosCard(),
+    ) {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Text("За всё время", style = FosType.BodySemi, color = FosColors.TextPrimary)
+            Text("подробнее ›", style = FosType.Label, color = FosColors.Info)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text("Всего потрачено", style = FosType.Micro, color = FosColors.TextSecondary)
+                Text(
+                    FosFormatter.amount(rub?.spent ?: 0L),
+                    style = FosType.CardAmount,
+                    color = FosColors.Negative,
+                )
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                Text("Всего заработано", style = FosType.Micro, color = FosColors.TextSecondary)
+                Text(
+                    FosFormatter.amount(rub?.earned ?: 0L),
+                    style = FosType.CardAmount,
+                    color = FosColors.Positive,
+                )
+            }
         }
     }
 }

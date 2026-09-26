@@ -70,7 +70,8 @@ app/
 │   ├── calendar/     (CalendarEvent, PaymentDates, CalendarBuilder, FreeMoney, ObligationMatcher,
 │   │                  ObligationSyncer)
 │   ├── analytics/    (AnalyticsEngine, ScoreCalculator, InsightGenerator,
-│   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker)
+│   │                  BehavioralAnalyzer, NarrativeEngine, AnalyticsWorker,
+│   │                  LifetimeStats — итоги и разбивки за годы)
 │   ├── ml/           (ModelLoader, TextFeatureExtractor, MLCategoryClassifier,
 │   │                  SpendingPredictor, BehavioralCluster)
 │   ├── pdf/          (PdfImporter, PdfTransactionParser)
@@ -301,7 +302,9 @@ Everything below is **implemented and shipped** unless marked otherwise.
       detail/edit sheet with source diagnostics, «↑ Экспорт» CSV, «↓ Импорт» PDF, manual add incl.
       **Перевод** with destination account). На каждой строке — метка источника «•• 6703» в цвете
       банка, тихая у доминирующего счёта и цветная у редкого (см. правило огранки #7)
-- [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown)
+- [x] Analytics (period chips + 4 tabs — see README for the per-tab breakdown); плитка «За всё
+      время» после финансового здоровья → экран `features/analytics/lifetime` (итоги, нарастающие
+      кривые, бары по годам с категориями, доли, источники; инвариант #40)
 - [x] Budget (envelopes, CRUD, throttled alerts)
 - [x] Цели — карточка с кольцом выполнения (процент ВНУТРИ кольца, цвет по теме цели), действия
       в ряд (история / ± / привязка / удалить, удаление с подтверждением), «Калькулятор» словом
@@ -387,6 +390,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Счёт по частям + дубликаты подписок** | Обязательство закрывается НЕСКОЛЬКИМИ операциями одного дня (`matched_tx_ids`, v18→v19) — «Телефон, интернет 2 000 ₽», оплаченные 550 + 1 500, больше не просрочены; кнопка «оплачено» для того, чего приложение не увидит никогда; группы подписок одного бренда с ОДИНАКОВОЙ ценой схлопываются в одну строку (инварианты #36, #37) |
 
 | **Платёж по кредитке: внесён раньше срока** | `duePayment` вычитает погашения, сделанные после напоминания банка (`due_payment_seen_at` наконец читается): карта показывает «внесён» вместо требования, календарь перестаёт вычитать оплаченное из «Свободно», срок для плитки на главной приходит из календаря (инвариант #38) |
+| **За всё время** | Плитка «Всего потрачено / всего заработано» в аналитике и экран `LifetimeScreen`: итоги за год / 2 / 10 / 20 лет / всё время, две нарастающие кривые с шагом месяц / полгода / год / 2 года, бары по годам с категориями внутри (касание раскрывает год), доли по категориям, источники трат и дохода (инвариант #40) |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
 *Hard-won invariants* above; the rest are visible in `git log`.
@@ -840,6 +844,28 @@ rowid). Дубликат паттерна с новым id встанет поз
 всегда согласны. `CreditSummary.daysUntilDue` из модели УДАЛЁН, а не оставлен пустым: поле, которое
 владелец всегда заполняет null, — это следующий #29.
 
+### 40. «За всё время» считается по ВСЕЙ истории, а не по состоянию экрана
+`AnalyticsState.transactions` — это операции ВЫБРАННОГО периода (чипы «месяц / квартал …»), а не
+история. Плитка «Всего потрачено / всего заработано», посчитанная из них, показывала бы месяц под
+заголовком «за всё время». Поэтому итоги живут отдельным полем `lifetimeTotals`, которое считается
+по полному списку до фильтра. Общее правило: прежде чем брать список из чужого состояния, проверить,
+чем он уже обрезан.
+
+Правила экрана `LifetimeScreen` (`LifetimeStats`), общие для всех пяти блоков:
+- **Переводы не считаются** ни тратой, ни заработком. Иначе каждое пополнение копилки попадало бы в
+  «потрачено», а снятие — в «заработано».
+- **Валюты не складываются.** Итоги — по каждой валюте; кривые, бары, доли и источники — в рублях.
+  Долларовая подписка не пропадает: она есть в итогах отдельной строкой.
+- **Один горизонт на весь экран.** Итоги, график, бары, доли и источники всегда об одном отрезке;
+  разные окна у соседних блоков давали бы цифры, которые не сходятся. Последняя точка кривой
+  обязана совпадать с итогами — это закреплено тестом.
+- **Пустые корзины не выбрасываются**: месяц без трат — горизонтальный участок, иначе время
+  сжимается и рост выглядит круче, чем был.
+- Источники группируются по **отображаемому** имени (`MerchantNames.display`): «RECR GOOGLE *ChatGPT,
+  855-…» и «ChatGPT» — одна строка. Безымянные зачисления (зарплата) группируются по категории.
+- Плитка — **единственный** вход на экран и стоит вне блока «Финансового здоровья», который
+  показывается только при посчитанной оценке (инвариант #21).
+
 ### Реальные форматы пушей (проверено на устройстве)
 Тела склеены так же, как их собирает `PushNotificationListener`: заголовок, затем текст, через
 пробел. Все они закреплены тестами (`SberCreditPushTest`, `RealPushFormatsTest`) — менять тексты
@@ -890,7 +916,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (33 файла, 415 случаев) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (34 файла, 430 случаев) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`

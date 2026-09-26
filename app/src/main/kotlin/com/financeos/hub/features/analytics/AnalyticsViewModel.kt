@@ -13,6 +13,7 @@ import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.core.analytics.ScoreCalculator
 import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.core.ml.BehavioralCluster
+import com.financeos.hub.core.analytics.LifetimeStats
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -42,6 +43,12 @@ data class AnalyticsState(
     val selectedPeriod   : AnalyticsPeriod                  = AnalyticsPeriod.MONTH,
     // Base data
     val transactions     : List<TransactionEntity>         = emptyList(),
+    /**
+     * Итоги за ВСЁ время, по валютам — для плитки «Всего потрачено, всего заработано». Считаются по
+     * полной истории, а не по [transactions]: те обрезаны выбранным периодом, и плитка «за всё
+     * время» показывала бы месяц.
+     */
+    val lifetimeTotals   : List<LifetimeStats.CurrencyTotal> = emptyList(),
     val categoryExpenses : Map<String, Long>               = emptyMap(),
     val categoryNames    : Map<String, String>             = emptyMap(),
     /** id → hex colour / emoji, so the pie can colour each slice like the rest of the app. */
@@ -193,6 +200,7 @@ class AnalyticsViewModel @Inject constructor(
                 AnalyticsState(
                     selectedPeriod    = period,
                     transactions      = monthTx,
+                    lifetimeTotals    = LifetimeStats.totals(LifetimeStats.entriesOf(allTx)),
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,
                     categoryColors    = categories.associate { it.id to it.color },
