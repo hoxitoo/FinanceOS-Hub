@@ -230,10 +230,9 @@ class TransactionsViewModel @Inject constructor(
             // This lets the user undo a mis-parsed push (e.g. a marketing "transfer" that wrongly
             // debited 163 000 ₽) simply by deleting it — previously that delta stuck forever.
             val tx = txRepo.getById(id)
-            // Правило якоря — то же, что у правки счёта (инвариант #39): если у счёта ПОСЛЕ этой
-            // операции был банковский «Остаток», баланс уже стоит на цифре банка, и откат поверх
-            // неё только испортит его. «Отвязать счёт» и «удалить операцию» обязаны давать один
-            // и тот же баланс.
+            // Откат — тем же правилом, что и у правки счёта (инвариант #39): лежит ли сумма строки
+            // в балансе, записано в ней самой. Строка, привязанная правкой к счёту, где банк уже
+            // учёл эти деньги, помечена `balanceDetached` — и откатывать у неё нечего.
             tx?.let { editor.reversalFor(it) }?.let { accountLinker.adjustBalance(it.accountId, it.amountKopecks) }
             // An UNPAIRED transfer also credited its counterparty account at insert
             // (TransferRouter moves the other leg, because the bank books an internal transfer on

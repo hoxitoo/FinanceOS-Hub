@@ -251,9 +251,11 @@ fun TransactionDetailSheet(
         if (ownAccountId != transaction.accountId) {
             Text(
                 when {
+                    ownAccountId == null && transaction.balanceDetached ->
+                        "Операция останется в истории, но без счёта. Баланс не изменится: " +
+                            "эти деньги в нём и не лежали — их учёл остаток банка."
                     ownAccountId == null ->
-                        "Операция останется в истории, но без счёта. Сумма вернётся на прежний счёт, " +
-                            "если банк не прислал по нему остаток позже."
+                        "Операция останется в истории, но без счёта. Сумма вернётся на прежний счёт."
                     transaction.balanceKopecks != null ->
                         "В сообщении был остаток банка — он и станет балансом счёта, если он свежее."
                     else ->
@@ -356,14 +358,18 @@ fun TransactionDetailSheet(
         // Save
         Button(
             onClick  = {
+                // Только то, что человек ПОМЕНЯЛ. Лист держит снимок с момента открытия, а пуш мог
+                // за это время привязать операцию к счёту: отправь снимок целиком — и правка одной
+                // заметки отвязала бы счёт обратно (инвариант #35).
+                val newNote = note.ifBlank { null }
                 onSave(
                     TransactionEditor.Edit(
-                        type       = selectedType,
-                        merchant   = merchant,
-                        categoryId = categoryId,
-                        note       = note.ifBlank { null },
-                        accountId  = ownAccountId,
-                        date       = date,
+                        type       = selectedType.takeIf { it != transaction.type },
+                        merchant   = merchant.takeIf { it != (transaction.merchant ?: "") },
+                        categoryId = TransactionEditor.Field(categoryId).takeIf { categoryId != transaction.categoryId },
+                        note       = TransactionEditor.Field(newNote).takeIf { newNote != transaction.description },
+                        accountId  = TransactionEditor.Field(ownAccountId).takeIf { ownAccountId != transaction.accountId },
+                        date       = date.takeIf { it != originalDate },
                         counter    = if (counterChanged) TransactionEditor.CounterChange(counterAccountId) else null,
                     )
                 )

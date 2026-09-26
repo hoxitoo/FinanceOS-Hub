@@ -5,6 +5,7 @@ import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,72 +50,77 @@ class TransactionEditRulesTest {
         // операция не отразилась бы на счёте вовсе — не так, как ручной ввод, которым человек
         // до сих пор обходил эту беду.
         val old = tx(account = null)
-        val new = old.copy(accountId = "alfa")
-        assertEquals(
-            listOf(BalanceEffect("alfa", -1_500_00L)),
-            balanceAdjustments(old, new, latestSnapshotAt = emptyMap()),
-        )
+        val plan = balancePlan(old, old.copy(accountId = "alfa"), anchoredOnNewAccount = false)
+        assertEquals(listOf(BalanceEffect("alfa", -1_500_00L)), plan.adjustments)
+        assertFalse(plan.detached)
     }
 
     @Test
     fun `a later bank balance already counted the money`() {
-        // Банк прислал «Остаток» ПОСЛЕ этой операции — баланс стоит на цифре, в которой эти деньги
-        // уже учтены. Дельта поверх уехала бы ровно на сумму операции.
+        // Банк прислал «Остаток» ПОСЛЕ этой операции — в его цифре эти деньги уже учтены. Строка
+        // привязывается, но помечается: сдвига не было, и удалять потом будет нечего.
         val old = tx(account = null)
-        val new = old.copy(accountId = "sber")
-        assertTrue(balanceAdjustments(old, new, mapOf("sber" to t0 + day)).isEmpty())
+        val plan = balancePlan(old, old.copy(accountId = "sber"), anchoredOnNewAccount = true)
+        assertTrue(plan.adjustments.isEmpty())
+        assertTrue(plan.detached)
     }
 
     @Test
-    fun `an earlier bank balance does not anchor`() {
-        val old = tx(account = null)
-        val new = old.copy(accountId = "sber")
-        assertEquals(
-            listOf(BalanceEffect("sber", -1_500_00L)),
-            balanceAdjustments(old, new, mapOf("sber" to t0 - day)),
-        )
+    fun `a detached row owns nothing to reverse`() {
+        // Та же строка, удалённая или отвязанная позже: откат её «суммы» увёл бы баланс ниже
+        // банковской цифры на деньги, которых в балансе никогда не было.
+        val attached = tx(account = "sber").copy(balanceDetached = true)
+        assertNull(balanceEffectOf(attached))
+        val plan = balancePlan(attached, attached.copy(accountId = null), anchoredOnNewAccount = false)
+        assertTrue(plan.adjustments.isEmpty())
+        assertFalse(plan.detached)
+    }
+
+    @Test
+    fun `a backdated manual entry made after a bank balance still owns its delta`() {
+        // Замечание ревью, подтверждённое по коду. Утром пришёл пуш с «Остатком», днём человек ввёл
+        // трату ВЧЕРАШНИМ числом — её сумма легла поверх банковской цифры. По датам «Остаток» позже
+        // операции, но в балансе она лежит, и удаление обязано её вернуть. Первая версия вычисляла
+        // это по датам и не возвращала.
+        val manual = tx(account = "sber", source = TransactionSource.MANUAL, ts = t0 - day)
+        assertEquals(BalanceEffect("sber", -1_500_00L), balanceEffectOf(manual))
     }
 
     @Test
     fun `moving to another account returns the money and takes it from the new one`() {
         val old = tx(account = "a")
-        val new = old.copy(accountId = "b")
-        assertEquals(
-            listOf(BalanceEffect("a", 1_500_00L), BalanceEffect("b", -1_500_00L)),
-            balanceAdjustments(old, new, emptyMap()),
-        )
+        val plan = balancePlan(old, old.copy(accountId = "b"), anchoredOnNewAccount = false)
+        assertEquals(listOf(BalanceEffect("a", 1_500_00L), BalanceEffect("b", -1_500_00L)), plan.adjustments)
     }
 
     @Test
-    fun `an anchored old account is left alone when moving away`() {
+    fun `moving onto an anchored account returns the money but takes nothing`() {
         val old = tx(account = "a")
-        val new = old.copy(accountId = "b")
-        assertEquals(
-            listOf(BalanceEffect("b", -1_500_00L)),
-            balanceAdjustments(old, new, mapOf("a" to t0 + day)),
-        )
+        val plan = balancePlan(old, old.copy(accountId = "b"), anchoredOnNewAccount = true)
+        assertEquals(listOf(BalanceEffect("a", 1_500_00L)), plan.adjustments)
+        assertTrue(plan.detached)
     }
 
     @Test
     fun `detaching returns the money to the old account`() {
         val old = tx(account = "a")
-        val new = old.copy(accountId = null)
-        assertEquals(listOf(BalanceEffect("a", 1_500_00L)), balanceAdjustments(old, new, emptyMap()))
+        val plan = balancePlan(old, old.copy(accountId = null), anchoredOnNewAccount = false)
+        assertEquals(listOf(BalanceEffect("a", 1_500_00L)), plan.adjustments)
     }
 
     @Test
     fun `a row carrying the bank's balance never moves it by a delta`() {
         // Он ставил баланс абсолютно, а не сдвигал — откатывать нечего, как и при удалении.
         val old = tx(account = null, balance = 45_000_00L)
-        val new = old.copy(accountId = "sber")
-        assertTrue(balanceAdjustments(old, new, emptyMap()).isEmpty())
+        val plan = balancePlan(old, old.copy(accountId = "sber"), anchoredOnNewAccount = false)
+        assertTrue(plan.adjustments.isEmpty())
+        assertFalse(plan.detached)
     }
 
     @Test
     fun `a pdf statement row never touches a balance`() {
         val old = tx(account = null, source = TransactionSource.PDF)
-        val new = old.copy(accountId = "a")
-        assertTrue(balanceAdjustments(old, new, emptyMap()).isEmpty())
+        assertTrue(balancePlan(old, old.copy(accountId = "a"), anchoredOnNewAccount = false).adjustments.isEmpty())
     }
 
     @Test
@@ -123,35 +129,25 @@ class TransactionEditRulesTest {
         // вместо того, чтобы подняться на 1 500. Исправление типа обязано вернуть обе половины.
         val old = tx(account = "a", amount = -1_500_00L)
         val new = old.copy(type = TransactionType.INCOME, amountKopecks = 1_500_00L)
-        assertEquals(listOf(BalanceEffect("a", 3_000_00L)), balanceAdjustments(old, new, emptyMap()))
+        assertEquals(listOf(BalanceEffect("a", 3_000_00L)), balancePlan(old, new, false).adjustments)
     }
 
     @Test
-    fun `an anchored account ignores a direction fix too`() {
-        val old = tx(account = "a", amount = -1_500_00L)
+    fun `a direction fix on a detached row moves nothing and stays detached`() {
+        val old = tx(account = "a", amount = -1_500_00L).copy(balanceDetached = true)
         val new = old.copy(type = TransactionType.INCOME, amountKopecks = 1_500_00L)
-        assertTrue(balanceAdjustments(old, new, mapOf("a" to t0 + day)).isEmpty())
+        val plan = balancePlan(old, new, anchoredOnNewAccount = false)
+        assertTrue(plan.adjustments.isEmpty())
+        assertTrue(plan.detached)
     }
 
     @Test
-    fun `changing only the date moves no money`() {
-        val old = tx(account = "a")
-        val new = old.copy(timestamp = t0 - 3 * day)
-        assertTrue(balanceAdjustments(old, new, emptyMap()).isEmpty())
-    }
-
-    @Test
-    fun `one account is decided once, by the old moment`() {
-        // Дата уехала раньше якоря, а знак сменился. Два разных решения по одному счёту откатили
-        // бы старый сдвиг и не применили новый — баланс ушёл бы на сумму, которой нигде нет.
-        val old = tx(account = "a", amount = -1_500_00L, ts = t0)
-        val new = old.copy(
-            type = TransactionType.INCOME, amountKopecks = 1_500_00L, timestamp = t0 - 3 * day,
-        )
-        assertEquals(
-            listOf(BalanceEffect("a", 3_000_00L)),
-            balanceAdjustments(old, new, mapOf("a" to t0 - day)),
-        )
+    fun `changing only the date moves no money and keeps the flag`() {
+        // Дата не решает, лежит ли сумма в балансе, — это решено при записи и хранится.
+        val old = tx(account = "a").copy(balanceDetached = true)
+        val plan = balancePlan(old, old.copy(timestamp = t0 - 3 * day), anchoredOnNewAccount = true)
+        assertTrue(plan.adjustments.isEmpty())
+        assertTrue(plan.detached)
     }
 
     // ── Цель ────────────────────────────────────────────────────────────────────
@@ -162,6 +158,15 @@ class TransactionEditRulesTest {
         val old = tx(account = null)
         val plan = goalPlan(old, old.copy(accountId = "savings"), oldAccountRouted = false)
         assertEquals(GoalPlan(reverseOld = false, keepGoalId = false, routeNew = true), plan)
+    }
+
+    @Test
+    fun `flipping the sign of an old row does not fund a goal linked later`() {
+        // Замечание ревью: полугодовой расход на счёте, который ПОТОМ привязали к цели, исправлен в
+        // доход — и цель вдруг выросла на деньги, которых привязка никогда не касалась.
+        val old = tx(account = "savings", amount = -1_500_00L)
+        val new = old.copy(type = TransactionType.INCOME, amountKopecks = 1_500_00L)
+        assertFalse(goalPlan(old, new, oldAccountRouted = false).routeNew)
     }
 
     @Test

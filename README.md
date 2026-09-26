@@ -96,7 +96,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v19** (18 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v20** (19 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -109,7 +109,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v19 — 18 categories, ~216 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v20 — 18 categories, ~216 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only
