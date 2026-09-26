@@ -41,7 +41,10 @@ import kotlinx.coroutines.launch
 private val TABS = listOf("Обзор", "Категории", "Тренды", "Инсайты")
 
 @Composable
-fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
+fun AnalyticsScreen(
+    onLifetimeClick: () -> Unit = {},
+    vm             : AnalyticsViewModel = hiltViewModel(),
+) {
     val state       = vm.state.collectAsState().value
     val pagerState  = rememberPagerState { TABS.size }
     val scope       = rememberCoroutineScope()
@@ -126,7 +129,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxSize(),
         ) { page ->
             when (page) {
-                0 -> OverviewTab(state)
+                0 -> OverviewTab(state, onLifetimeClick)
                 1 -> CategoriesTab(state, vm)
                 2 -> TrendsTab(state)
                 3 -> InsightsTab(state)
