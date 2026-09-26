@@ -10,6 +10,7 @@ import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
+import com.financeos.hub.core.edit.TransactionEditor
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.pdf.PdfImporter
@@ -105,6 +106,7 @@ class TransactionsViewModel @Inject constructor(
     private val classifier  : CategoryClassifier,
     private val transferRouter: TransferRouter,
     private val accountLinker : com.financeos.hub.core.account.AccountLinker,
+    private val editor        : TransactionEditor,
     savedStateHandle        : SavedStateHandle,
 ) : ViewModel() {
 
@@ -206,41 +208,17 @@ class TransactionsViewModel @Inject constructor(
     fun setSearch(query: String)    { _search.value = query }
     fun setDateRange(range: DateRange?) { _dateRange.value = range }
 
-    fun updateTransaction(
-        tx         : TransactionEntity,
-        newType    : TransactionType,
-        merchant   : String,
-        categoryId : String?,
-        note       : String?,
-    ) {
-        viewModelScope.launch {
-            // Re-sign the amount to match the new type: expense negative, income positive; a transfer
-            // keeps its original direction. Magnitude is preserved, so balances are unaffected — only
-            // how analytics counts the row changes.
-            val mag = kotlin.math.abs(tx.amountKopecks)
-            val newAmount = when (newType) {
-                TransactionType.EXPENSE  -> -mag
-                TransactionType.INCOME   ->  mag
-                TransactionType.TRANSFER -> tx.amountKopecks
-            }
-            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            // Пересчёт зачисления в цель живёт в маршрутизаторе — он один на оба экрана правки.
-            transferRouter.applyRetype(tx, newType, newAmount) { goalId ->
-                val updated = tx.copy(
-                    type           = newType,
-                    amountKopecks  = newAmount,
-                    merchant       = merchant.ifBlank { null },
-                    categoryId     = categoryId,
-                    description    = note,
-                    goalId         = goalId,
-                    transferPairId = if (leftTransfer) null else tx.transferPairId,
-                    updatedAt      = System.currentTimeMillis(),
-                )
-                txRepo.update(updated)
-                updated
-            }
-        }
+    /**
+     * Правка операции со всеми последствиями — одна на оба экрана, см. [TransactionEditor].
+     * Смена счёта и даты здесь не косметика: они двигают баланс и цель.
+     */
+    fun updateTransaction(tx: TransactionEntity, edit: TransactionEditor.Edit) {
+        viewModelScope.launch { editor.edit(tx.id, edit) }
     }
+
+    /** Вторая сторона перевода и можно ли её править — для карточки операции. */
+    suspend fun counterSide(tx: TransactionEntity): TransactionEditor.CounterSide =
+        editor.counterSide(tx)
 
     fun deleteTransaction(id: String) {
         viewModelScope.launch {
@@ -252,16 +230,11 @@ class TransactionsViewModel @Inject constructor(
             // This lets the user undo a mis-parsed push (e.g. a marketing "transfer" that wrongly
             // debited 163 000 ₽) simply by deleting it — previously that delta stuck forever.
             val tx = txRepo.getById(id)
-            if (tx != null && tx.accountId != null && tx.balanceKopecks == null &&
-                tx.source != TransactionSource.PDF) {
-                val acc = accountRepo.getById(tx.accountId)
-                if (acc != null) {
-                    accountRepo.upsert(acc.copy(
-                        balanceKopecks = acc.balanceKopecks - tx.amountKopecks,
-                        updatedAt      = System.currentTimeMillis(),
-                    ))
-                }
-            }
+            // Правило якоря — то же, что у правки счёта (инвариант #39): если у счёта ПОСЛЕ этой
+            // операции был банковский «Остаток», баланс уже стоит на цифре банка, и откат поверх
+            // неё только испортит его. «Отвязать счёт» и «удалить операцию» обязаны давать один
+            // и тот же баланс.
+            tx?.let { editor.reversalFor(it) }?.let { accountLinker.adjustBalance(it.accountId, it.amountKopecks) }
             // An UNPAIRED transfer also credited its counterparty account at insert
             // (TransferRouter moves the other leg, because the bank books an internal transfer on
             // one account only). Undo that too, or the destination keeps the money forever while
@@ -296,16 +269,7 @@ class TransactionsViewModel @Inject constructor(
                         // Без этого отката удалённый перевод оставлял бы цель приёмника наполненной
                         // деньгами, которых больше нет ни на счёте, ни в истории.
                         if (leg.goalId != null) transferRouter.onTransactionReversed(leg)
-                        if (leg.accountId != null && leg.balanceKopecks == null &&
-                            leg.source != TransactionSource.PDF
-                        ) {
-                            accountRepo.getById(leg.accountId)?.let { acc ->
-                                accountRepo.upsert(acc.copy(
-                                    balanceKopecks = acc.balanceKopecks - leg.amountKopecks,
-                                    updatedAt      = System.currentTimeMillis(),
-                                ))
-                            }
-                        }
+                        editor.reversalFor(leg)?.let { accountLinker.adjustBalance(it.accountId, it.amountKopecks) }
                         txRepo.softDelete(leg.id)
                     }
             }

@@ -384,14 +384,13 @@ fun TransactionsScreen(vm: TransactionsViewModel = hiltViewModel()) {
 
         selectedTx?.let { tx ->
             TransactionDetailSheet(
-                transaction  = tx,
-                categories   = state.categories,
-                categoryName = state.categoryName(tx.categoryId),
-                linkedAccountName = state.accounts.firstOrNull { it.id == tx.accountId }?.name,
-                onDismiss    = { selectedTx = null },
-                onSave       = { type, merchant, catId, note ->
-                    vm.updateTransaction(tx, type, merchant, catId, note)
-                },
+                transaction     = tx,
+                categories      = state.categories,
+                accounts        = state.accounts,
+                cards           = state.cards,
+                loadCounterSide = vm::counterSide,
+                onDismiss       = { selectedTx = null },
+                onSave          = { edit -> vm.updateTransaction(tx, edit) },
             )
         }
     }

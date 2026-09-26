@@ -93,7 +93,7 @@ class DashboardViewModel @Inject constructor(
     private val engine      : AnalyticsEngine,
     private val accountLinker: AccountLinker,
     private val transferRouteRepo: com.financeos.hub.data.repositories.TransferRouteRepository,
-    private val transferRouter: com.financeos.hub.core.transfer.TransferRouter,
+    private val editor      : com.financeos.hub.core.edit.TransactionEditor,
 ) : ViewModel() {
 
     // Full breakdown (not just the total) so the dashboard can draw the multi-colour score donut.
@@ -208,42 +208,16 @@ class DashboardViewModel @Inject constructor(
         )
     }
 
-    /** Edit a recent operation from the dashboard detail sheet. Mirrors TransactionsViewModel: re-signs
-     *  the amount for the new type and un-routes a goal when a transfer is reclassified. */
-    fun updateTransaction(
-        tx: TransactionEntity,
-        newType: TransactionType,
-        merchant: String,
-        categoryId: String?,
-        note: String?,
-    ) {
-        viewModelScope.launch {
-            val leftTransfer = tx.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-            val mag = kotlin.math.abs(tx.amountKopecks)
-            val newAmount = when (newType) {
-                TransactionType.EXPENSE  -> -mag
-                TransactionType.INCOME   ->  mag
-                TransactionType.TRANSFER -> tx.amountKopecks
-            }
-            // Тот же `applyRetype`, что и на экране «Операции». Своя копия этой логики здесь уже
-            // была и уже разошлась с оригиналом: правка расхода в доход на привязанном к цели
-            // счёте оставляла цель с прежним знаком.
-            transferRouter.applyRetype(tx, newType, newAmount) { goalId ->
-                val updated = tx.copy(
-                    type           = newType,
-                    amountKopecks  = newAmount,
-                    merchant       = merchant.ifBlank { null },
-                    categoryId     = categoryId,
-                    description    = note,
-                    goalId         = goalId,
-                    transferPairId = if (leftTransfer) null else tx.transferPairId,
-                    updatedAt      = System.currentTimeMillis(),
-                )
-                txRepo.update(updated)
-                updated
-            }
-        }
+    /**
+     * Правка операции с главной — ТЕМ ЖЕ редактором, что и на экране «Операции». Своя копия этой
+     * логики здесь уже была и уже разошлась с оригиналом (инвариант #30); теперь, когда правка
+     * двигает балансы и цели, вторая копия означала бы два разных баланса от одной правки.
+     */
+    fun updateTransaction(tx: TransactionEntity, edit: com.financeos.hub.core.edit.TransactionEditor.Edit) {
+        viewModelScope.launch { editor.edit(tx.id, edit) }
     }
+
+    suspend fun counterSide(tx: TransactionEntity) = editor.counterSide(tx)
 
     fun createAccount(draft: AccountDraft) {
         viewModelScope.launch {
