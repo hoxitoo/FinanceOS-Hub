@@ -268,7 +268,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 
 ## Core
 - [x] Gradle skeleton, AndroidManifest, design system, database, navigation, onboarding
-- [x] 12 bank parsers + `ParserEngine` (@IntoSet DI) + `TransferPatterns` + `PromoFilter`
+- [x] 13 bank parsers + `ParserEngine` (@IntoSet DI) + `TransferPatterns` + `PromoFilter`
 - [x] `SmsReceiver` (real-time, `goAsync`), `SmsReader` (90-day import), `PushNotificationListener`
       (reads **every** notification text extra)
 - [x] Живучесть привязки службы уведомлений (`core/notifications/`): `ListenerHealth` отличает
@@ -372,7 +372,6 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Improvement cycle (batches 1–5)** | Score donut, biometric lockout fix, goal transfers + history + pixel art, money-input rewrite, bank→account picker, budget-alert throttling, «Букмекер» + marketplace/bookmaker rules, Trends tab rebuilt for readability, Categories 3D pie + drill-down, analytics period chips |
 | **UI system** | `FosSurface` — огранка карточек по роли (Raised/Rail/Sunken/Outline/Plain) + тон по правилам цвета; `FosSectionHeader`; `fosCardEdge` для карточек с артом на всю площадь; пояснение прогноза трат |
 | **Подписки + калькулятор** | Категория «Подписки» (v13→v14) с переводом старых правил стриминга через UPDATE; словарь стал приоритетнее замороженной модели; `SavingsMath` + экран калькулятора накоплений |
-
 | **Календарь** | `planned_payments` (v15→v16), `CalendarEvent`/`PaymentDates`/`CalendarBuilder`/`FreeMoney`/`ObligationMatcher`, экран календаря, плитка «Свободно» на главной, подтверждение найденных подписок |
 | **Календарь: сетка + отчёт с устройства** | Сетка месяца как фильтр; `ObligationSyncer` (запись сопоставления вне экрана); `rejected_tx_id` (v16→v17); отсечка по `createdAt`; вход в календарь перестал быть условным (инвариант #21) |
 | **Защита ввода** | `FosFormSheet` — подтверждение выхода из заполненной формы через `confirmValueChange`; `AccountPicker` (банк → счёт) вынесен в общий компонент |
@@ -385,7 +384,6 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Цели: расчёт и остаток** | `GoalPlan` (`core/finance/`) — сколько осталось, сколько откладывать в месяц, успевает ли собственный темп; блок «РАСЧЁТ» прямо в форме цели. Ручная правка суммы — вводом ОСТАТКА (инвариант #32). Привязка к счёту засчитывает любое движение денег на нём (инвариант #31) |
 | **Метка источника в списке операций** | На каждой операции видно, чья это карта: «•• 6703» в цвете банка. Заметность обратна частоте (`buildSourceLabels`, `TxSourceLabelsTest`) — иначе при 90 % операций с одного банка метка стала бы фоном |
 | **Цели: автопополнение и список** | Ручная операция дошла до маршрутизатора (инвариант #30 — раньше зачисления не было, а списание при удалении было); лист автопополнения перестроен (что привязано — сверху, счета по банкам, карты с именами, ручной ввод под «Ещё», повторный тап отвязывает); удаление цели спрашивает подтверждение; выполненные цели — под сворачиваемым заголовком внизу |
-
 | **Счёт по частям + дубликаты подписок** | Обязательство закрывается НЕСКОЛЬКИМИ операциями одного дня (`matched_tx_ids`, v18→v19) — «Телефон, интернет 2 000 ₽», оплаченные 550 + 1 500, больше не просрочены; кнопка «оплачено» для того, чего приложение не увидит никогда; группы подписок одного бренда с ОДИНАКОВОЙ ценой схлопываются в одну строку (инварианты #36, #37) |
 
 
