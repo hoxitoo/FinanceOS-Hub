@@ -9,6 +9,7 @@ import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.creditUtilization
 import com.financeos.hub.core.credit.debtKopecks
 import com.financeos.hub.core.credit.duePayment
+import com.financeos.hub.core.credit.repaidSince
 import com.financeos.hub.core.credit.freeLimitKopecks
 import com.financeos.hub.core.credit.InterestFreeWindow
 import com.financeos.hub.core.credit.MinimumPaymentOutlook
@@ -144,6 +145,9 @@ class CreditCardsViewModel @Inject constructor(
                 cycle                 = cycle,
                 statementDebtKopecks  = stillDue,
                 today                 = today,
+                // Погашения ПОСЛЕ напоминания закрывают его: банк о них уже не сообщит, и без
+                // вычитания карта просит ту же сумму, сколько бы человек ни внёс.
+                repaidSinceNoticeKopecks = repaidSince(accountTx, account.duePaymentSeenAt),
             )
 
             CreditCardState(

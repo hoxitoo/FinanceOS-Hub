@@ -177,12 +177,29 @@ enum class PaymentSource {
 }
 
 data class DuePayment(
+    /**
+     * Сколько ПОТРЕБОВАЛИ. Исходная сумма требования, она не уменьшается от платежей: человек
+     * должен видеть, о какой сумме шла речь, иначе «внесено 40 000 из 0 ₽» читается как ошибка.
+     */
     val amountKopecks: Long,
+    /** Сколько уже внесено в счёт ЭТОГО требования (после того, как оно появилось). */
+    val paidKopecks  : Long,
     val dueDate      : LocalDate,
     /** Negative when the deadline has passed. */
     val daysUntilDue : Int,
     val source       : PaymentSource,
-)
+) {
+    /** Сколько ещё осталось внести к сроку. */
+    val remainingKopecks: Long get() = (amountKopecks - paidKopecks).coerceAtLeast(0L)
+
+    /**
+     * Требование закрыто — в этом периоде платить больше нечего.
+     *
+     * Это НЕ значит «долга нет»: на 120-дневной карте после обязательного платежа остаётся основной
+     * долг, просто срок по нему ещё не наступил.
+     */
+    val isSettled: Boolean get() = amountKopecks > 0L && remainingKopecks == 0L
+}
 
 /**
  * A bank reminder is trusted for this long after its deadline. Past that the demand was almost
@@ -198,19 +215,35 @@ private const val NOTICE_STALE_AFTER_DAYS = 45L
  * inferred figure rests on a statement day the user typed from memory and on a statement debt
  * rolled back from the transaction log. Falls back to the cycle when there is no reminder (or it
  * has gone stale), and returns null when neither source can say anything.
+ *
+ * **Требование банка гасится платежами, сделанными ПОСЛЕ него.** Банк присылает напоминание и
+ * замолкает: сообщения «вы заплатили» не существует, и без этого вычитания карта просила одну и ту
+ * же сумму до самого срока, сколько бы человек ни внёс. Ровно это и произошло на устройстве —
+ * «внести 989,84 ₽ до 30 сентября» висело после двух погашений на 40 000 ₽.
+ *
+ * Отсчёт идёт от момента напоминания ([reportedSeenAt]), а не от начала месяца и не от срока: банк
+ * считал свою цифру, уже зная обо всём, что было ДО. Зачесть более ранний платёж значило бы
+ * посчитать его дважды и объявить требование закрытым, когда оно не закрыто, — а эта ошибка стоит
+ * человеку неустойки. Поэтому при неизвестном моменте напоминания не засчитывается ничего.
+ *
+ * У расчётной ветки вычитать нечего: [statementDueDebt] уже НЕТТО, погашения вычтены внутри неё.
+ *
+ * @param repaidSinceNoticeKopecks сумма погашений на карту после [reportedSeenAt]; см. [repaidSince].
  */
 fun duePayment(
-    reportedAmountKopecks: Long?,
-    reportedDueDate      : LocalDate?,
-    cycle                : CreditCycle?,
-    statementDebtKopecks : Long,
-    today                : LocalDate,
+    reportedAmountKopecks    : Long?,
+    reportedDueDate          : LocalDate?,
+    cycle                    : CreditCycle?,
+    statementDebtKopecks     : Long,
+    today                    : LocalDate,
+    repaidSinceNoticeKopecks : Long = 0L,
 ): DuePayment? {
     if (reportedAmountKopecks != null && reportedDueDate != null &&
         !reportedDueDate.isBefore(today.minusDays(NOTICE_STALE_AFTER_DAYS))
     ) {
         return DuePayment(
             amountKopecks = reportedAmountKopecks,
+            paidKopecks   = repaidSinceNoticeKopecks.coerceAtLeast(0L),
             dueDate       = reportedDueDate,
             daysUntilDue  = ChronoUnit.DAYS.between(today, reportedDueDate).toInt(),
             source        = PaymentSource.BANK,
@@ -219,12 +252,32 @@ fun duePayment(
     if (cycle != null) {
         return DuePayment(
             amountKopecks = statementDebtKopecks,
+            // Ноль намеренно: statementDueDebt уже вычел погашения. Повторное вычитание закрыло бы
+            // требование вдвое меньшим платежом, чем нужно.
+            paidKopecks   = 0L,
             dueDate       = cycle.dueDate,
             daysUntilDue  = cycle.daysUntilDue,
             source        = PaymentSource.INFERRED,
         )
     }
     return null
+}
+
+/**
+ * Сколько внесено на карту начиная с момента [sinceMillis].
+ *
+ * Погашение на кредитке — это ПОЛОЖИТЕЛЬНАЯ сумма (долг лежит отрицательным балансом, инвариант
+ * #12), ровно как их считает [statementDueDebt]. Покупки сюда не попадают: они долг увеличивают, а
+ * обязательный платёж не уменьшают.
+ *
+ * `null` в [sinceMillis] — «момент неизвестен», и тогда не засчитывается ничего: см. асимметрию
+ * ошибок в [duePayment].
+ */
+fun repaidSince(transactions: List<TransactionEntity>, sinceMillis: Long?): Long {
+    if (sinceMillis == null) return 0L
+    return transactions
+        .filter { !it.isDeleted && it.timestamp >= sinceMillis && it.amountKopecks > 0L }
+        .sumOf { it.amountKopecks }
 }
 
 // ── Interest ──────────────────────────────────────────────────────────────────

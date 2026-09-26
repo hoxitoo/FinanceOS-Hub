@@ -54,7 +54,10 @@ fun RepaySheet(
     onDismiss  : () -> Unit,
     onConfirm  : (sourceAccountId: String, amountKopecks: Long) -> Unit,
 ) {
-    val suggested = card.duePayment?.amountKopecks?.takeIf { it > 0L } ?: card.debt
+    // ОСТАТОК требования, а не исходная сумма: после частичного платежа подставлять полную снова
+    // значит просить заплатить дважды. Когда требование закрыто, остаток равен нулю и подставляется
+    // весь долг — человек, открывший лист по оплаченной карте, хочет гасить основную сумму.
+    val suggested = card.duePayment?.remainingKopecks?.takeIf { it > 0L } ?: card.debt
     // Keyed on the card: opening this for a second card must not keep the first one's amount.
     var amountText by remember(card.account.id) {
         mutableStateOf(if (suggested > 0L) FosFormatter.amountInput(suggested) else "")
@@ -93,8 +96,14 @@ fun RepaySheet(
             },
             supportingText       = {
                 Text(
-                    card.duePayment?.let { "Банк просит ${FosFormatter.amount(it.amountKopecks)}" }
-                        ?: "Подставлен весь текущий долг",
+                    card.duePayment?.let { due ->
+                        when {
+                            due.isSettled        -> "Платёж по напоминанию уже внесён — подставлен весь долг"
+                            due.paidKopecks > 0L -> "Банк просил ${FosFormatter.amount(due.amountKopecks)}, " +
+                                "осталось ${FosFormatter.amount(due.remainingKopecks)}"
+                            else                 -> "Банк просит ${FosFormatter.amount(due.amountKopecks)}"
+                        }
+                    } ?: "Подставлен весь текущий долг",
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )

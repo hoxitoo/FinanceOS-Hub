@@ -235,7 +235,9 @@ private fun CreditCardBlock(
     onEditTerms: () -> Unit,
     onRepay    : () -> Unit,
 ) {
-    val urgency = dueUrgency(card.duePayment?.daysUntilDue)
+    // Внесённый платёж не бывает срочным. Иначе карта, по которой уже заплатили, до самого срока
+    // горела бы жёлтой полосой и подгоняла «осталось 4 дня» — тревога без повода и без действия.
+    val urgency = dueUrgency(card.duePayment?.takeIf { !it.isSettled }?.daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
 
     // Огранка карточки = срочность платежа. Просрочка и «сегодня-завтра» получают красную полосу,
@@ -271,6 +273,34 @@ private fun CreditCardBlock(
                 style = FosType.Micro,
                 color = FosColors.TextMuted,
             )
+        } else if (due.isSettled) {
+            // Главный ответ экрана — «платить не надо». Он обязан быть таким же крупным, как сумма
+            // к оплате: человек открывает карту именно с этим вопросом, и мелкая приписка под
+            // требованием на 989,84 ₽ его не снимает.
+            Text(
+                "Платёж за этот период",
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+            )
+            Text("внесён", style = FosType.HeroMinimal, color = FosColors.Positive)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "банк просил ${FosFormatter.amount(due.amountKopecks)} " +
+                    "до ${due.dueDate.format(DUE_DATE_FORMAT)} · " +
+                    "с тех пор внесено ${FosFormatter.amount(due.paidKopecks)}",
+                style = FosType.Micro,
+                color = FosColors.TextMuted,
+            )
+            // Долг и срок платежа — разные вещи, и умолчать о первом здесь нельзя: на 120-дневной
+            // карте после обязательного платежа остаётся основная сумма, просто её срок ещё впереди.
+            if (card.debt > 0L) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "долг по карте ${FosFormatter.amount(card.debt)} — срок по нему ещё не наступил",
+                    style = FosType.Micro,
+                    color = FosColors.TextMuted,
+                )
+            }
         } else {
             Text(
                 "Внести до ${due.dueDate.format(DUE_DATE_FORMAT)}",
@@ -279,7 +309,7 @@ private fun CreditCardBlock(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    FosFormatter.amount(due.amountKopecks),
+                    FosFormatter.amount(due.remainingKopecks),
                     style = FosType.HeroMinimal,
                     color = FosColors.TextPrimary,
                 )
@@ -307,6 +337,17 @@ private fun CreditCardBlock(
                 style = FosType.Micro,
                 color = FosColors.TextMuted,
             )
+            // Частичный платёж: показанная сумма уже не совпадает с требованием банка, и молчать об
+            // этом нельзя — иначе цифра на экране выглядит расходящейся с пушем.
+            if (due.paidKopecks > 0L) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "банк просил ${FosFormatter.amount(due.amountKopecks)}, " +
+                        "внесено ${FosFormatter.amount(due.paidKopecks)}",
+                    style = FosType.Micro,
+                    color = FosColors.TextMuted,
+                )
+            }
             if (due.source == PaymentSource.INFERRED) {
                 card.minPayment?.let { min ->
                     Spacer(Modifier.height(2.dp))

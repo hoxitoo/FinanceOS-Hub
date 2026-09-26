@@ -41,11 +41,16 @@ import com.financeos.hub.ui.theme.FosType
 @Composable
 fun CreditSummaryTile(
     credit  : CreditSummary,
+    /**
+     * Дней до ближайшего НЕЗАКРЫТОГО платежа; null — платить нечего либо срок ещё не известен.
+     * Приходит снаружи, потому что ответ зависит от всей истории операций, а не от самих карт.
+     */
+    daysUntilDue: Int?,
     onClick : () -> Unit,
 ) {
-    val urgency = dueUrgency(credit.daysUntilDue)
+    val urgency = dueUrgency(daysUntilDue)
     val accent  = dueUrgencyColor(urgency)
-    val label   = dueLabel(credit.daysUntilDue)
+    val label   = dueLabel(daysUntilDue)
     // Only an actually pressing deadline earns a coloured rail and edge; a calm card stays neutral
     // so the dashboard doesn't cry wolf every day of the month.
     val tone = when (urgency) {
