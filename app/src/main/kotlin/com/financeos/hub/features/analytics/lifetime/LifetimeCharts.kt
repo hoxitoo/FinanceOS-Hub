@@ -72,8 +72,13 @@ fun CumulativeDualChart(
     selected: Int?,
     onSelect: (Int?) -> Unit,
     modifier: Modifier = Modifier,
+    sym     : String   = "₽",
 ) {
     if (points.isEmpty()) return
+    // Выбор живёт дольше списка точек: окно «Год» скользит, и после полуночи или нового пуша точек
+    // может стать меньше. Индекс за краем — падение при рисовании, поэтому он отбрасывается здесь.
+    @Suppress("NAME_SHADOWING")
+    val selected = selected?.takeIf { it in points.indices }
     val earnedColor = FosColors.Positive
     val spentColor  = FosColors.Negative
     val gridColor   = FosColors.Border
@@ -91,15 +96,15 @@ fun CumulativeDualChart(
                 color = FosColors.TextMuted,
             )
             Text(
-                "разница ${FosFormatter.signedAmount(shown.earned - shown.spent)}",
+                "разница ${FosFormatter.signedAmount(shown.earned - shown.spent, sym)}",
                 style = FosType.MicroNum,
                 color = if (shown.earned >= shown.spent) FosColors.Positive else FosColors.Negative,
             )
         }
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendDot(earnedColor, "заработано", FosFormatter.amount(shown.earned))
-            LegendDot(spentColor, "потрачено", FosFormatter.amount(shown.spent))
+            LegendDot(earnedColor, "заработано", FosFormatter.amount(shown.earned, sym))
+            LegendDot(spentColor, "потрачено", FosFormatter.amount(shown.spent, sym))
         }
         Spacer(Modifier.height(8.dp))
 
@@ -155,7 +160,7 @@ fun CumulativeDualChart(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(periodLabel(points.first(), step), style = FosType.Micro, color = FosColors.TextMuted)
-            Text("макс. ${FosFormatter.compact(maxV)}", style = FosType.MicroNum, color = FosColors.TextMuted)
+            Text("макс. ${FosFormatter.compact(maxV, sym)}", style = FosType.MicroNum, color = FosColors.TextMuted)
             Text(periodLabel(points.last(), step), style = FosType.Micro, color = FosColors.TextMuted)
         }
     }
@@ -191,6 +196,7 @@ fun YearStackedBars(
     selected   : Int?,
     accent     : Color,
     onSelect   : (Int?) -> Unit,
+    sym        : String = "₽",
 ) {
     if (bars.isEmpty()) return
     val maxTotal = bars.maxOf { it.total }.coerceAtLeast(1L)
@@ -211,7 +217,7 @@ fun YearStackedBars(
                     .padding(4.dp),
             ) {
                 Text(
-                    FosFormatter.compact(bar.total),
+                    FosFormatter.compact(bar.total, sym),
                     style = FosType.MicroNum,
                     color = if (isSel) accent else FosColors.TextSecondary,
                 )
@@ -251,7 +257,7 @@ fun YearStackedBars(
 
 /** Строка «категория — сумма — доля» под выбранным годом и под круговой диаграммой. */
 @Composable
-fun ShareRow(color: Color, name: String, kopecks: Long, total: Long) {
+fun ShareRow(color: Color, name: String, kopecks: Long, total: Long, sym: String = "₽") {
     Row(
         modifier          = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -265,6 +271,6 @@ fun ShareRow(color: Color, name: String, kopecks: Long, total: Long) {
             color = FosColors.TextMuted,
         )
         Spacer(Modifier.width(10.dp))
-        Text(FosFormatter.amount(abs(kopecks)), style = FosType.SmallBold, color = FosColors.TextPrimary)
+        Text(FosFormatter.amount(abs(kopecks), sym), style = FosType.SmallBold, color = FosColors.TextPrimary)
     }
 }

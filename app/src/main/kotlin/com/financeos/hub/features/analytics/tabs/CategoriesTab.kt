@@ -35,23 +35,13 @@ import com.financeos.hub.ui.components.Pie3D
 import com.financeos.hub.ui.components.PieSlice
 import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
+import com.financeos.hub.ui.theme.categoryColor
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.fosHeroCard
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
-
-/** Fallback palette for categories whose stored colour can't be parsed. */
-private val FALLBACK_COLORS = listOf(
-    Color(0xFFFFB84D), Color(0xFF4D9FFF), Color(0xFF9B5CFF), Color(0xFF2DD4BF),
-    Color(0xFFFF87C2), Color(0xFF60A5FA), Color(0xFFFB923C), Color(0xFF34D399),
-    Color(0xFFA78BFA), Color(0xFFE879F9), Color(0xFFF87171), Color(0xFF94A3B8),
-)
-
-private fun parseColor(hex: String?, fallback: Color): Color = runCatching {
-    Color(android.graphics.Color.parseColor(hex))
-}.getOrDefault(fallback)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,8 +54,8 @@ fun CategoriesTab(state: AnalyticsState, vm: AnalyticsViewModel) {
     val drillSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Colour per category: its own stored colour, falling back to the palette by position.
-    val sliceColor: (String, Int) -> Color = { catId, index ->
-        parseColor(state.categoryColors[catId], FALLBACK_COLORS[index % FALLBACK_COLORS.size])
+    val sliceColor: (String, Int) -> Color = { catId, _ ->
+        categoryColor(state.categoryColors[catId], catId)
     }
 
     LazyColumn(

@@ -39,6 +39,7 @@ import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.fosHeroCard
 
 @Composable
@@ -251,17 +252,24 @@ private fun CategoryBar(name: String, kopecks: Long, ratio: Float) {
 /**
  * Плитка «Всего потрачено / всего заработано» — вход на экран «За всё время».
  *
- * Цифры в рублях; остальные валюты складывать с ними нечем, и они живут на самом экране.
+ * Цифры — в основной валюте (рубль, если он есть); остальные складывать с ней нечем, и они живут
+ * на самом экране.
  */
 @Composable
 private fun LifetimeTile(totals: List<LifetimeStats.CurrencyTotal>, onClick: () -> Unit) {
-    val rub = totals.firstOrNull { it.currency == LifetimeStats.BASE_CURRENCY }
+    // Та же основная валюта, что у экрана: у человека с одними сомами плитка «0 ₽ / 0 ₽» была бы
+    // неправдой, а экран за ней — пустым.
+    val currency = LifetimeStats.primaryCurrency(totals)
+    val main     = totals.firstOrNull { it.currency == currency }
+    val sym      = FosFormatter.currencySymbol(currency)
     Column(
+        // Нажатие — между заливкой и отступом, как требует FosSurface: иначе рябь не совпадает с
+        // формой карточки.
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(FosDimens.RadiusCard))
+            .fosCardSurface()
             .clickable(onClick = onClick)
-            .fosCard(),
+            .padding(FosDimens.CardPadding),
     ) {
         Row(
             modifier              = Modifier.fillMaxWidth(),
@@ -276,7 +284,7 @@ private fun LifetimeTile(totals: List<LifetimeStats.CurrencyTotal>, onClick: () 
             Column(Modifier.weight(1f)) {
                 Text("Всего потрачено", style = FosType.Micro, color = FosColors.TextSecondary)
                 Text(
-                    FosFormatter.amount(rub?.spent ?: 0L),
+                    FosFormatter.amount(main?.spent ?: 0L, sym),
                     style = FosType.CardAmount,
                     color = FosColors.Negative,
                 )
@@ -284,7 +292,7 @@ private fun LifetimeTile(totals: List<LifetimeStats.CurrencyTotal>, onClick: () 
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                 Text("Всего заработано", style = FosType.Micro, color = FosColors.TextSecondary)
                 Text(
-                    FosFormatter.amount(rub?.earned ?: 0L),
+                    FosFormatter.amount(main?.earned ?: 0L, sym),
                     style = FosType.CardAmount,
                     color = FosColors.Positive,
                 )

@@ -41,16 +41,10 @@ import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.fosCard
+import com.financeos.hub.ui.theme.categoryColor
 import com.financeos.hub.ui.theme.fosHeroCard
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-
-/** Палитра на случай, если цвет категории не разбирается. Красного в ней нет: он занят тратами. */
-private val FALLBACK = listOf(
-    Color(0xFFFFB84D), Color(0xFF4D9FFF), Color(0xFF9B5CFF), Color(0xFF2DD4BF),
-    Color(0xFFFF87C2), Color(0xFF60A5FA), Color(0xFFFB923C), Color(0xFF34D399),
-    Color(0xFFA78BFA), Color(0xFFE879F9), Color(0xFF94A3B8), Color(0xFFFACC15),
-)
 
 private val SINCE = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))
 
@@ -76,14 +70,10 @@ fun LifetimeScreen(
     // Цвет категории один на весь экран — в барах, в долях и в легенде. Иначе «Продукты» на баре
     // синие, а на круге оранжевые, и связь между блоками теряется.
     val colorOf: (String?) -> Color = remember(cats) {
-        { id ->
-            when (id) {
-                null -> FosColors.TextMuted
-                else -> runCatching { Color(android.graphics.Color.parseColor(cats[id]?.color)) }
-                    .getOrElse { FALLBACK[Math.floorMod(id.hashCode(), FALLBACK.size)] }
-            }
-        }
+        { id -> if (id == null) FosColors.TextMuted else categoryColor(cats[id]?.color, id) }
     }
+    // Символ основной валюты экрана: у человека с одними сомами это «сом», а не «₽».
+    val sym = FosFormatter.currencySymbol(result?.currency ?: LifetimeStats.BASE_CURRENCY)
     val nameOf: (String?) -> String = { id -> id?.let { cats[it]?.name } ?: "Без категории" }
 
     // Выбор сбрасывается при смене горизонта: выбранного года в новом окне может не быть.
@@ -100,8 +90,8 @@ fun LifetimeScreen(
         contentPadding      = PaddingValues(horizontal = FosDimens.ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
     ) {
-        item { Spacer(Modifier.height(16.dp)) }
-        item {
+        item(key = "top") { Spacer(Modifier.height(16.dp)) }
+        item(key = "title") {
             Row(
                 modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -113,7 +103,7 @@ fun LifetimeScreen(
                 }
             }
         }
-        item {
+        item(key = "horizon") {
             ChipRow(
                 items    = LifetimeStats.Horizon.entries,
                 selected = state.horizon,
@@ -124,7 +114,7 @@ fun LifetimeScreen(
 
         when {
             state.isLoading -> Unit
-            result == null || result.isEmpty -> item {
+            result == null || result.isEmpty -> item(key = "empty") {
                 Column(Modifier.fillMaxWidth().fosCard(FosCardStyle.Outline)) {
                     Text("За этот срок операций нет", style = FosType.BodySemi, color = FosColors.TextPrimary)
                     Spacer(Modifier.height(4.dp))
@@ -137,12 +127,12 @@ fun LifetimeScreen(
             }
             else -> {
                 // ── Итоги ────────────────────────────────────────────────────────────
-                item { TotalsHero(result) }
+                item(key = "totals") { TotalsHero(result) }
 
                 // ── Ползущий итог ────────────────────────────────────────────────────
                 if (result.curve.isNotEmpty()) {
-                    item { FosSectionHeader("НАРАСТАЮЩИЙ ИТОГ") }
-                    item {
+                    item(key = "curve_h") { FosSectionHeader("НАРАСТАЮЩИЙ ИТОГ") }
+                    item(key = "step") {
                         ChipRow(
                             items    = LifetimeStats.Step.entries,
                             selected = state.step,
@@ -150,27 +140,29 @@ fun LifetimeScreen(
                             onSelect = vm::setStep,
                         )
                     }
-                    item {
+                    item(key = "curve") {
                         CumulativeDualChart(
                             points   = result.curve,
                             step     = state.step,
                             selected = curveSel,
                             onSelect = { curveSel = it },
                             modifier = Modifier.fillMaxWidth().fosCard(),
+                            sym      = sym,
                         )
                     }
                 }
 
                 // ── Траты по годам ───────────────────────────────────────────────────
                 if (result.spentByYear.isNotEmpty()) {
-                    item { FosSectionHeader("ТРАТЫ ПО ГОДАМ", tone = FosTone.Negative) }
-                    item {
+                    item(key = "spent_y_h") { FosSectionHeader("ТРАТЫ ПО ГОДАМ", tone = FosTone.Negative) }
+                    item(key = "spent_y") {
                         YearBlock(
                             bars     = result.spentByYear,
                             selected = spentYear,
                             accent   = FosColors.Negative,
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                             onSelect = { spentYear = it },
                         )
                     }
@@ -178,14 +170,15 @@ fun LifetimeScreen(
 
                 // ── Заработок по годам ───────────────────────────────────────────────
                 if (result.earnedByYear.isNotEmpty()) {
-                    item { FosSectionHeader("ЗАРАБОТОК ПО ГОДАМ", tone = FosTone.Positive) }
-                    item {
+                    item(key = "earned_y_h") { FosSectionHeader("ЗАРАБОТОК ПО ГОДАМ", tone = FosTone.Positive) }
+                    item(key = "earned_y") {
                         YearBlock(
                             bars     = result.earnedByYear,
                             selected = earnedYear,
                             accent   = FosColors.Positive,
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                             onSelect = { earnedYear = it },
                         )
                     }
@@ -193,8 +186,8 @@ fun LifetimeScreen(
 
                 // ── Доли ─────────────────────────────────────────────────────────────
                 if (result.spentByCategory.isNotEmpty()) {
-                    item { FosSectionHeader("НА ЧТО УШЛО", tone = FosTone.Negative) }
-                    item {
+                    item(key = "spent_c_h") { FosSectionHeader("НА ЧТО УШЛО", tone = FosTone.Negative) }
+                    item(key = "spent_c") {
                         ShareDonut(
                             shares   = result.spentByCategory,
                             title    = "потрачено",
@@ -202,12 +195,13 @@ fun LifetimeScreen(
                             onSelect = { spentSlice = it },
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                         )
                     }
                 }
                 if (result.earnedByCategory.isNotEmpty()) {
-                    item { FosSectionHeader("ОТКУДА ПРИШЛО", tone = FosTone.Positive) }
-                    item {
+                    item(key = "earned_c_h") { FosSectionHeader("ОТКУДА ПРИШЛО", tone = FosTone.Positive) }
+                    item(key = "earned_c") {
                         ShareDonut(
                             shares   = result.earnedByCategory,
                             title    = "заработано",
@@ -215,38 +209,41 @@ fun LifetimeScreen(
                             onSelect = { earnedSlice = it },
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                         )
                     }
                 }
 
                 // ── Источники ────────────────────────────────────────────────────────
                 if (result.spentSources.isNotEmpty()) {
-                    item { FosSectionHeader("КОМУ УШЛИ ДЕНЬГИ", tone = FosTone.Negative) }
-                    item {
+                    item(key = "spent_s_h") { FosSectionHeader("КОМУ УШЛИ ДЕНЬГИ", tone = FosTone.Negative) }
+                    item(key = "spent_s") {
                         SourceList(
                             sources  = result.spentSources,
                             showAll  = allSpentSrc,
                             onToggle = { allSpentSrc = !allSpentSrc },
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                         )
                     }
                 }
                 if (result.earnedSources.isNotEmpty()) {
-                    item { FosSectionHeader("ОТ КОГО ПРИШЛИ", tone = FosTone.Positive) }
-                    item {
+                    item(key = "earned_s_h") { FosSectionHeader("ОТ КОГО ПРИШЛИ", tone = FosTone.Positive) }
+                    item(key = "earned_s") {
                         SourceList(
                             sources  = result.earnedSources,
                             showAll  = allEarnedSrc,
                             onToggle = { allEarnedSrc = !allEarnedSrc },
                             colorOf  = colorOf,
                             nameOf   = nameOf,
+                            sym      = sym,
                         )
                     }
                 }
             }
         }
-        item { Spacer(Modifier.height(80.dp)) }
+        item(key = "bottom") { Spacer(Modifier.height(80.dp)) }
     }
 }
 
@@ -276,8 +273,9 @@ private fun <T> ChipRow(items: List<T>, selected: T, label: (T) -> String, onSel
 /** Главный блок экрана: сколько потрачено, сколько заработано, что осталось. */
 @Composable
 private fun TotalsHero(result: LifetimeStats.Result) {
-    val base   = result.totals.firstOrNull { it.currency == LifetimeStats.BASE_CURRENCY }
-    val others = result.totals.filter { it.currency != LifetimeStats.BASE_CURRENCY }
+    val base   = result.totals.firstOrNull { it.currency == result.currency }
+    val others = result.totals.filter { it.currency != result.currency }
+    val sym    = FosFormatter.currencySymbol(result.currency)
     Column(Modifier.fillMaxWidth().fosHeroCard()) {
         result.firstDate?.let {
             Text("с ${it.format(SINCE)}", style = FosType.Micro, color = FosColors.TextMuted)
@@ -286,11 +284,11 @@ private fun TotalsHero(result: LifetimeStats.Result) {
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
                 Text("Потрачено", style = FosType.Micro, color = FosColors.TextSecondary)
-                Text(FosFormatter.amount(base?.spent ?: 0L), style = FosType.CardAmount, color = FosColors.Negative)
+                Text(FosFormatter.amount(base?.spent ?: 0L, sym), style = FosType.CardAmount, color = FosColors.Negative)
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                 Text("Заработано", style = FosType.Micro, color = FosColors.TextSecondary)
-                Text(FosFormatter.amount(base?.earned ?: 0L), style = FosType.CardAmount, color = FosColors.Positive)
+                Text(FosFormatter.amount(base?.earned ?: 0L, sym), style = FosType.CardAmount, color = FosColors.Positive)
             }
         }
         base?.let {
@@ -298,21 +296,21 @@ private fun TotalsHero(result: LifetimeStats.Result) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Осталось от заработанного", style = FosType.Micro, color = FosColors.TextMuted)
                 Text(
-                    FosFormatter.signedAmount(it.net),
+                    FosFormatter.signedAmount(it.net, sym),
                     style = FosType.SmallBold,
                     color = if (it.net >= 0) FosColors.Positive else FosColors.Negative,
                 )
             }
         }
-        // Другие валюты — отдельными строками. Сложить их с рублями нечем: курса у приложения нет,
+        // Другие валюты — отдельными строками. Сложить их с основной нечем: курса у приложения нет,
         // а выбросить нельзя — долларовая подписка молча пропала бы из «всего потрачено».
         others.forEach { t ->
-            val sym = FosFormatter.currencySymbol(t.currency)
+            val otherSym = FosFormatter.currencySymbol(t.currency)
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("в ${t.currency}", style = FosType.Micro, color = FosColors.TextMuted)
                 Text(
-                    "−${FosFormatter.amount(t.spent, sym)} · +${FosFormatter.amount(t.earned, sym)}",
+                    "−${FosFormatter.amount(t.spent, otherSym)} · +${FosFormatter.amount(t.earned, otherSym)}",
                     style = FosType.MicroNum,
                     color = FosColors.TextSecondary,
                 )
@@ -334,19 +332,20 @@ private fun YearBlock(
     accent  : Color,
     colorOf : (String?) -> Color,
     nameOf  : (String?) -> String,
+    sym     : String,
     onSelect: (Int?) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().fosCard()) {
-        YearStackedBars(bars = bars, colorOf = colorOf, selected = selected, accent = accent, onSelect = onSelect)
+        YearStackedBars(bars = bars, colorOf = colorOf, selected = selected, accent = accent, onSelect = onSelect, sym = sym)
         Spacer(Modifier.height(8.dp))
         val bar = bars.firstOrNull { it.year == selected }
         if (bar == null) {
             Text("Нажмите на год — покажу, из чего он состоял", style = FosType.Micro, color = FosColors.TextMuted)
         } else {
-            Text("${bar.year}: ${FosFormatter.amount(bar.total)}", style = FosType.SmallBold, color = accent)
+            Text("${bar.year}: ${FosFormatter.amount(bar.total, sym)}", style = FosType.SmallBold, color = accent)
             Spacer(Modifier.height(4.dp))
             bar.segments.forEach { seg ->
-                ShareRow(colorOf(seg.categoryId), nameOf(seg.categoryId), seg.kopecks, bar.total)
+                ShareRow(colorOf(seg.categoryId), nameOf(seg.categoryId), seg.kopecks, bar.total, sym)
             }
         }
     }
@@ -360,6 +359,7 @@ private fun ShareDonut(
     onSelect: (Int?) -> Unit,
     colorOf : (String?) -> Color,
     nameOf  : (String?) -> String,
+    sym     : String,
 ) {
     val total = shares.sumOf { it.kopecks }
     Column(Modifier.fillMaxWidth().fosCard(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -372,7 +372,7 @@ private fun ShareDonut(
         )
         Spacer(Modifier.height(10.dp))
         shares.forEach { s ->
-            ShareRow(colorOf(s.categoryId), nameOf(s.categoryId), s.kopecks, total)
+            ShareRow(colorOf(s.categoryId), nameOf(s.categoryId), s.kopecks, total, sym)
         }
     }
 }
@@ -388,6 +388,7 @@ private fun SourceList(
     onToggle: () -> Unit,
     colorOf : (String?) -> Color,
     nameOf  : (String?) -> String,
+    sym     : String,
 ) {
     val shown = if (showAll) sources else sources.take(SOURCES_PREVIEW)
     Column(Modifier.fillMaxWidth().fosCard()) {
@@ -409,7 +410,7 @@ private fun SourceList(
                         color = colorOf(s.categoryId),
                     )
                 }
-                Text(FosFormatter.amount(s.kopecks), style = FosType.SmallBold, color = FosColors.TextPrimary)
+                Text(FosFormatter.amount(s.kopecks, sym), style = FosType.SmallBold, color = FosColors.TextPrimary)
             }
         }
         if (sources.size > SOURCES_PREVIEW) {

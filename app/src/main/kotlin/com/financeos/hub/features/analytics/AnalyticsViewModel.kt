@@ -20,11 +20,13 @@ import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -200,7 +202,11 @@ class AnalyticsViewModel @Inject constructor(
                 AnalyticsState(
                     selectedPeriod    = period,
                     transactions      = monthTx,
-                    lifetimeTotals    = LifetimeStats.totals(LifetimeStats.entriesOf(allTx)),
+                    // Тем же фильтром, что и экран «Всё время» (без будущих дат): плитка и экран,
+                    // который она открывает, обязаны показывать одну цифру.
+                    lifetimeTotals    = LifetimeStats.lifetimeTotals(
+                        LifetimeStats.entriesOf(allTx), java.time.LocalDate.now(),
+                    ),
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,
                     categoryColors    = categories.associate { it.id to it.color },
@@ -223,5 +229,8 @@ class AnalyticsViewModel @Inject constructor(
             }
         }
         .catch { emit(AnalyticsState(isLoading = false)) }
+        // Проход по всей истории — теперь и ради итогов «за всё время» — не работа для главного
+        // потока: каждая новая операция и каждое касание чипа периода пересчитывают его заново.
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }

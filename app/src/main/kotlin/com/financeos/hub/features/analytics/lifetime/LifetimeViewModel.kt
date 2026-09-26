@@ -8,10 +8,12 @@ import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.ZoneId
@@ -25,6 +27,7 @@ data class LifetimeState(
     val categories: Map<String, CategoryEntity> = emptyMap(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LifetimeViewModel @Inject constructor(
     txRepo      : TransactionRepository,
@@ -34,23 +37,28 @@ class LifetimeViewModel @Inject constructor(
     private val horizon = MutableStateFlow(LifetimeStats.Horizon.ALL)
     private val step    = MutableStateFlow(LifetimeStats.Step.MONTH)
 
-    val state = combine(
-        txRepo.observeAll(),
-        categoryRepo.observeAll(),
-        horizon,
-        step,
-    ) { txList, cats, h, s ->
+    /**
+     * Всё, что не зависит от шага: группировка истории по годам, категориям и продавцам. Смена шага
+     * «месяц / полгода / год» пересчитывает только кривую — не нормализацию имён десятков тысяч
+     * операций. `mapLatest`: новое окно отменяет недосчитанное старое, а не встаёт за ним в очередь.
+     */
+    private val base = combine(txRepo.observeAll(), horizon) { txList, h -> txList to h }
+        .mapLatest { (txList, h) ->
+            h to LifetimeStats.computeBase(
+                entries = LifetimeStats.entriesOf(txList),
+                horizon = h,
+                today   = LocalDate.now(),
+                zone    = ZoneId.systemDefault(),
+            )
+        }
+        .flowOn(Dispatchers.Default)
+
+    val state = combine(base, step, categoryRepo.observeAll()) { (h, b), s, cats ->
         LifetimeState(
             isLoading  = false,
             horizon    = h,
             step       = s,
-            result     = LifetimeStats.compute(
-                entries = LifetimeStats.entriesOf(txList),
-                horizon = h,
-                step    = s,
-                today   = LocalDate.now(),
-                zone    = ZoneId.systemDefault(),
-            ),
+            result     = b.result.copy(curve = LifetimeStats.curveOf(b, s)),
             categories = cats.associateBy { it.id },
         )
     }

@@ -20,7 +20,11 @@ import kotlin.math.abs
  * - **Переводы не считаются** ни тратой, ни заработком. Перекладывание между своими счетами денег не
  *   тратит и не приносит; посчитай их — «заработано» выросло бы на каждое пополнение копилки.
  * - **Валюты не складываются** (курса у офлайн-приложения нет). Итоги — по каждой валюте отдельно;
- *   графики, бары, доли и источники — в рублях. Долларовая подписка не пропадает: она есть в итогах.
+ *   графики, бары, доли и источники — в ОСНОВНОЙ валюте ([primaryCurrency]): рубль, если он есть,
+ *   иначе валюта с наибольшим оборотом. Жёсткий рубль оставил бы человеку с одними сомами (МБанк)
+ *   плитку «0 ₽ / 0 ₽» и экран без единого графика. Прочие валюты не пропадают — они в итогах.
+ * - **Трата без категории — это «Другое»** (`cat_other`), как на вкладке «Категории». Иначе одни и
+ *   те же деньги на двух экранах лежали бы в разных долях.
  * - Всё считается из одного прохода по операциям, поэтому новая операция сразу меняет все цифры
  *   экрана — «постоянное суммирование», а не пересчёт раз в сутки.
  */
@@ -81,6 +85,8 @@ object LifetimeStats {
     )
 
     data class Result(
+        /** Валюта графиков, баров, долей и источников. */
+        val currency        : String,
         val totals          : List<CurrencyTotal>,
         val curve           : List<CurvePoint>,
         val spentByYear     : List<YearBar>,
@@ -89,15 +95,46 @@ object LifetimeStats {
         val earnedByCategory: List<CategoryShare>,
         val spentSources    : List<SourceTotal>,
         val earnedSources   : List<SourceTotal>,
-        /** С какой даты реально есть данные в окне; `null` — операций нет. */
+        /** С какой даты есть данные в основной валюте; `null` — операций нет. */
         val firstDate       : LocalDate?,
     ) {
         val isEmpty: Boolean get() = totals.isEmpty()
     }
 
+    /**
+     * Всё, что не зависит от шага графика. Считается один раз на окно: смена шага «месяц / год»
+     * пересчитывает только кривую, а не группировку всей истории по продавцам.
+     */
+    class Base internal constructor(
+        val result : Result,
+        internal val primaryRows: List<Entry>,
+        internal val today: LocalDate,
+        internal val zone : ZoneId,
+    )
+
     fun entriesOf(transactions: List<TransactionEntity>): List<Entry> = transactions
         .filter { !it.isDeleted }
-        .map { Entry(it.timestamp, it.amountKopecks, it.type, it.currency, it.categoryId, it.merchant) }
+        .map {
+            val category = it.categoryId
+                ?: if (it.type == TransactionType.EXPENSE) OTHER_CATEGORY else null
+            Entry(it.timestamp, it.amountKopecks, it.type, it.currency, category, it.merchant)
+        }
+
+    /** Куда вкладка «Категории» кладёт трату без категории — туда же и здесь. */
+    const val OTHER_CATEGORY = "cat_other"
+
+    /** Рубль, если он есть; иначе валюта с наибольшим оборотом. */
+    fun primaryCurrency(totals: List<CurrencyTotal>): String =
+        totals.firstOrNull { it.currency == BASE_CURRENCY }?.currency
+            ?: totals.maxByOrNull { it.spent + it.earned }?.currency
+            ?: BASE_CURRENCY
+
+    /**
+     * Итоги за всё время для плитки — тем же фильтром, что и экран «Всё время»: без переводов и без
+     * будущих дат. Плитка и экран, который она открывает, обязаны показывать одну цифру.
+     */
+    fun lifetimeTotals(entries: List<Entry>, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<CurrencyTotal> =
+        totals(entries.filter { !Instant.ofEpochMilli(it.timestamp).atZone(zone).toLocalDate().isAfter(today) })
 
     /** Итоги по валютам — для плитки на экране аналитики, без всего остального расчёта. */
     fun totals(entries: List<Entry>): List<CurrencyTotal> = entries
@@ -122,6 +159,17 @@ object LifetimeStats {
         today  : LocalDate,
         zone   : ZoneId = ZoneId.systemDefault(),
     ): Result {
+        val base = computeBase(entries, horizon, today, zone)
+        return base.result.copy(curve = curveOf(base, step))
+    }
+
+    /** Всё, кроме кривой; см. [Base]. */
+    fun computeBase(
+        entries: List<Entry>,
+        horizon: Horizon,
+        today  : LocalDate,
+        zone   : ZoneId = ZoneId.systemDefault(),
+    ): Base {
         val from = horizon.years?.let { today.minusYears(it) }
         fun dateOf(e: Entry) = Instant.ofEpochMilli(e.timestamp).atZone(zone).toLocalDate()
 
@@ -131,22 +179,36 @@ object LifetimeStats {
                 // него: операция с будущей датой — ошибка ввода, а не прогноз.
                 dateOf(e).let { d -> (from == null || d.isAfter(from)) && !d.isAfter(today) }
         }
-        val base   = inWindow.filter { it.currency == BASE_CURRENCY }
-        val spent  = base.filter { it.type == TransactionType.EXPENSE }
-        val earned = base.filter { it.type == TransactionType.INCOME }
+        val totals   = totals(inWindow)
+        val currency = primaryCurrency(totals)
+        val primary  = inWindow.filter { it.currency == currency }
+        val spent    = primary.filter { it.type == TransactionType.EXPENSE }
+        val earned   = primary.filter { it.type == TransactionType.INCOME }
 
-        return Result(
-            totals           = totals(inWindow),
-            curve            = curve(base, step, today, ::dateOf),
-            spentByYear      = byYear(spent, ::dateOf),
-            earnedByYear     = byYear(earned, ::dateOf),
-            spentByCategory  = byCategory(spent),
-            earnedByCategory = byCategory(earned),
-            spentSources     = sources(spent),
-            earnedSources    = sources(earned),
-            firstDate        = inWindow.minOfOrNull { dateOf(it) },
+        return Base(
+            result = Result(
+                currency         = currency,
+                totals           = totals,
+                curve            = emptyList(),
+                spentByYear      = byYear(spent, ::dateOf),
+                earnedByYear     = byYear(earned, ::dateOf),
+                spentByCategory  = byCategory(spent),
+                earnedByCategory = byCategory(earned),
+                spentSources     = sources(spent),
+                earnedSources    = sources(earned),
+                firstDate        = primary.minOfOrNull { dateOf(it) },
+            ),
+            primaryRows = primary,
+            today       = today,
+            zone        = zone,
         )
     }
+
+    /** Кривая под шаг — единственное, что пересчитывается при смене шага. */
+    fun curveOf(base: Base, step: Step): List<CurvePoint> =
+        curve(base.primaryRows, step, base.today) { e ->
+            Instant.ofEpochMilli(e.timestamp).atZone(base.zone).toLocalDate()
+        }
 
     /**
      * Нарастающие итоги по корзинам. Пустые корзины НЕ пропускаются: месяц без трат на графике —
@@ -207,15 +269,20 @@ object LifetimeStats {
      * банка: «RECR GOOGLE *ChatGPT, 855-…» и «ChatGPT» — один получатель, и в списке «кому ушли
      * деньги за десять лет» он обязан быть одной строкой, а не двумя с половиной суммы каждая.
      */
-    private fun sources(list: List<Entry>): List<SourceTotal> = list
+    private fun sources(list: List<Entry>): List<SourceTotal> {
+        // Нормализация имени — регулярки и чистка строки. На десятках тысяч операций это заметно,
+        // а различных строк у банка на порядок меньше, чем операций: считаем каждую один раз.
+        val names = HashMap<String?, String?>()
+        fun display(raw: String?) = names.getOrPut(raw) { MerchantNames.display(raw) }
+        return list
         .groupBy { e ->
-            MerchantNames.display(e.party)?.let { "n:${it.lowercase()}" } ?: "c:${e.categoryId}"
+            display(e.party)?.let { "n:${it.lowercase()}" } ?: "c:${e.categoryId}"
         }
         .map { (_, rows) ->
             val latest = rows.maxBy { it.timestamp }
             SourceTotal(
                 // Имя — как в последний раз прислал банк: оно узнаваемо.
-                label      = MerchantNames.display(latest.party),
+                label      = display(latest.party),
                 categoryId = latest.categoryId,
                 kopecks    = rows.sumOf { abs(it.amountKopecks) },
                 count      = rows.size,
@@ -223,4 +290,5 @@ object LifetimeStats {
             )
         }
         .sortedByDescending { it.kopecks }
+    }
 }

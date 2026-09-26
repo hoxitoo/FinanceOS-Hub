@@ -231,4 +231,68 @@ class LifetimeStatsTest {
         ))
         assertEquals(listOf("Аренда", "Пятёрочка", "Кофейня"), r.spentSources.map { it.label })
     }
+
+    // ── Замечания ревью ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `the tile and the screen agree on future-dated rows`() {
+        // Трата, по ошибке введённая следующим месяцем: экран «Всё время» её отбрасывает, и плитка,
+        // которая этот экран открывает, обязана показать ту же цифру.
+        val entries = listOf(spend(1_000_00, today), spend(50_000_00, today.plusMonths(1)))
+        val tile   = LifetimeStats.lifetimeTotals(entries, today, zone).single()
+        val screen = compute(entries).totals.single()
+        assertEquals(screen.spent, tile.spent)
+        assertEquals(1_000_00L, tile.spent)
+    }
+
+    @Test
+    fun `a history without roubles is charted in its own currency`() {
+        // МБанк: одни сомы. Жёсткий рубль дал бы плитку «0 ₽» и экран без единого графика.
+        val r = compute(listOf(
+            spend(5_000_00, LocalDate.of(2026, 8, 1), currency = "KGS"),
+            spend(20_00, LocalDate.of(2026, 8, 2), currency = "USD"),
+        ))
+        assertEquals("KGS", r.currency)
+        assertEquals(5_000_00L, r.spentByCategory.sumOf { it.kopecks })
+        assertTrue(r.curve.isNotEmpty())
+    }
+
+    @Test
+    fun `the first date is where the charts start`() {
+        // Долларовая подписка 2019 года не должна сдвигать «с какого числа» у рублёвых графиков.
+        val r = compute(listOf(
+            spend(20_00, LocalDate.of(2019, 3, 3), currency = "USD"),
+            spend(1_000_00, LocalDate.of(2021, 1, 10)),
+        ))
+        assertEquals(LocalDate.of(2021, 1, 10), r.firstDate)
+        assertEquals(LocalDate.of(2021, 1, 1), r.curve.first().periodStart)
+    }
+
+    @Test
+    fun `an uncategorised expense is Other, as on the categories tab`() {
+        // Иначе одни и те же деньги лежали бы в двух долях: «Без категории» здесь и «Другое» там.
+        val row = com.financeos.hub.core.database.entities.TransactionEntity(
+            id = "t", accountId = null, categoryId = null, type = TransactionType.EXPENSE,
+            source = com.financeos.hub.core.database.entities.TransactionSource.PUSH,
+            amountKopecks = -100_00, merchant = null, description = null,
+            timestamp = at(today), smsId = null,
+        )
+        val entry = LifetimeStats.entriesOf(listOf(row)).single()
+        assertEquals(LifetimeStats.OTHER_CATEGORY, entry.categoryId)
+    }
+
+    @Test
+    fun `changing the step reuses the same base`() {
+        // Шаг пересчитывает только кривую; итог кривой на любом шаге — те же итоги.
+        val entries = listOf(
+            spend(123_00, LocalDate.of(2020, 3, 1)),
+            earn(1_000_00, LocalDate.of(2024, 6, 1)),
+        )
+        val base = LifetimeStats.computeBase(entries, Horizon.ALL, today, zone)
+        Step.entries.forEach { step ->
+            val curve = LifetimeStats.curveOf(base, step)
+            assertEquals(base.result.totals.single().spent, curve.last().spent)
+            assertEquals(compute(entries, step = step).curve, curve)
+        }
+    }
 }
