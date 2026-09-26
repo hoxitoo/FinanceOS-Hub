@@ -369,7 +369,7 @@ fun AddTransactionSheet(
 
 /** Disallows selecting a date in the future — you cannot spend money tomorrow. */
 @OptIn(ExperimentalMaterial3Api::class)
-private val NoFutureDates = object : SelectableDates {
+internal val NoFutureDates = object : SelectableDates {
     override fun isSelectableDate(utcTimeMillis: Long): Boolean {
         val todayUtc = LocalDate.now()
             .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()

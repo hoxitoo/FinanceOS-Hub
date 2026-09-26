@@ -37,7 +37,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -383,6 +383,20 @@ abstract class FosDatabase : RoomDatabase() {
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `matched_tx_ids` TEXT")
+            }
+        }
+
+        /**
+         * `transactions.balance_detached` — строка на счёте, чья сумма в балансе не лежит (банк уже
+         * учёл её своим «Остатком»). Ставится только правкой счёта задним числом.
+         *
+         * По умолчанию 0: для всех существующих строк правило «сумма лежит в балансе, если есть
+         * счёт, нет «Остатка» и это не PDF» остаётся ровно прежним, и удаление ведёт себя как до
+         * миграции.
+         */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN balance_detached INTEGER NOT NULL DEFAULT 0")
             }
         }
 

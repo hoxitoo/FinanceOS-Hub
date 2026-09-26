@@ -47,6 +47,7 @@ object DatabaseModule {
                 FosDatabase.MIGRATION_16_17,
                 FosDatabase.MIGRATION_17_18,
                 FosDatabase.MIGRATION_18_19,
+                FosDatabase.MIGRATION_19_20,
             )
             .build()
 
