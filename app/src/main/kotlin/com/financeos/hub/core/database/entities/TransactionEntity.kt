@@ -59,6 +59,16 @@ data class TransactionEntity(
     // Raw captured SMS/push body — diagnostic only, shown in the detail sheet so a mis-parse
     // (e.g. an Alfa push whose "Остаток"/card line the listener didn't capture) can be inspected.
     @ColumnInfo(name = "raw_text") val rawText: String? = null,
+    /**
+     * Строка привязана к счёту, но её сумма в балансе НЕ лежит: банк уже учёл эти деньги своим
+     * «Остатком», пришедшим позже, и сдвиг поверх него испортил бы баланс (инвариант #39).
+     *
+     * Ставится ТОЛЬКО правкой счёта задним числом. Лежит ли сумма в балансе, нельзя вычислить по
+     * датам — важен порядок, в котором приложение обработало строку и «Остаток», а не время
+     * событий: ручная операция вчерашним числом, введённая после утреннего пуша с остатком, в
+     * балансе лежит. Поэтому это хранится, а не выводится.
+     */
+    @ColumnInfo(name = "balance_detached") val balanceDetached: Boolean = false,
     @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),

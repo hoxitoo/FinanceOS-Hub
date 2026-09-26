@@ -238,6 +238,9 @@ class BackupManager @Inject constructor(
         putNullable("goalId", goalId); putNullable("transferPairId", transferPairId)
         putNullable("sourceMask", sourceMask); putNullable("counterpartyMask", counterpartyMask)
         putNullable("balanceKopecks", balanceKopecks); put("currency", currency)
+        // Без флага восстановленная строка снова считалась бы лежащей в балансе, и удаление
+        // откатило бы сумму, которой на счёте никогда не было.
+        put("balanceDetached", balanceDetached)
         put("isDeleted", isDeleted); putNullable("deletedAt", deletedAt)
         put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
@@ -351,6 +354,7 @@ class BackupManager @Inject constructor(
         goalId = optStringOrNull("goalId"), transferPairId = optStringOrNull("transferPairId"),
         sourceMask = optStringOrNull("sourceMask"), counterpartyMask = optStringOrNull("counterpartyMask"),
         balanceKopecks = optLongOrNull("balanceKopecks"), currency = optString("currency", "RUB"),
+        balanceDetached = optBoolean("balanceDetached", false),
         isDeleted = optBoolean("isDeleted", false),
         deletedAt = optLongOrNull("deletedAt"),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
