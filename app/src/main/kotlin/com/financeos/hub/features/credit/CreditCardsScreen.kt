@@ -273,30 +273,49 @@ private fun CreditCardBlock(
                 style = FosType.Micro,
                 color = FosColors.TextMuted,
             )
-        } else if (due.isSettled) {
+        } else if (due.remainingKopecks == 0L) {
             // Главный ответ экрана — «платить не надо». Он обязан быть таким же крупным, как сумма
             // к оплате: человек открывает карту именно с этим вопросом, и мелкая приписка под
             // требованием на 989,84 ₽ его не снимает.
+            //
+            // Условие — ОСТАТОК, а не только [DuePayment.isSettled]: закрытая выписка расчётной
+            // ветки даёт требование в ноль, у которого нечего «вносить», и прежний else рисовал
+            // «Внести до 20 июля · 0 ₽» с чипом срочности. Календарь при этом считал её закрытой —
+            // два экрана об одной карте говорили разное.
             Text(
                 "Платёж за этот период",
                 style = FosType.Micro,
                 color = FosColors.TextSecondary,
             )
-            Text("внесён", style = FosType.HeroMinimal, color = FosColors.Positive)
+            Text(
+                if (due.paidKopecks > 0L) "внесён" else "не требуется",
+                style = FosType.HeroMinimal,
+                color = FosColors.Positive,
+            )
             Spacer(Modifier.height(2.dp))
             Text(
-                "банк просил ${FosFormatter.amount(due.amountKopecks)} " +
-                    "до ${due.dueDate.format(DUE_DATE_FORMAT)} · " +
-                    "с тех пор внесено ${FosFormatter.amount(due.paidKopecks)}",
+                // Погашенное требование всегда из уведомления банка: у расчётной ветки погашения
+                // уже вычтены внутри суммы, `paidKopecks` там ноль, и она попадает во вторую
+                // строку. Поэтому «банк просил» здесь не может оказаться ложью.
+                if (due.paidKopecks > 0L)
+                    "банк просил ${FosFormatter.amount(due.amountKopecks)} " +
+                        "до ${due.dueDate.format(DUE_DATE_FORMAT)} · " +
+                        "с тех пор внесено ${FosFormatter.amount(due.paidKopecks)}"
+                else
+                    "по последней выписке платить нечего",
                 style = FosType.Micro,
                 color = FosColors.TextMuted,
             )
             // Долг и срок платежа — разные вещи, и умолчать о первом здесь нельзя: на 120-дневной
-            // карте после обязательного платежа остаётся основная сумма, просто её срок ещё впереди.
+            // карте после обязательного платежа остаётся основная сумма.
             if (card.debt > 0L) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "долг по карте ${FosFormatter.amount(card.debt)} — срок по нему ещё не наступил",
+                    // Про «срок ещё не наступил» говорим, только когда он и правда впереди.
+                    // Заплативший с опозданием увидел бы утверждение, прямо противоречащее дате
+                    // строкой выше.
+                    "долг по карте ${FosFormatter.amount(card.debt)}" +
+                        if (due.daysUntilDue >= 0) " — срок по нему ещё не наступил" else "",
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )
@@ -358,12 +377,15 @@ private fun CreditCardBlock(
                     )
                 }
             }
-            if (card.cycle != null) {
-                Spacer(Modifier.height(12.dp))
-                Text("Беспроцентный период", style = FosType.Micro, color = FosColors.TextSecondary)
-                Spacer(Modifier.height(4.dp))
-                InterestFreeTimeline(card)
-            }
+        }
+
+        // ВНЕ веток про платёж: беспроцентный период не зависит от того, внесён ли обязательный
+        // платёж, и исчезать вместе с требованием ему незачем — это отдельный, более поздний срок.
+        if (card.cycle != null) {
+            Spacer(Modifier.height(12.dp))
+            Text("Беспроцентный период", style = FosType.Micro, color = FosColors.TextSecondary)
+            Spacer(Modifier.height(4.dp))
+            InterestFreeTimeline(card)
         }
 
         // Отсчёт по конкретной покупке. Стоит ВНЕ ветки `due != null`: у 120-дневной карты нет ни
@@ -566,7 +588,9 @@ private fun InterestBlock(card: CreditCardState) {
     // 0 ₽ — вы в беспроцентном периоде» would be a confident falsehood on a card that may be months
     // late. The minimum-payment outlook does not depend on a date, so it still stands.
     val due      = card.duePayment
-    val overdue  = (due?.daysUntilDue ?: 0) < 0
+    // Внесённый платёж не просрочен, даже если его срок позади: неустойку берут за пропущенный
+    // обязательный платёж. Иначе блок писал бы «срок прошёл, проценты идут» под зелёным «внесён».
+    val overdue  = due != null && !due.isSettled && due.daysUntilDue < 0
 
     if (due != null) {
         TermRow(

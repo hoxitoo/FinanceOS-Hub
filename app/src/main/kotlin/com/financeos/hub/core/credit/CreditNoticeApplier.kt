@@ -25,12 +25,47 @@ class CreditNoticeApplier @Inject constructor(
     /** Returns true when the notice was filed against a card. */
     suspend fun apply(notice: CreditNotice): Boolean {
         val accountId = accountLinker.resolveCreditAccountForBank(notice.bankId) ?: return false
+        val account   = accountDao.getById(accountId)
+
+        // Момент получения хранится отдельным решением: повторная доставка того же требования не
+        // должна его двигать — см. [noticeSeenAt].
         accountDao.setDuePayment(
             id            = accountId,
             amountKopecks = notice.amountKopecks,
             dueAt         = notice.dueAtMillis,
-            seenAt        = System.currentTimeMillis(),
+            seenAt        = noticeSeenAt(
+                previousAmountKopecks = account?.duePaymentKopecks,
+                previousDueAt         = account?.duePaymentAt,
+                previousSeenAt        = account?.duePaymentSeenAt,
+                amountKopecks         = notice.amountKopecks,
+                dueAt                 = notice.dueAtMillis,
+                now                   = System.currentTimeMillis(),
+            ),
         )
         return true
     }
+}
+
+/**
+ * Каким остаётся «когда пришло напоминание» после очередной доставки.
+ *
+ * ТО ЖЕ САМОЕ требование момент не двигает. Одно напоминание приходит не один раз: SMS и пуш о нём
+ * — две доставки одного события, и банк повторяет его по мере приближения срока. Вставки здесь нет,
+ * поэтому дедуп операций до этого места не достаёт. Сдвинуть момент на «сейчас» значило бы обнулить
+ * зачёт погашений (инвариант #38): уже оплаченное требование воскресало бы при каждом повторе —
+ * ровно тот дефект, из-за которого зачёт и появился.
+ *
+ * «То же самое» — совпадение суммы И срока. Новая цифра или новая дата означают новый расчётный
+ * период, и отсчёт обязан начаться заново: платежи за прошлый период банк в ней уже учёл.
+ */
+fun noticeSeenAt(
+    previousAmountKopecks: Long?,
+    previousDueAt        : Long?,
+    previousSeenAt       : Long?,
+    amountKopecks        : Long,
+    dueAt                : Long,
+    now                  : Long,
+): Long {
+    val sameDemand = previousAmountKopecks == amountKopecks && previousDueAt == dueAt
+    return previousSeenAt?.takeIf { sameDemand } ?: now
 }

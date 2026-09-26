@@ -169,10 +169,15 @@ class CreditCardsViewModel @Inject constructor(
                 // Once a payment is missed the tariff switches to the penalty rate («неустойка,
                 // если пропустить обязательный платёж»), so an overdue card is not charged the
                 // ordinary purchase rate. Falls back to the ordinary rate when no penalty is set.
+                // ВНЕСЁННЫЙ платёж не просрочен, даже когда его срок уже позади: неустойку берут за
+                // пропущенный обязательный платёж, а он сделан. Без этой проверки карта писала бы
+                // «внесён» зелёным и тут же «срок прошёл, проценты идут» с оценкой по штрафной
+                // ставке — два противоположных утверждения в одном блоке.
                 interestSoFar       = accruedInterest(
                     debtKopecks = account.debtKopecks,
                     aprBp       = account.penaltyAprBp ?: account.aprBp,
-                    days        = due?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
+                    days        = due?.takeIf { !it.isSettled }
+                        ?.daysUntilDue?.let { if (it < 0) -it else 0 } ?: 0,
                 ),
                 minimumOutlook      = minimumPaymentOutlook(
                     debtKopecks  = account.debtKopecks,
