@@ -170,8 +170,11 @@ class AccountLinker @Inject constructor(
      * NEWER than the account's own last update. This stops a re-link / reconcile from reverting a more
      * recent manual edit (or a transfer the bank reported without a balance) back to a stale pre-edit
      * "Остаток". Recency is the arbiter: the freshest signal — manual or bank — wins.
+     *
+     * Открыт для правки операции: строка с «Остатком», которую человек привязал к счёту вручную,
+     * становится снимком этого счёта ровно так же, как усыновлённая сирота.
      */
-    private suspend fun snapToAuthoritativeIfNewer(accountId: String) {
+    suspend fun snapToAuthoritativeIfNewer(accountId: String) {
         val snap = transactionDao.latestBalanceSnapshotForAccount(accountId) ?: return
         val acc  = accountDao.getById(accountId) ?: return
         // See [balanceFromReportedFigure]: the stored snapshot on a credit card is the free limit, so it has to
