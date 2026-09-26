@@ -13,17 +13,20 @@ import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.core.analytics.ScoreCalculator
 import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.core.ml.BehavioralCluster
+import com.financeos.hub.core.analytics.LifetimeStats
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +45,12 @@ data class AnalyticsState(
     val selectedPeriod   : AnalyticsPeriod                  = AnalyticsPeriod.MONTH,
     // Base data
     val transactions     : List<TransactionEntity>         = emptyList(),
+    /**
+     * Итоги за ВСЁ время, по валютам — для плитки «Всего потрачено, всего заработано». Считаются по
+     * полной истории, а не по [transactions]: те обрезаны выбранным периодом, и плитка «за всё
+     * время» показывала бы месяц.
+     */
+    val lifetimeTotals   : List<LifetimeStats.CurrencyTotal> = emptyList(),
     val categoryExpenses : Map<String, Long>               = emptyMap(),
     val categoryNames    : Map<String, String>             = emptyMap(),
     /** id → hex colour / emoji, so the pie can colour each slice like the rest of the app. */
@@ -193,6 +202,11 @@ class AnalyticsViewModel @Inject constructor(
                 AnalyticsState(
                     selectedPeriod    = period,
                     transactions      = monthTx,
+                    // Тем же фильтром, что и экран «Всё время» (без будущих дат): плитка и экран,
+                    // который она открывает, обязаны показывать одну цифру.
+                    lifetimeTotals    = LifetimeStats.lifetimeTotals(
+                        LifetimeStats.entriesOf(allTx), java.time.LocalDate.now(),
+                    ),
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,
                     categoryColors    = categories.associate { it.id to it.color },
@@ -215,5 +229,8 @@ class AnalyticsViewModel @Inject constructor(
             }
         }
         .catch { emit(AnalyticsState(isLoading = false)) }
+        // Проход по всей истории — теперь и ради итогов «за всё время» — не работа для главного
+        // потока: каждая новая операция и каждое касание чипа периода пересчитывают его заново.
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 }

@@ -182,35 +182,18 @@ class TransferRouter @Inject constructor(
     }
 
     /**
-     * Смена типа операции — с пересчётом зачисления в цель, в ОДНОМ месте на все экраны.
+     * Привязка к цели для строки, которой ЗАДНИМ ЧИСЛОМ сменили счёт или сумму.
      *
-     * Правку операции открывают из двух мест (экран «Операции» и лист на главной), и до этого у
-     * каждого была своя копия этой логики. Копии разошлись ровно тогда, когда правило поменялось:
-     * на главной осталось старое «рвать связь при уходе из перевода», и правка расхода в доход на
-     * привязанном счёте оставляла цель с прежним знаком — расхождение в две суммы, а следующее
-     * удаление строки уводило цель ещё ниже. Поэтому решение и порядок действий живут здесь, а
-     * вызывающий отвечает только за свои поля.
-     *
-     * [write] получает `goalId`, который должна сохранить обновлённая строка, и обязан её записать
-     * и вернуть — откат и повторное зачисление считаются вокруг этой записи.
+     * Отличие от [onManualRowInserted] одно, и оно принципиальное: засчитываются только привязки,
+     * существовавшие на момент операции. Привязка описывает будущие движения (инвариант #31) — иначе
+     * исправление типа у операции полугодовой давности вдруг пополнило бы цель, заведённую вчера,
+     * деньгами, которых привязка никогда не касалась.
      */
-    suspend fun applyRetype(
-        old      : TransactionEntity,
-        newType  : TransactionType,
-        newAmount: Long,
-        write    : suspend (goalId: String?) -> TransactionEntity,
-    ) {
-        val leftTransfer = old.type == TransactionType.TRANSFER && newType != TransactionType.TRANSFER
-        // Привязка к СЧЁТУ верна для любого типа операции: деньги на этом счёте — это цель.
-        // Привязка по КАРТЕ или СЛОВУ говорит «ПЕРЕВОД туда-то — пополнение» и перестаёт
-        // действовать, как только операция перестала быть переводом.
-        val accountRouted = old.goalId != null && isAccountRouted(old)
-        val dropGoalLink  = old.goalId != null && leftTransfer && !accountRouted
-        val resign        = accountRouted && newAmount != old.amountKopecks
-
-        if (dropGoalLink || resign) onTransactionReversed(old)
-        val updated = write(if (dropGoalLink) null else old.goalId)
-        if (resign) onManualRowInserted(updated)
+    suspend fun onRowReassigned(tx: TransactionEntity) {
+        runCatching {
+            val routes = transferRouteRepo.getAllActive().filter { it.createdAt <= tx.timestamp }
+            routeByOwnAccount(tx, routes)
+        }
     }
 
     /**
