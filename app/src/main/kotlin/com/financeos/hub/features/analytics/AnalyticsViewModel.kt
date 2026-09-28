@@ -11,9 +11,9 @@ import com.financeos.hub.core.analytics.Insight
 import com.financeos.hub.core.analytics.ImpulseStats
 import com.financeos.hub.core.analytics.NarrativeInsight
 import com.financeos.hub.core.analytics.ScoreCalculator
-import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.core.ml.BehavioralCluster
 import com.financeos.hub.core.analytics.LifetimeStats
+import com.financeos.hub.core.analytics.MonthOverMonth
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -67,7 +68,6 @@ data class AnalyticsState(
     val fatigueCurve     : FatigueCurve?                   = null,
     val impulseStats     : ImpulseStats?                   = null,
     val categoryAnomalies: List<CategoryAnomaly>           = emptyList(),
-    val waterfallBars    : List<WaterfallBar>              = emptyList(),
     val narratives       : List<NarrativeInsight>          = emptyList(),
     val fixedVariable    : FixedVariableResult?            = null,
     val userArchetype    : BehavioralCluster.ClusterResult? = null,
@@ -194,7 +194,6 @@ class AnalyticsViewModel @Inject constructor(
                 val fatigueD   = safeAsync { analyticsEngine.computeFatigueCurve() }
                 val impulseD   = safeAsync { analyticsEngine.computeImpulseStats() }
                 val anomaliesD = safeAsync { analyticsEngine.detectCategoryAnomalies() ?: emptyList() }
-                val waterfallD = safeAsync { analyticsEngine.computeWaterfallBars() ?: emptyList() }
                 val narrativesD= safeAsync { analyticsEngine.generateNarratives() ?: emptyList() }
                 val fixedVarD  = safeAsync { analyticsEngine.classifyFixedVariable() }
                 val archetypeD = safeAsync { analyticsEngine.classifyBehavior() }
@@ -220,7 +219,6 @@ class AnalyticsViewModel @Inject constructor(
                     fatigueCurve      = fatigueD.await(),
                     impulseStats      = impulseD.await(),
                     categoryAnomalies = anomaliesD.await()   ?: emptyList(),
-                    waterfallBars     = waterfallD.await()   ?: emptyList(),
                     narratives        = narrativesD.await()  ?: emptyList(),
                     fixedVariable     = fixedVarD.await(),
                     userArchetype     = archetypeD.await(),
@@ -233,4 +231,14 @@ class AnalyticsViewModel @Inject constructor(
         // потока: каждая новая операция и каждое касание чипа периода пересчитывают его заново.
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
+
+    /**
+     * «Месяц к месяцу» за последний год — ОТДЕЛЬНЫМ потоком. Чип периода над вкладками на него не
+     * влияет, и в общем состоянии он пересчитывался бы на каждое касание чипа — всю историю заново.
+     * По всей истории, а не по [AnalyticsState.transactions]: те обрезаны чипом (инвариант #40).
+     */
+    val monthOverMonth: StateFlow<MonthOverMonth.Result?> = txRepo.observeAll()
+        .map { MonthOverMonth.compute(LifetimeStats.entriesOf(it), java.time.LocalDate.now()) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }

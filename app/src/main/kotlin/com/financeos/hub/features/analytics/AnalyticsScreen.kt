@@ -46,6 +46,7 @@ fun AnalyticsScreen(
     vm             : AnalyticsViewModel = hiltViewModel(),
 ) {
     val state       = vm.state.collectAsState().value
+    val monthOverMonth = vm.monthOverMonth.collectAsState().value
     val pagerState  = rememberPagerState { TABS.size }
     val scope       = rememberCoroutineScope()
 
@@ -131,7 +132,7 @@ fun AnalyticsScreen(
             when (page) {
                 0 -> OverviewTab(state, onLifetimeClick)
                 1 -> CategoriesTab(state, vm)
-                2 -> TrendsTab(state)
+                2 -> TrendsTab(state, monthOverMonth)
                 3 -> InsightsTab(state)
             }
         }

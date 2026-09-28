@@ -20,9 +20,9 @@ import kotlin.math.abs
  * - **Переводы не считаются** ни тратой, ни заработком. Перекладывание между своими счетами денег не
  *   тратит и не приносит; посчитай их — «заработано» выросло бы на каждое пополнение копилки.
  * - **Валюты не складываются** (курса у офлайн-приложения нет). Итоги — по каждой валюте отдельно;
- *   графики, бары, доли и источники — в ОСНОВНОЙ валюте ([primaryCurrency]): рубль, если он есть,
- *   иначе валюта с наибольшим оборотом. Жёсткий рубль оставил бы человеку с одними сомами (МБанк)
- *   плитку «0 ₽ / 0 ₽» и экран без единого графика. Прочие валюты не пропадают — они в итогах.
+ *   графики, бары, доли и источники — в ОСНОВНОЙ валюте ([primaryCurrency]): той, в которой больше
+ *   всего операций. Жёсткий рубль оставил бы человеку с одними сомами (МБанк) плитку «0 ₽ / 0 ₽» и
+ *   экран без единого графика. Прочие валюты не пропадают — они в итогах.
  * - **Трата без категории — это «Другое»** (`cat_other`), как на вкладке «Категории». Иначе одни и
  *   те же деньги на двух экранах лежали бы в разных долях.
  * - Всё считается из одного прохода по операциям, поэтому новая операция сразу меняет все цифры
@@ -61,7 +61,13 @@ object LifetimeStats {
         val party        : String?,
     )
 
-    data class CurrencyTotal(val currency: String, val spent: Long, val earned: Long) {
+    data class CurrencyTotal(
+        val currency: String,
+        val spent   : Long,
+        val earned  : Long,
+        /** Сколько операций — по нему выбирается основная валюта, см. [primaryCurrency]. */
+        val count   : Int = 0,
+    ) {
         val net: Long get() = earned - spent
     }
 
@@ -123,11 +129,20 @@ object LifetimeStats {
     /** Куда вкладка «Категории» кладёт трату без категории — туда же и здесь. */
     const val OTHER_CATEGORY = "cat_other"
 
-    /** Рубль, если он есть; иначе валюта с наибольшим оборотом. */
+    /**
+     * Валюта, в которой человек ЖИВЁТ, — та, в которой больше всего операций; при равенстве — рубль.
+     *
+     * По числу операций, а не по «рубль, если он есть»: одна случайная рублёвая покупка у человека
+     * с сомами переключала бы все графики на рубли, и реальные траты пропадали бы с экрана без
+     * следа. И не по обороту: копейки разных валют несравнимы — доллар в копейках в ~90 раз
+     * «меньше» рубля при тех же деньгах.
+     */
     fun primaryCurrency(totals: List<CurrencyTotal>): String =
-        totals.firstOrNull { it.currency == BASE_CURRENCY }?.currency
-            ?: totals.maxByOrNull { it.spent + it.earned }?.currency
-            ?: BASE_CURRENCY
+        totals.maxWithOrNull(
+            compareBy<CurrencyTotal> { it.count }
+                .thenBy { it.currency == BASE_CURRENCY }
+                .thenBy { it.spent + it.earned },
+        )?.currency ?: BASE_CURRENCY
 
     /**
      * Итоги за всё время для плитки — тем же фильтром, что и экран «Всё время»: без переводов и без
@@ -145,6 +160,7 @@ object LifetimeStats {
                 currency = currency,
                 spent    = list.filter { it.type == TransactionType.EXPENSE }.sumOf { abs(it.amountKopecks) },
                 earned   = list.filter { it.type == TransactionType.INCOME }.sumOf { abs(it.amountKopecks) },
+                count    = list.size,
             )
         }
         // Рубль первым, остальные — по обороту: главная цифра не должна прыгать от того, в какой
