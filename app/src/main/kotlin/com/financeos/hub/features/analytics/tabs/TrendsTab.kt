@@ -77,6 +77,13 @@ fun TrendsTab(state: AnalyticsState) {
     ) {
         Spacer(Modifier.height(FosDimens.ItemGap))
 
+        // ── 0. Месяц к месяцу ─────────────────────────────────────────────────
+        // В самом верху: это вопрос, с которым открывают тренды, — «больше или меньше, чем в
+        // прошлом месяце». Считается по всей истории, а не по чипу периода над вкладками.
+        state.monthOverMonth?.let { mom ->
+            MonthOverMonthSection(mom = mom, categoryNames = state.categoryNames)
+        }
+
         // ── 1. Daily expense timeline ─────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
             SectionHeader(

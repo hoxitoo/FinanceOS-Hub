@@ -14,6 +14,7 @@ import com.financeos.hub.core.analytics.ScoreCalculator
 import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.core.ml.BehavioralCluster
 import com.financeos.hub.core.analytics.LifetimeStats
+import com.financeos.hub.core.analytics.MonthOverMonth
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.CategoryRepository
@@ -51,6 +52,11 @@ data class AnalyticsState(
      * время» показывала бы месяц.
      */
     val lifetimeTotals   : List<LifetimeStats.CurrencyTotal> = emptyList(),
+    /**
+     * «Месяц к месяцу» за последний год. Тоже по ВСЕЙ истории, а не по [transactions]: те обрезаны
+     * чипом периода, и при выбранном «месяце» сравнивать было бы не с чем (инвариант #40).
+     */
+    val monthOverMonth   : MonthOverMonth.Result?          = null,
     val categoryExpenses : Map<String, Long>               = emptyMap(),
     val categoryNames    : Map<String, String>             = emptyMap(),
     /** id → hex colour / emoji, so the pie can colour each slice like the rest of the app. */
@@ -163,6 +169,10 @@ class AnalyticsViewModel @Inject constructor(
         .mapLatest { (allTx, categories, period) ->
             val (from, to) = periodWindow(period)
             val monthTx = allTx.filter { it.timestamp in from..to }
+            // Одна нормализация на оба расчёта по всей истории: итоги «за всё время» и «месяц к
+            // месяцу» обязаны видеть одни и те же операции одними и теми же категориями.
+            val allEntries = LifetimeStats.entriesOf(allTx)
+            val today      = java.time.LocalDate.now()
             val catMap  = categories.associate { it.id to it.name }
 
             val catExpenses = monthTx
@@ -204,9 +214,8 @@ class AnalyticsViewModel @Inject constructor(
                     transactions      = monthTx,
                     // Тем же фильтром, что и экран «Всё время» (без будущих дат): плитка и экран,
                     // который она открывает, обязаны показывать одну цифру.
-                    lifetimeTotals    = LifetimeStats.lifetimeTotals(
-                        LifetimeStats.entriesOf(allTx), java.time.LocalDate.now(),
-                    ),
+                    lifetimeTotals    = LifetimeStats.lifetimeTotals(allEntries, today),
+                    monthOverMonth    = MonthOverMonth.compute(allEntries, today),
                     categoryExpenses  = catExpenses,
                     categoryNames     = catMap,
                     categoryColors    = categories.associate { it.id to it.color },
