@@ -29,10 +29,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.analytics.HeatmapData
+import com.financeos.hub.core.analytics.MonthOverMonth
 import com.financeos.hub.features.analytics.AnalyticsState
 import com.financeos.hub.ui.components.DonutSlice
 import com.financeos.hub.ui.components.FatigueBars
-import com.financeos.hub.ui.components.MoMComparison
 import com.financeos.hub.ui.components.SectionHeader
 import com.financeos.hub.ui.components.SegmentedDonut
 import com.financeos.hub.ui.components.SpendTimeline
@@ -66,7 +66,7 @@ private val HOUR_COLORS = listOf(
 )
 
 @Composable
-fun TrendsTab(state: AnalyticsState) {
+fun TrendsTab(state: AnalyticsState, monthOverMonth: MonthOverMonth.Result? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -76,6 +76,13 @@ fun TrendsTab(state: AnalyticsState) {
         verticalArrangement = Arrangement.spacedBy(FosDimens.SectionGap),
     ) {
         Spacer(Modifier.height(FosDimens.ItemGap))
+
+        // ── 0. Месяц к месяцу ─────────────────────────────────────────────────
+        // В самом верху: это вопрос, с которым открывают тренды, — «больше или меньше, чем в
+        // прошлом месяце». Считается по всей истории, а не по чипу периода над вкладками.
+        monthOverMonth?.let { mom ->
+            MonthOverMonthSection(mom = mom, categoryNames = state.categoryNames)
+        }
 
         // ── 1. Daily expense timeline ─────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
@@ -135,56 +142,10 @@ fun TrendsTab(state: AnalyticsState) {
             }
         }
 
-        // ── 4. Month over month ───────────────────────────────────────────────
-        if (state.waterfallBars.isNotEmpty()) {
-            val total = state.waterfallBars.firstOrNull { it.isTotal }
-            // Красная огранка, если расходы выросли, зелёная — если снизились. Направление читается
-            // с края карточки раньше, чем взгляд доходит до цифры.
-            val momTone = when {
-                total == null                              -> FosTone.Neutral
-                total.currentKopecks > total.prevKopecks    -> FosTone.Negative
-                else                                       -> FosTone.Positive
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(FosDimens.ItemGap)) {
-                SectionHeader(
-                    title     = "МЕСЯЦ К МЕСЯЦУ",
-                    infoTitle = "Месяц к месяцу",
-                    infoBody  = "Сравниваем текущий месяц с прошлым по каждой категории.\n\n" +
-                        "Полоса ВЛЕВО и зелёный минус — в этом месяце вы потратили МЕНЬШЕ, чем в " +
-                        "прошлом. Полоса ВПРАВО и красный плюс — потратили БОЛЬШЕ.\n\n" +
-                        "Под каждой строкой видно «было → стало»: сумма за прошлый месяц и за " +
-                        "текущий.\n\nВажно: в начале месяца текущий период ещё неполный, поэтому " +
-                        "почти всё будет выглядеть как экономия — это нормально.",
-                    tone      = momTone,
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fosCard(FosCardStyle.Rail, momTone),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    // Plain-language headline first — the one line that answers "так лучше или хуже?"
-                    total?.let { t ->
-                        val spentMore = t.currentKopecks > t.prevKopecks
-                        val diff      = abs(t.currentKopecks - t.prevKopecks)
-                        Text(
-                            if (spentMore) "Расходы выросли на ${FosFormatter.compact(diff)}"
-                            else           "Расходы снизились на ${FosFormatter.compact(diff)}",
-                            style = FosType.BodySemi,
-                            color = if (spentMore) FosColors.Negative else FosColors.Positive,
-                        )
-                        Text(
-                            "прошлый месяц ${FosFormatter.compact(t.prevKopecks)} → " +
-                                "текущий ${FosFormatter.compact(t.currentKopecks)}",
-                            style = FosType.Micro,
-                            color = FosColors.TextMuted,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                    }
-                    MoMComparison(bars = state.waterfallBars)
-                }
-            }
-        }
+        // Прежний блок «МЕСЯЦ К МЕСЯЦУ» (текущий месяц против прошлого по категориям) удалён: его
+        // заменил блок наверху вкладки, где та же разбивка открывается касанием по любому месяцу.
+        // Оставленный, он показывал бы под тем же заголовком другие цифры — он складывал валюты, а
+        // новый их не складывает, — и один экран давал бы два ответа на один вопрос (#40, #41).
 
         // ── 5. Impulse ────────────────────────────────────────────────────────
         state.impulseStats?.let { stats ->

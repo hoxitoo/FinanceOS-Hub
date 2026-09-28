@@ -119,7 +119,11 @@ fun SectionHeader(
  * to the LEFT in green means you spent less.
  */
 @Composable
-fun MoMComparison(bars: List<WaterfallBar>) {
+fun MoMComparison(
+    bars: List<WaterfallBar>,
+    /** Символ валюты сумм. У «месяца к месяцу» основная валюта бывает не рублём. */
+    sym : String = "₽",
+) {
     val rows = bars.filter { !it.isTotal }
     val maxAbs = (rows.maxOfOrNull { abs(it.currentKopecks - it.prevKopecks) } ?: 1L).coerceAtLeast(1L)
 
@@ -129,7 +133,13 @@ fun MoMComparison(bars: List<WaterfallBar>) {
             val rawChange = bar.currentKopecks - bar.prevKopecks
             // Growing income is good; growing spending is bad.
             val better = if (bar.isIncome) rawChange > 0 else rawChange < 0
-            val color  = if (better) FosColors.Positive else FosColors.Negative
+            // Красный — только траты и перерасход (правило #2). Упавший доход — янтарное «хуже»,
+            // а не красное, которое читалось бы как расход.
+            val color  = when {
+                better       -> FosColors.Positive
+                bar.isIncome -> FosColors.Warning
+                else         -> FosColors.Negative
+            }
             val share  = (abs(rawChange).toFloat() / maxAbs).coerceIn(0f, 1f)
 
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -140,7 +150,7 @@ fun MoMComparison(bars: List<WaterfallBar>) {
                 ) {
                     Text(bar.label, style = FosType.Body, color = FosColors.TextPrimary, maxLines = 1)
                     Text(
-                        (if (rawChange >= 0) "+" else "−") + FosFormatter.compact(abs(rawChange)),
+                        (if (rawChange >= 0) "+" else "−") + FosFormatter.compact(abs(rawChange), sym),
                         style = FosType.SmallBold,
                         color = color,
                     )
@@ -173,7 +183,7 @@ fun MoMComparison(bars: List<WaterfallBar>) {
                 }
 
                 Text(
-                    "было ${FosFormatter.compact(bar.prevKopecks)} → стало ${FosFormatter.compact(bar.currentKopecks)}",
+                    "было ${FosFormatter.compact(bar.prevKopecks, sym)} → стало ${FosFormatter.compact(bar.currentKopecks, sym)}",
                     style = FosType.Micro,
                     color = FosColors.TextMuted,
                 )

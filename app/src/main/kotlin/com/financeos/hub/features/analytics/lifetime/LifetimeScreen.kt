@@ -74,7 +74,10 @@ fun LifetimeScreen(
     }
     // Символ основной валюты экрана: у человека с одними сомами это «сом», а не «₽».
     val sym = FosFormatter.currencySymbol(result?.currency ?: LifetimeStats.BASE_CURRENCY)
-    val nameOf: (String?) -> String = { id -> id?.let { cats[it]?.name } ?: "Без категории" }
+    // Удалённая категория — не «без категории»: деньги в ней были, просто её нет среди активных.
+    val nameOf: (String?) -> String = { id ->
+        if (id == null) "Без категории" else cats[id]?.name ?: "Удалённая категория"
+    }
 
     // Выбор сбрасывается при смене горизонта: выбранного года в новом окне может не быть.
     var curveSel      by remember(state.horizon, state.step) { mutableStateOf<Int?>(null) }
