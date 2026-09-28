@@ -29,6 +29,7 @@ import com.financeos.hub.core.analytics.MonthOverMonth
 import com.financeos.hub.core.analytics.WaterfallBar
 import com.financeos.hub.ui.components.MoMComparison
 import com.financeos.hub.ui.components.SectionHeader
+import com.financeos.hub.ui.theme.FosCardStyle
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -43,9 +44,10 @@ private val MONTH_FULL  = listOf(
     "январь", "февраль", "март", "апрель", "май", "июнь",
     "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
 )
-private val MONTH_PREV  = listOf(
-    "январём", "февралём", "мартом", "апрелем", "маем", "июнем",
-    "июлем", "августом", "сентябрём", "октябрём", "ноябрём", "декабрём",
+/** Родительный падеж — после «против»: «против августа», а не «против августом». */
+private val MONTH_GEN   = listOf(
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
 )
 
 /** Сколько категорий показывать в разбивке месяца: дальше — мелочь, которая только растягивает блок. */
@@ -138,7 +140,8 @@ private fun MomBlock(
                 "из чего сложилась разница.",
             tone      = tone,
         )
-        Column(Modifier.fillMaxWidth().fosCard()) {
+        // Блок с финансовым направлением — Rail в тоне направления (правило огранки #7).
+        Column(Modifier.fillMaxWidth().fosCard(FosCardStyle.Rail, tone)) {
             if (bars.all { it.kopecks == 0L && it.previous == 0L }) {
                 Text(
                     if (isIncome) "За этот период поступлений нет" else "За этот период трат нет",
@@ -179,6 +182,7 @@ private fun OverlaidMonthBars(
 ) {
     val max = bars.maxOf { maxOf(it.kopecks, it.previous) }.coerceAtLeast(1L)
     val chartHeight = 120.dp
+    val narrow = bars.size > MonthOverMonth.Window.SIX.months
 
     Row(
         modifier              = Modifier.fillMaxWidth(),
@@ -197,7 +201,7 @@ private fun OverlaidMonthBars(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    deltaShort(bar),
+                    deltaShort(bar, narrow),
                     style    = FosType.MicroNum,
                     color    = deltaColor(bar, isIncome),
                     maxLines = 1,
@@ -227,7 +231,9 @@ private fun OverlaidMonthBars(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    MONTH_SHORT[bar.month.monthValue - 1] + if (bar.isComplete) "" else "•",
+                    // «•» у незаконченного месяца — только на широких барах: на узких «сен•» не
+                    // влезает, а незаконченность там видна по бледности бара.
+                    MONTH_SHORT[bar.month.monthValue - 1] + if (bar.isComplete || narrow) "" else "•",
                     style    = FosType.Micro,
                     color    = if (isSel) FosColors.TextPrimary else FosColors.TextMuted,
                     maxLines = 1,
@@ -236,7 +242,7 @@ private fun OverlaidMonthBars(
                 // Год — только под январём: там, где он меняется. Под каждым баром он был бы шумом.
                 Text(
                     if (bar.month.monthValue == 1) "${bar.month.year % 100}" else " ",
-                    style     = FosType.Micro,
+                    style     = FosType.MicroNum,
                     color     = FosColors.TextMuted,
                     textAlign = TextAlign.Center,
                 )
@@ -245,14 +251,21 @@ private fun OverlaidMonthBars(
     }
 }
 
-/** «▲12» / «▼8» / «нов.» — над узким баром; полные цифры — в детализации под графиком. */
-private fun deltaShort(bar: MonthOverMonth.MonthBar): String {
-    val pct = bar.deltaPercent ?: return if (bar.kopecks > 0L) "нов." else ""
-    return when {
-        pct > 0  -> "▲$pct"
-        pct < 0  -> "▼${abs(pct)}"
-        else     -> "0"
+/**
+ * Подпись над баром. На шести барах — «▲12» / «▼8», на двенадцати — только стрелка: колонка там
+ * ~22 dp, и «▲125» обрезалось бы до «▲12» — неверная цифра хуже, чем её отсутствие. Полное
+ * изменение — в детализации под графиком. Больше 999 % — «999+»: рост с копеек даёт миллионы.
+ */
+private fun deltaShort(bar: MonthOverMonth.MonthBar, narrow: Boolean): String {
+    val pct = bar.deltaPercent ?: return if (bar.kopecks > 0L) (if (narrow) "•" else "нов.") else ""
+    val arrow = when {
+        pct > 0 -> "▲"
+        pct < 0 -> "▼"
+        else    -> ""
     }
+    if (narrow) return arrow.ifEmpty { "0" }
+    val magnitude = abs(pct)
+    return if (pct == 0) "0" else arrow + if (magnitude > 999) "999+" else "$magnitude"
 }
 
 /**
@@ -261,9 +274,16 @@ private fun deltaShort(bar: MonthOverMonth.MonthBar): String {
  * всегда выглядит «экономией», и зелёный цвет выдал бы её за результат.
  */
 private fun deltaColor(bar: MonthOverMonth.MonthBar, isIncome: Boolean): Color {
-    if (!bar.isComplete || bar.delta == 0L) return FosColors.TextMuted
+    // «0 %» после округления — без цвета: красный ноль читается как ошибка.
+    if (!bar.isComplete || bar.delta == 0L || bar.deltaPercent == 0) return FosColors.TextMuted
     val better = if (isIncome) bar.delta > 0 else bar.delta < 0
-    return if (better) FosColors.Positive else FosColors.Negative
+    return when {
+        better   -> FosColors.Positive
+        // Красный — только траты и перерасход (правило #2). Упавший доход — предупреждение, а не
+        // трата: янтарный говорит «хуже», не выдавая это за расход.
+        isIncome -> FosColors.Warning
+        else     -> FosColors.Negative
+    }
 }
 
 @Composable
@@ -278,8 +298,8 @@ private fun MonthDetail(
     val prev  = month.minusMonths(1)
     Text(
         "${MONTH_FULL[month.monthValue - 1].replaceFirstChar { it.uppercase() }} ${month.year} " +
-            "против ${MONTH_PREV[prev.monthValue - 1]}" + if (prev.year != month.year) " ${prev.year}" else "",
-        style = FosType.BodySemi,
+            "против ${MONTH_GEN[prev.monthValue - 1]}" + if (prev.year != month.year) " ${prev.year}" else "",
+        style = FosType.BodySemi.copy(fontFeatureSettings = "tnum"),
         color = FosColors.TextPrimary,
     )
     Spacer(Modifier.height(2.dp))
@@ -299,9 +319,11 @@ private fun MonthDetail(
     if (!bar.isComplete) {
         Spacer(Modifier.height(2.dp))
         Text(
-            "Месяц не закончен: прошло ${mom.daysPassed} из ${mom.daysInMonth} дней. " +
+            // «Идёт 28-й день из 30» — без склонения «дней»: «из 31 дней» и «прошло 1 из 30 дней»
+            // читались бы с ошибкой каждый день в текущем месяце.
+            "Месяц не закончен: идёт ${mom.daysPassed}-й день из ${mom.daysInMonth}. " +
                 "Сравнение с полным предыдущим месяцем — цифра ещё будет расти.",
-            style = FosType.Micro,
+            style = FosType.MicroNum,
             color = FosColors.TextMuted,
         )
     }
@@ -311,7 +333,12 @@ private fun MonthDetail(
         MoMComparison(
             bars = rows.map { c ->
                 WaterfallBar(
-                    label          = c.categoryId?.let { categoryNames[it] } ?: "Без категории",
+                    // Удалённая категория — не «без категории»: деньги в ней были, просто её больше
+                    // нет в списке активных.
+                    label          = when (val id = c.categoryId) {
+                        null -> "Без категории"
+                        else -> categoryNames[id] ?: "Удалённая категория"
+                    },
                     delta          = c.current - c.previous,
                     prevKopecks    = c.previous,
                     currentKopecks = c.current,

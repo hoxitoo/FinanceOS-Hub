@@ -133,7 +133,13 @@ fun MoMComparison(
             val rawChange = bar.currentKopecks - bar.prevKopecks
             // Growing income is good; growing spending is bad.
             val better = if (bar.isIncome) rawChange > 0 else rawChange < 0
-            val color  = if (better) FosColors.Positive else FosColors.Negative
+            // Красный — только траты и перерасход (правило #2). Упавший доход — янтарное «хуже»,
+            // а не красное, которое читалось бы как расход.
+            val color  = when {
+                better       -> FosColors.Positive
+                bar.isIncome -> FosColors.Warning
+                else         -> FosColors.Negative
+            }
             val share  = (abs(rawChange).toFloat() / maxAbs).coerceIn(0f, 1f)
 
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {

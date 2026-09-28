@@ -130,4 +130,26 @@ class MonthOverMonthTest {
         assertEquals("KGS", r.currency)
         assertEquals(6_000_00L, r.spent.last().kopecks)
     }
+
+    @Test
+    fun `one stray rouble purchase does not switch a som history to roubles`() {
+        // Замечание ревью: «рубль, если он есть» переключало весь график на рубли из-за одной
+        // случайной покупки, и все настоящие траты в сомах пропадали с экрана без следа.
+        val r = compute(listOf(
+            spend(5_000_00, LocalDate.of(2026, 7, 5), currency = "KGS"),
+            spend(6_000_00, LocalDate.of(2026, 8, 5), currency = "KGS"),
+            spend(7_000_00, LocalDate.of(2026, 9, 5), currency = "KGS"),
+            spend(100_00, LocalDate.of(2026, 9, 6), currency = "RUB"),
+        ))
+        assertEquals("KGS", r.currency)
+    }
+
+    @Test
+    fun `an even split between currencies keeps the rouble`() {
+        val r = compute(listOf(
+            spend(5_000_00, LocalDate.of(2026, 9, 5), currency = "KGS"),
+            spend(100_00, LocalDate.of(2026, 9, 6), currency = "RUB"),
+        ))
+        assertEquals("RUB", r.currency)
+    }
 }
