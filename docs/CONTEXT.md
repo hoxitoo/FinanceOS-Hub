@@ -1001,7 +1001,7 @@ the preference was known — a tester with a broken sensor had to reinstall and 
 > | `AccountEntity.kind` + разделение net worth по виду счёта | **сделано**, миграции 10→12 (не v6→v7, как планировалось) |
 > | 4. Кредитные карты | **сделано целиком** — экран, разбор пушей, погашение переводом, оценка процентов |
 > | 3. Брокерские счета | **не сделано** — колонка `INVESTMENT` существует, её никто не читает |
-> | 1. Реестр банков | **не сделано** — дублирование в четырёх местах живо |
+> | 1. Реестр банков | **сделано** — `core/bank/BankRegistry`, см. инвариант #42 в `CLAUDE.md` |
 > | 2. Фирменные карты | **не сделано** — ждёт референсов от пользователя |
 >
 > Ниже — исходные заметки. Раздел про кредитки оставлен намеренно: он объясняет, ПОЧЕМУ
@@ -1075,4 +1075,4 @@ data class BankBrand(
    сейчас проводится расходом и занижает финансовое здоровье, хотя деньги никуда не делись.
    Порядок: правило распознавания → `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
    → `EventKind.INVESTMENT` в календаре (место уже зарезервировано, нужна одна `fromInvestments(...)`).
-4. Bank registry refactor + branded card UI (independent UI track; do once references arrive)
+4. ~~Bank registry refactor~~ (done) + branded card UI (independent UI track; do once references arrive)

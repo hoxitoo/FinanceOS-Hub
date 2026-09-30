@@ -238,6 +238,8 @@ fun TransactionDetailSheet(
                 selectedKey = keyOf(ownAccountId, transaction.sourceMask),
                 accent      = FosColors.Info,
                 onSelect    = { ownAccountId = accountOfKey(it) },
+                // Счёт у операции уже есть — список раскрывается только по нажатию.
+                expandSelected = false,
             )
         } else {
             Text(
@@ -280,6 +282,7 @@ fun TransactionDetailSheet(
                         counterTouched   = true
                         counterAccountId = accountOfKey(key)
                     },
+                    expandSelected = false,
                 )
                 else -> {
                     val name = accounts.firstOrNull { it.id == side.accountId }?.name
