@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.bank.BankRegistry
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.features.calendar.CalendarViewModel
@@ -418,24 +419,7 @@ private fun BankCard(
 
 @Composable
 private fun BankSymbolBadge(bank: String, onBg: Color) {
-    val b      = bank.lowercase()
-    val symbol = when {
-        "альфа" in b || "alfa" in b || "alpha" in b                          -> "А"
-        "сбер"  in b || "sber" in b                                          -> "С"
-        "т-банк" in b || "тинь" in b || "tbank" in b || "tinkoff" in b      -> "Т"
-        "втб"   in b || "vtb"  in b                                          -> "В"
-        "газпром" in b || "гпб" in b                                         -> "Г"
-        "мбанк" in b || "mbank" in b || "кыргыз" in b || "kicb" in b        -> "М"
-        "мтс"   in b                                                         -> "М"
-        "почта" in b || "posta" in b                                         -> "П"
-        "россельхоз" in b || "рсхб" in b                                     -> "Р"
-        "росбанк" in b || "rosbank" in b                                     -> "Р"
-        "открыт" in b || "otkritie" in b                                     -> "О"
-        "райф"  in b || "raiff" in b                                         -> "Р"
-        "мкб"   in b || "mkb"   in b || "московский кредитный" in b         -> "М"
-        "цифра" in b || "cifra" in b                                         -> "Ц"
-        else -> bank.firstOrNull()?.uppercase() ?: "?"
-    }
+    val symbol = BankRegistry.letterFor(bank)
     Box(
         modifier = Modifier
             .size(36.dp)

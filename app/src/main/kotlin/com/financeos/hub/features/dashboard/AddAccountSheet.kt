@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.core.bank.BankRegistry
 import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.features.credit.CreditTermsForm
 import com.financeos.hub.features.credit.rememberCreditTermsState
@@ -38,7 +39,8 @@ import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosType
 
-private val BANKS = listOf("Сбербанк", "Т-Банк", "ВТБ", "Альфа-Банк", "Газпромбанк", "МБанк", "МКБ", "Цифра Банк", "Другой")
+// Банки — из реестра: новый банк появляется в выборе сам, без правки этого файла.
+private val BANKS = BankRegistry.picker.map { it.displayName } + "Другой"
 private val CURRENCIES = listOf("RUB" to "₽ Рубль", "USD" to "$ Доллар", "EUR" to "€ Евро", "KGS" to "сом Сом")
 
 @OptIn(ExperimentalMaterial3Api::class)

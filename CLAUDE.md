@@ -62,6 +62,7 @@ app/
 │   ├── sms/          (SmsReader, SmsReceiver — ТОЛЬКО SMS)
 │   ├── auth/         (BiometricHelper)
 │   ├── account/      (AccountLinker)
+│   ├── bank/         (BankRegistry — единственный список банков: имя, буква, цвет, ключи)
 │   ├── credit/       (CreditMath — debt, free limit, cycle, min payment, due payment;
 │   │                  CreditNoticeApplier)
 │   ├── edit/         (TransactionEditor — правка операции на оба экрана; TransactionEditRules —
@@ -397,6 +398,7 @@ Everything below is **implemented and shipped** unless marked otherwise.
 | **Правка счёта и даты операции** | В карточке операции правятся счёт списания/зачисления, вторая сторона перевода и дата — пуш без реквизитов больше не надо удалять и вводить заново. `TransactionEditor` — одна правка на оба экрана, только изменённые поля поверх свежей строки; лежит ли сумма строки в балансе, хранится в `balance_detached` (v19→v20), а не выводится из дат (инвариант #39) |
 | **За всё время** | Плитка «Всего потрачено / всего заработано» в аналитике и экран `LifetimeScreen`: итоги за год / 2 / 10 / 20 лет / всё время, две нарастающие кривые с шагом месяц / полгода / год / 2 года, бары по годам с категориями внутри (касание раскрывает год), доли по категориям, источники трат и дохода (инвариант #40) |
 | **Месяц к месяцу** | Вверху «Трендов»: траты и доход по месяцам наложенными барами (месяц поверх бледного предыдущего), окно 6 мес / год, каждый месяц против своего предыдущего через границу года; незаконченный месяц сравнивается в полную силу и помечен; касание раскрывает разбивку по категориям (инвариант #41) |
+| **Реестр банков** | `BankRegistry` — одна запись на банк вместо четырёх копий (цвет, буква значка, выбор банка, ключи привязки); все 14 банков в выборе; привязка РСХБ без маски заработала (инвариант #42) |
 
 **Audits 1–11** produced ~90 fixes. The ones worth remembering are distilled into
 *Hard-won invariants* above; the rest are visible in `git log`.
@@ -969,6 +971,28 @@ rowid). Дубликат паттерна с новым id встанет поз
   неверная цифра хуже отсутствующей. Полное изменение — в детализации; больше 999 % — «999+».
 - «Против августа», а не «против августом»: после «против» — родительный падеж.
 
+### 42. Банк описывается ОДНОЙ записью в `BankRegistry`
+Имя, цвет, буква значка и ключевые слова банка жили в четырёх местах (`bankBrand`,
+`BankSymbolBadge`, выбор банка, `AccountLinker.BANK_KEYWORDS`), и каждая копия успела разойтись:
+МКБ и Цифры не было в выборе банка, значок читал «Gazprombank» как МБанк, а таблица привязки ждала
+у Россельхозбанка id `rosselkhozbank`, тогда как разборщик называет себя `rosselkhoz` — операция РСХБ
+без маски карты не привязывалась к счёту НИКОГДА. Новый банк = одна `BankSpec`.
+
+- **Ключей два набора, и сливать их нельзя.** `aliases` узнают банк для оформления — ошибка стоит
+  цвета, поэтому ключи широкие («мтс»). `linkKeywords` кладут операцию на счёт — ошибка стоит денег
+  на чужом счёте, поэтому ключи узкие («мтс банк»). Объединение молча расширило бы привязку.
+- **Порядок списка значим**: побеждает первое совпадение, а «Газпромбанк» содержит «мбанк».
+  `every bank resolves to itself` ловит неверную перестановку.
+- **`displayName` — это то, что сохраняется в `AccountEntity.bank`.** Переименовать банк в реестре
+  значит разойтись со всеми уже заведёнными счетами; менять только вместе с миграцией.
+- `parserId` берётся У РАЗБОРЩИКА (`BankParser.bankId`), а не пишется по памяти: тест проверяет, что
+  у каждого из 13 разборщиков есть запись с непустыми ключами привязки.
+- Цвет хранится числом ARGB: `core/` не зависит от Compose.
+- `BankRegistryTest` держит дословные копии прежних функций и сравнивает с ними реестр на наборе
+  реальных имён. Цвета и привязка совпадают целиком (кроме РСХБ). Буква значка берётся из тех же
+  ключей, что и цвет, поэтому латинские имена, которых прежний значок не знал («Gazprombank» →
+  было «М» по подстроке «mbank», «MTS Bank», «post bank», «rshb»), теперь получают букву своего банка.
+
 ### Реальные форматы пушей (проверено на устройстве)
 Тела склеены так же, как их собирает `PushNotificationListener`: заголовок, затем текст, через
 пробел. Все они закреплены тестами (`SberCreditPushTest`, `RealPushFormatsTest`) — менять тексты
@@ -999,9 +1023,7 @@ rowid). Дубликат паттерна с новым id встанет поз
 
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
-1. **Bank registry refactor** — bank name/colour/letter/keywords are duplicated across
-   `BankColors.bankBrand()`, `DashboardScreen.BankSymbolBadge()`, `AddAccountSheet.BANKS`,
-   `AccountLinker.BANK_KEYWORDS`. Collapse into one `BankRegistry`.
+1. ~~Bank registry refactor~~ — **сделано**, `core/bank/BankRegistry`, инвариант #42.
 2. **Branded card UI** — per-bank gradient/logo `CardSkin` (trademark caveat for stores).
 3. **Brokerage accounts** — `AccountKind.INVESTMENT` (column exists, nothing consumes it yet):
    separate subtotal, excluded from cash net worth.
@@ -1019,7 +1041,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (36 файлов, 466 случаев) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (37 файлов, 474 случая) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`
