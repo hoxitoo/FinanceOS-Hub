@@ -1,6 +1,7 @@
 package com.financeos.hub.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import com.financeos.hub.core.bank.BankRegistry
 
 /**
  * Brand colour for an account card.
@@ -15,40 +16,10 @@ private val DARK  = Color(0xFF14181F)
 /**
  * Maps a bank name (free-form, as stored on the account) to its brand colours.
  * Matching is case-insensitive and substring-based so "Сбербанк", "Сбер",
- * "SBER" all resolve to the same green.
+ * "SBER" all resolve to the same green. The banks themselves live in [BankRegistry].
  */
 fun bankBrand(bank: String): BankBrand {
-    val b = bank.lowercase()
-    return when {
-        "сбер" in b || "sber" in b ->
-            BankBrand(Color(0xFF1A9F29), WHITE)
-        "т-банк" in b || "т банк" in b || "тинь" in b || "tinkoff" in b || "tbank" in b ->
-            BankBrand(Color(0xFFFFDD2D), DARK)
-        "втб" in b || "vtb" in b ->
-            BankBrand(Color(0xFF009FDF), WHITE)
-        "альфа" in b || "alfa" in b || "alpha" in b ->
-            BankBrand(Color(0xFFEF3124), WHITE)
-        "газпром" in b || "gazprom" in b || "гпб" in b ->
-            BankBrand(Color(0xFF1F4C92), WHITE)
-        "райф" in b || "raiff" in b ->
-            BankBrand(Color(0xFFFEE600), DARK)
-        "росбанк" in b || "rosbank" in b ->
-            BankBrand(Color(0xFFC8102E), WHITE)
-        "открыт" in b || "otkritie" in b ->
-            BankBrand(Color(0xFF00AEEF), WHITE)
-        "мтс" in b || "mts" in b ->
-            BankBrand(Color(0xFFE30611), WHITE)
-        "почта" in b || "posta" in b || "post bank" in b ->
-            BankBrand(Color(0xFF1A468C), WHITE)
-        "россельхоз" in b || "рсхб" in b || "rshb" in b ->
-            BankBrand(Color(0xFF006B3F), WHITE)
-        "мбанк" in b || "mbank" in b || "кыргыз" in b ->
-            BankBrand(Color(0xFF0076BE), WHITE)
-        "мкб" in b || "mkb" in b || "московский кредитный" in b ->
-            BankBrand(Color(0xFF002D74), WHITE)
-        "цифра" in b || "cifra" in b ->
-            BankBrand(Color(0xFF5E35B1), WHITE)
-        else ->
-            BankBrand(Color(0xFF3A4358), WHITE)   // neutral slate for unknown banks
-    }
+    val spec = BankRegistry.find(bank)
+        ?: return BankBrand(Color(BankRegistry.UNKNOWN_ARGB), WHITE)   // neutral slate for unknown banks
+    return BankBrand(Color(spec.brandArgb), if (spec.lightBrand) DARK else WHITE)
 }

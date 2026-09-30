@@ -1,5 +1,6 @@
 package com.financeos.hub.core.account
 
+import com.financeos.hub.core.bank.BankRegistry
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.credit.balanceFromReportedFigure
@@ -37,7 +38,7 @@ class AccountLinker @Inject constructor(
         resolveAccountByCardMask(cardMask)?.let { return it }
         // No card mask, or mask matched nothing — fall back to bank-sender identity.
         if (bankId == null) return null
-        val keywords = BANK_KEYWORDS[bankId.lowercase()] ?: return null
+        val keywords = BankRegistry.byParserId(bankId)?.linkKeywords ?: return null
         val matches = accountDao.getAllActive().filter { acc ->
             keywords.any { kw -> acc.bank.lowercase().contains(kw) }
         }
@@ -113,7 +114,7 @@ class AccountLinker @Inject constructor(
      * no card mask — where guessing between two cards would put the demand on the wrong one.
      */
     suspend fun resolveCreditAccountForBank(bankId: String): String? {
-        val keywords = BANK_KEYWORDS[bankId.lowercase()] ?: return null
+        val keywords = BankRegistry.byParserId(bankId)?.linkKeywords ?: return null
         val matches = accountDao.getAllActive().filter { acc ->
             acc.kind == AccountKind.CREDIT && keywords.any { kw -> acc.bank.lowercase().contains(kw) }
         }
@@ -211,24 +212,5 @@ class AccountLinker @Inject constructor(
             .map { it.cardMask.trim() }
             .filter { it.isNotBlank() }
         return (listOfNotNull(own) + cardMasks).distinct()
-    }
-
-    companion object {
-        /** Maps parser bankId (lowercase) → substrings to look for in AccountEntity.bank (lowercase). */
-        private val BANK_KEYWORDS: Map<String, List<String>> = mapOf(
-            "alfabank"       to listOf("альфа", "alfa"),
-            "sberbank"       to listOf("сбер", "sber"),
-            "tbank"          to listOf("т-банк", "тинькофф", "tinkoff", "тинк", "tbank"),
-            "vtb"            to listOf("втб", "vtb"),
-            "gazprombank"    to listOf("газпром", "gazprom"),
-            "raiffeisen"     to listOf("райф", "raiff"),
-            "rosbank"        to listOf("росбанк", "rosbank"),
-            "otkritie"       to listOf("открыт", "otkrit"),
-            "mtsbank"        to listOf("мтс банк", "mts bank", "мтсб"),
-            "postabank"      to listOf("почта банк", "pochta", "pochtabank"),
-            "rosselkhozbank" to listOf("россельхоз", "рсхб", "rshb"),
-            "mbank"          to listOf("mbank", "мбанк", "m bank"),
-            "mkb"            to listOf("мкб", "mkb", "московский кредитный"),
-        )
     }
 }

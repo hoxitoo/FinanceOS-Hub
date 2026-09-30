@@ -76,6 +76,11 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 Каждый банк — отдельный `BankParser`, подключённый одной строкой `@Binds @IntoSet`. Двенадцать из
 тринадцати закрыты юнит-тестами; у `MkbParser` теста пока нет.
 
+Имя, фирменный цвет, буква значка и ключевые слова каждого банка записаны один раз, в
+`core/bank/BankRegistry`. Выбор банка при добавлении счёта показывает все банки из реестра (раньше
+восемь; остальные можно было завести только через «Другой»). Операция Россельхозбанка без маски
+карты теперь привязывается к единственному счёту этого банка, как у остальных.
+
 ## Screens
 
 1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (без обязательств — приглашение в календарь, с ними — само число), accounts with volumetric bank cards, clickable recent transactions
@@ -117,6 +122,7 @@ app/
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only
 │   ├── auth/           # BiometricHelper
 │   ├── account/        # AccountLinker (card→account resolution, authoritative balance, orphan re-link)
+│   ├── bank/           # BankRegistry — the one list of banks (name, colour, badge letter, link keywords)
 │   ├── credit/         # CreditMath (debt, free limit, cycle, min payment, interest), CreditNoticeApplier
 │   ├── transfer/       # TransferRouter (goal routing, internal pairing, counterparty leg)
 │   ├── finance/        # SavingsMath (прогноз накоплений, срок до цели, требуемый взнос)
