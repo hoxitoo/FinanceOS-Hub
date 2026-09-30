@@ -50,6 +50,10 @@ data class SourceOption(
  * Replaces the single horizontal strip of every card, which forced a long scroll to find the right
  * one — the slowest step when logging a transfer the bank never pushed. The selected bank expands
  * automatically, and picking an account collapses the list back to a compact summary.
+ *
+ * [expandSelected] = false keeps every bank collapsed on open: the chosen account is still visible
+ * in its bank row («••6703»), and the list opens only on tap. The operation card uses it — there the
+ * account is already known, and an unfolded list pushed the rest of the card off the screen.
  */
 @Composable
 fun AccountPicker(
@@ -58,11 +62,12 @@ fun AccountPicker(
     selectedKey: String?,
     accent     : Color,
     onSelect   : (String?) -> Unit,
+    expandSelected: Boolean = true,
 ) {
     val selected = options.firstOrNull { it.key == selectedKey }
     val banks    = remember(options) { options.groupBy { it.bank }.toList() }
-    // Start expanded on the selected bank; null = nothing expanded.
-    var expandedBank by remember(selectedKey) { mutableStateOf(selected?.bank) }
+    // Start expanded on the selected bank (unless the caller keeps it folded); null = nothing expanded.
+    var expandedBank by remember(selectedKey) { mutableStateOf(if (expandSelected) selected?.bank else null) }
 
     Text(title, style = FosType.SectionCap, color = FosColors.TextMuted)
 
