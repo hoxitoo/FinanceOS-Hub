@@ -124,9 +124,10 @@ class BankRegistryTest {
 
     @Test
     fun `badge letters are the same as before`() {
-        // Два латинских имени — единственное расхождение, и оба в пользу реестра: прежний значок не
-        // знал «gazprom» и находил в «Gazprombank» подстроку «mbank» (буква МБанка), а у «MTS Bank»
-        // брал первую букву — латинскую «M» вместо кириллической.
+        // Расходятся только ЛАТИНСКИЕ имена, которых прежний значок не знал, и все — в пользу реестра:
+        // буква теперь берётся из тех же ключей, что и цвет. «Gazprombank» получал «М» по подстроке
+        // «mbank», «MTS Bank» — латинскую «M»; так же «post bank» → «П», «rshb» → «Р». Имя с ключами
+        // двух банков сразу теперь решается в порядке цвета, а не прежнего значка — случай условный.
         val fixed = setOf("Gazprombank", "MTS Bank")
         for (name in names - fixed) {
             assertEquals(name, legacyLetter(name), BankRegistry.letterFor(name))
