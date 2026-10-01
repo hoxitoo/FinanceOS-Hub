@@ -53,9 +53,10 @@ fun LazyListScope.investorItems(
     brokerPackage: String?,
     onShowSample : () -> Unit,
     onHideSample : () -> Unit,
+    onResetBroker: () -> Unit,
 ) {
     if (portfolio.isEmpty) {
-        item(key = "invest_empty") { InvestorEmpty(brokerPackage, onShowSample) }
+        item(key = "invest_empty") { InvestorEmpty(brokerPackage, onShowSample, onResetBroker) }
         item(key = "invest_bottom") { Spacer(Modifier.height(24.dp)) }
         return
     }
@@ -82,7 +83,7 @@ fun LazyListScope.investorItems(
 // ── Блоки ────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit) {
+private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onResetBroker: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Outline, FosTone.Invest),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -104,6 +105,19 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit) {
             style = FosType.Micro,
             color = if (brokerPackage != null) FosColors.Invest else FosColors.TextMuted,
         )
+        if (brokerPackage != null) {
+            // Первое совпадение не перезаписывается, поэтому ошибочное (пересланный в мессенджер пуш)
+            // иначе осталось бы навсегда.
+            Text(
+                "Не то приложение? Сбросить",
+                style    = FosType.Micro,
+                color    = FosColors.TextSecondary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                    .clickable(onClick = onResetBroker)
+                    .padding(vertical = 10.dp),
+            )
+        }
         Text(
             "Показать на примере ваших пушей БКС →",
             style    = FosType.Label,

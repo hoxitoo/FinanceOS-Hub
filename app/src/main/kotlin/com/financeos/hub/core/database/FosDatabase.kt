@@ -430,6 +430,8 @@ abstract class FosDatabase : RoomDatabase() {
                     """
                     SELECT id, type, category_id, merchant FROM transactions
                     WHERE is_deleted = 0 AND merchant IS NOT NULL
+                      AND type IN ('EXPENSE', 'INCOME')
+                      AND (category_id IS NULL OR category_id IN ('cat_other', 'cat_income'))
                     """.trimIndent()
                 ).use { c ->
                     while (c.moveToNext()) {

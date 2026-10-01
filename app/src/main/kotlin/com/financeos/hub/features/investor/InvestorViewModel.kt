@@ -40,6 +40,11 @@ class InvestorViewModel @Inject constructor(
         viewModelScope.launch { prefs.setInvestorMode(enabled) }
     }
 
+    /** Найдено не то приложение — забыть его, и служба уведомлений начнёт искать заново. */
+    fun resetBrokerPackage() {
+        viewModelScope.launch { prefs.clearBrokerPackage() }
+    }
+
     /** Портфель из реальных пушей БКС (1 октября) — для оценки экрана, пока своих данных нет. */
     val sample: Portfolio.Result by lazy {
         val minute = 60_000L

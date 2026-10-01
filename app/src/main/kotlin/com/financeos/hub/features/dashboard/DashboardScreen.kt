@@ -181,6 +181,7 @@ fun DashboardScreen(
                     brokerPackage = brokerPackage,
                     onShowSample  = { showInvestSample = true },
                     onHideSample  = { showInvestSample = false },
+                    onResetBroker = { investorVm.resetBrokerPackage() },
                 )
                 return@LazyColumn
             }

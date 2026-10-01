@@ -49,6 +49,20 @@ class PushNotificationListener : NotificationListenerService() {
      * Система привязала службу. Отсюда и только отсюда известно, что чтение пушей ДЕЙСТВИТЕЛЬНО
      * работает — выданное разрешение об этом не говорит ничего.
      */
+    // Поиск приложения брокера (noteBrokerPackage) смотрит на КАЖДОЕ уведомление каждого
+    // приложения, и onNotificationPosted идёт в главном потоке. Поэтому оба выключателя держатся
+    // здесь, в памяти, а не читаются из настроек на каждое уведомление: найдено имя или выключена
+    // служба — поиск отказывается одним сравнением, без корутины и без обращений к системе.
+    // `brokerKnown` до первого чтения считается true: не искать, пока не знаем, — безопасная сторона.
+    @Volatile private var listenerOn  = false
+    @Volatile private var brokerKnown = true
+
+    override fun onCreate() {
+        super.onCreate()   // Hilt внедряет зависимости здесь — коллекторы только после.
+        scope.launch { userPreferences.pushListenerEnabled.collect { listenerOn = it } }
+        scope.launch { userPreferences.brokerPackage.collect { brokerKnown = it != null } }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         ListenerHealth.markConnected(applicationContext)
@@ -104,21 +118,24 @@ class PushNotificationListener : NotificationListenerService() {
         // Отсеивается ДО чтения текста: собственные уведомления, приложение SMS (БКС может дублировать
         // пуш смской, и тогда запомнилось бы оно), «идущие» уведомления (музыка, загрузки — их
         // переотправляют постоянно) и сводки групп (текста в них нет, он в дочерних).
+        // Найдено или служба выключена — дальше не смотрим вовсе (см. поля выше).
+        if (brokerKnown || !listenerOn) return
         val n = sbn.notification ?: return
         if (sbn.packageName == packageName) return
         if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-        if (sbn.packageName == runCatching { Telephony.Sms.getDefaultSmsPackage(this) }.getOrNull()) return
         scope.launch {
-            if (!userPreferences.pushListenerEnabled.first()) return@launch
-            // Найденное не перезаписывается: первым совпадением становится приложение брокера, а
-            // пересланный в мессенджер пуш иначе переписал бы имя при каждой пересылке. Заодно,
-            // когда имя уже известно, чужие уведомления больше не читаются вовсе.
-            if (userPreferences.brokerPackage.first() != null) return@launch
+            // Обращение к системе — уже не в главном потоке.
+            val smsApp = runCatching { Telephony.Sms.getDefaultSmsPackage(this@PushNotificationListener) }.getOrNull()
+            if (sbn.packageName == smsApp) return@launch
             val body = extractBody(sbn)
             if (body.isBlank()) return@launch
             val normalized = body.replace('\u00A0', ' ').replace('\u202F', ' ')
             if (BrokerPushParser.parse(normalized, sbn.postTime) != null) {
-                userPreferences.setBrokerPackage(sbn.packageName)
+                // Записывается, только если имени ещё нет, — одной правкой, чтобы два одновременных
+                // совпадения не перебили друг друга. Найденное не перезаписывается (пересланный в
+                // мессенджер пуш переписывал бы имя при каждой пересылке); ошибочное человек
+                // сбрасывает на экране инвестора.
+                userPreferences.setBrokerPackageIfAbsent(sbn.packageName)
             }
         }
     }

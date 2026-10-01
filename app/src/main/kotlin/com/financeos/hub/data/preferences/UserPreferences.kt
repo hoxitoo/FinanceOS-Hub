@@ -254,7 +254,13 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[APP_MODE] = if (enabled) "INVESTOR" else "WALLET" }
     }
 
-    suspend fun setBrokerPackage(pkg: String) {
-        context.dataStore.edit { it[BROKER_PACKAGE] = pkg }
+    /** Атомарно: записывает, только если имени ещё нет (одна правка, а не «прочитал — записал»). */
+    suspend fun setBrokerPackageIfAbsent(pkg: String) {
+        context.dataStore.edit { if (it[BROKER_PACKAGE] == null) it[BROKER_PACKAGE] = pkg }
+    }
+
+    /** «Не то приложение» — сбросить, и поиск начнётся заново. */
+    suspend fun clearBrokerPackage() {
+        context.dataStore.edit { it.remove(BROKER_PACKAGE) }
     }
 }
