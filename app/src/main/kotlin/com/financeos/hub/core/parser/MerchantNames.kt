@@ -128,6 +128,9 @@ object MerchantNames {
         val source = raw?.trim().orEmpty()
         if (source.isBlank()) return null
 
+        // Брокер — по-русски: Альфа пишет получателя транслитом («BKS Mir Investitsiy»), а человек
+        // знает его как «БКС». Признак тот же, что делает операцию переводом (InvestmentTransfers).
+        InvestmentTransfers.brokerName(source)?.let { return it }
         brandOf(source)?.let { return it }
 
         val cleaned = strip(source)
