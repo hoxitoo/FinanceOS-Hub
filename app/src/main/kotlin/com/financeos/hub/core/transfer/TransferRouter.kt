@@ -1,5 +1,6 @@
 package com.financeos.hub.core.transfer
 
+import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.entities.TransactionEntity
@@ -123,11 +124,18 @@ class TransferRouter @Inject constructor(
                     }
                     return   // routed to goal; don't also pair
                 }
+                // Перевод брокеру известно куда ушёл — спрашивать «расход или цель?» незачем.
+                if (InvestmentTransfers.isInvestmentTransfer(tx)) return
                 // (C) Push fallback: unrouted outgoing transfer >= 1000 RUB
                 if (magnitude >= 100_000L) {   // 1000.00 rub in kopecks
                     notificationHelper.notifyUnroutedTransfer(magnitude)
                 }
             }
+
+            // Вторая сторона перевода брокеру — сам брокерский счёт, которого среди строк нет. Искать
+            // ей пару значит склеить её с чужим переводом той же суммы: «Сбер → Альфа 10 000», а через
+            // минуту «Альфа → BKS 10 000» — обычный порядок пополнения брокера.
+            if (InvestmentTransfers.isInvestmentTransfer(tx)) return
 
             // (B) Internal pairing — find opposite-sign equal-magnitude counterpart within +/-10 min
             val counterpart = transactionDao.findTransferCounterpart(

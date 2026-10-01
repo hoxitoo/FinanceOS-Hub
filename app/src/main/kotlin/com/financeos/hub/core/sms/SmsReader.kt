@@ -79,7 +79,8 @@ class SmsReader @Inject constructor(
                         val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
                         // Money arriving ON a credit card is a repayment, not income.
                         val effective  = asRepaymentIfCredit(parsed, accountLinker.kindOf(accountId))
-                        val categoryId = classifier.classify(effective.merchant, null)
+                        val categoryId = effective.categoryId
+                            ?: classifier.classify(effective.merchant, null)
                             ?: CategoryDefaults.forType(effective.type)
                         val entity = TransactionEntity(
                             id            = UUID.randomUUID().toString(),

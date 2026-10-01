@@ -144,7 +144,8 @@ class PushNotificationListener : NotificationListenerService() {
         // Money arriving ON a credit card is a repayment, not income — see asRepaymentIfCredit.
         // Done after the account is resolved, because only the account knows it is a credit card.
         val parsed = asRepaymentIfCredit(rawParsed, accountLinker.kindOf(accountId))
-        val categoryId = classifier.classify(parsed.merchant, null)
+        val categoryId = parsed.categoryId
+            ?: classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),

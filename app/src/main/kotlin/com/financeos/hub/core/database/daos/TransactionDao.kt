@@ -97,6 +97,7 @@ interface TransactionDao {
           AND type = 'TRANSFER'
           AND transfer_pair_id IS NULL
           AND goal_id IS NULL
+          AND (category_id IS NULL OR category_id != 'cat_invest')
           AND id != :selfId
           AND ABS(amount_kopecks) = :magnitude
           AND ( (:outgoing = 1 AND amount_kopecks > 0) OR (:outgoing = 0 AND amount_kopecks < 0) )
