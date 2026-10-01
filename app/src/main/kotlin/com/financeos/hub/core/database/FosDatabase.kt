@@ -458,7 +458,8 @@ abstract class FosDatabase : RoomDatabase() {
          *    перевод в другой банк, записанный покупкой, игривый заголовок в названии. Строка
          *    меняется, только если она ровно такая, какой её записал ПРЕЖНИЙ разбор, и только если у
          *    неё есть банковский «Остаток» — тогда баланс задан банком и от суммы строки не зависит.
-         * 2. Расходы, всё ещё лежащие в машинной категории («Другое» или пусто), раскладываются
+         * 2. Расходы из сообщений банка и выписок (не ручные — там «Другое» мог выбрать человек),
+         *    всё ещё лежащие в машинной категории («Другое» или пусто), раскладываются
          *    по словарю — тем же правилом первого совпадения, что у `DictionaryClassifier`. Узко,
          *    как у [MIGRATION_14_15] и [MIGRATION_20_21]: выбранное человеком не трогается.
          */
@@ -477,12 +478,18 @@ abstract class FosDatabase : RoomDatabase() {
                 }
 
                 // ── 1. Пуши Сбера ──
+                // Кредитки пропускаются: приход на кредитку живой приём превращает в погашение
+                // (`asRepaymentIfCredit`), а здесь он стал бы доходом — две формы одной операции.
+                val creditIds = HashSet<String>()
+                db.query("SELECT id FROM accounts WHERE kind = 'CREDIT'").use { c ->
+                    while (c.moveToNext()) creditIds += c.getString(0)
+                }
                 data class Row(val id: String, val category: String?, val fix: SberPushRepair.Fix)
                 val fixes = mutableListOf<Row>()
                 db.query(
                     """
                     SELECT id, type, amount_kopecks, merchant, balance_kopecks, goal_id,
-                           transfer_pair_id, raw_text, timestamp, category_id
+                           transfer_pair_id, raw_text, timestamp, category_id, account_id
                     FROM transactions
                     WHERE is_deleted = 0 AND source = 'PUSH' AND raw_text IS NOT NULL
                       AND sms_id LIKE 'push_SBERBANK_%'
@@ -490,6 +497,7 @@ abstract class FosDatabase : RoomDatabase() {
                 ).use { c ->
                     while (c.moveToNext()) {
                         val type = runCatching { TransactionType.valueOf(c.getString(1)) }.getOrNull() ?: continue
+                        if (!c.isNull(10) && c.getString(10) in creditIds) continue
                         val stored = SberPushRepair.Stored(
                             type           = type,
                             amountKopecks  = c.getLong(2),
@@ -524,6 +532,7 @@ abstract class FosDatabase : RoomDatabase() {
                     """
                     SELECT id, merchant FROM transactions
                     WHERE is_deleted = 0 AND type = 'EXPENSE' AND merchant IS NOT NULL
+                      AND source != 'MANUAL'
                       AND (category_id IS NULL OR category_id = 'cat_other')
                     """.trimIndent()
                 ).use { c ->

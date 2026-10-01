@@ -48,6 +48,11 @@ class SberPlayfulPushTest {
         // Строгий шаблон не находит «10000» — прежний путь подхватывает, пуш не теряется.
         val p = parse("Покупка Лента 10000 ₽ В запасе: 1 000 ₽ Карта •1234")
         assertEquals(10_000_00L, p.amountKopecks)
+        // С копейками: строгий шаблон не должен начать сумму после запятой («00» → ноль → пуш
+        // пропал бы, «67» → неверная сумма).
+        assertEquals(1_500_00L, parse("Покупка Лента 1500,00 ₽ В запасе: 1 000 ₽ Карта •1234").amountKopecks)
+        assertEquals(12_345_67L, parse("Покупка Лента 12345,67 ₽ В запасе: 1 000 ₽ Карта •1234").amountKopecks)
+        assertEquals(99_90L, parse("Покупка Лента 99.90 ₽ В запасе: 1 000 ₽ Карта •1234").amountKopecks)
     }
 
     // ── Игривый заголовок не становится названием ───────────────────────────────
@@ -137,5 +142,14 @@ class SberPlayfulPushTest {
         assertFalse(SberPushTitle.isBank("Банкомат"))
         assertTrue(SberPushTitle.isBank("Т-Банк"))
         assertTrue(SberPushTitle.isBank("Банк Открытие"))
+    }
+
+    @Test
+    fun `a plain payment to a bank stays an expense`() {
+        // Платёж по кредиту в другом банке — трата, и она закрывает обязательство в календаре.
+        // Переводом считается только «деньги ушли в …» из игривого заголовка.
+        val loan = parse("Оплата Почта Банк 5 000 ₽ Баланс: 10 000 ₽ Карта •1234")
+        assertEquals(TransactionType.EXPENSE, loan.type)
+        assertEquals("Почта Банк", loan.merchant)
     }
 }

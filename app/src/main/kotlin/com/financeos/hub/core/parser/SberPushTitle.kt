@@ -37,19 +37,25 @@ object SberPushTitle {
      * @param opPrefix     слово операции в начале («Покупка», «Оплата»…), как в разборщике.
      * @param incomeNames  известные доходы («Зачисление пенсии» → «Пенсия»).
      */
-    fun merchant(beforeAmount: String, opPrefix: Regex, incomeNames: List<Pair<Regex, String>>): String? {
+    fun merchant(beforeAmount: String, opPrefix: Regex, incomeNames: List<Pair<Regex, String>>): String? =
+        parse(beforeAmount, opPrefix, incomeNames).name
+
+    /** Название и признак «оно вынуто из игривого заголовка». */
+    data class Title(val name: String?, val playful: Boolean)
+
+    fun parse(beforeAmount: String, opPrefix: Regex, incomeNames: List<Pair<Regex, String>>): Title {
         val raw = beforeAmount.trim().trim('.', ',', ';', '-', '—', '–', ' ')
             .replace(INCOME_PLUS, "")
             .trim()
-        if (raw.isBlank()) return null
+        if (raw.isBlank()) return Title(null, false)
 
-        incomeNames.firstOrNull { (re, _) -> re.containsMatchIn(raw) }?.let { return it.second }
+        incomeNames.firstOrNull { (re, _) -> re.containsMatchIn(raw) }?.let { return Title(it.second, false) }
 
         // Обычный пуш: слово операции в начале — прежнее поведение, один в один.
         if (opPrefix.containsMatchIn(raw)) {
-            return raw.replace(opPrefix, "").trim().takeIf { it.isNotBlank() }
+            return Title(raw.replace(opPrefix, "").trim().takeIf { it.isNotBlank() }, false)
         }
-        return playful(raw) ?: raw
+        return playful(raw)?.let { Title(it, true) } ?: Title(raw, false)
     }
 
     /** Название из игривого заголовка или `null`, если это не он. */

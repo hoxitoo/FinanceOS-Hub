@@ -63,9 +63,11 @@ class SberbankParser @Inject constructor() : BankParser {
     // 1 517 368 590 ₽ (реальные пуши, у тестера «трат на сто миллионов»). Сумма записывается по
     // правилам денег: 1–3 цифры, дальше группы РОВНО по три, и не прямо после буквы или цифры.
     // «5 1 034» так не разбить, «15173685 90» — тоже: остаётся только настоящая сумма.
-    // Не нашлось (сумма без разбивки, «10000 ₽») — прежний шаблон: пуш не должен потеряться.
+    // Не нашлось (сумма без разбивки, «10000 ₽», «1500,00 ₽») — прежний шаблон: пуш не должен
+    // потеряться. Начинать сразу после «.»/«,» тоже нельзя: иначе в «1500,00 ₽» нашлись бы «00» —
+    // ноль, и пуш пропал бы, а в «12345,67 ₽» — «67».
     private val pushAmtStrict = Regex(
-        "(?<![\\p{L}\\p{N}])(\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})*(?:[.,]\\d{1,2})?)\\s*₽")
+        "(?<![\\p{L}\\p{N}.,])(\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})*(?:[.,]\\d{1,2})?)\\s*₽")
 
     // «+ 77,23 ₽» — знак прихода. Только отдельно стоящий плюс: «СберПрайм+ 399 ₽» — это название.
     private val pushPlusBefore = Regex("(?:^|\\s)\\+\\s*$")
@@ -158,6 +160,7 @@ class SberbankParser @Inject constructor() : BankParser {
 
         val bodyBeforeBal = body.substring(0, balMatch.range.first)
         val amtMatch = pushAmtStrict.findAll(bodyBeforeBal).lastOrNull()
+            ?.takeIf { AmountParser.toKopecks(it.groupValues[1]) > 0L }
             ?: pushAmtRe.findAll(bodyBeforeBal).lastOrNull()
             ?: return null
         val amount   = AmountParser.toKopecks(amtMatch.groupValues[1])
@@ -166,11 +169,13 @@ class SberbankParser @Inject constructor() : BankParser {
         val card     = pushCardRe.find(body)?.let { m -> m.groupValues.drop(1).firstOrNull { it.isNotEmpty() } }
         val beforeAmt = bodyBeforeBal.substring(0, amtMatch.range.first)
         val isIncome = pushIncomeKw.containsMatchIn(body) || pushPlusBefore.containsMatchIn(beforeAmt)
-        val merchant = SberPushTitle.merchant(beforeAmt, pushOpPrefix, incomeNames)
+        val title    = SberPushTitle.parse(beforeAmt, pushOpPrefix, incomeNames)
+        val merchant = title.name
 
         // «Деньги отправились в Альфа-Банк», «Денежки уже в Яндекс Банк» — деньги ушли в другой
-        // банк, это перевод, а не покупка. Только расход: приход из банка — обычное зачисление.
-        if (!isIncome && SberPushTitle.isBank(merchant)) {
+        // банк, это перевод, а не покупка. Только расход и только в игривом заголовке «ушли в …»:
+        // «Оплата Почта Банк» — платёж по кредиту, это трата, и она закрывает обязательство.
+        if (!isIncome && title.playful && SberPushTitle.isBank(merchant)) {
             return ParsedTransaction(
                 type           = TransactionType.TRANSFER,
                 amountKopecks  = amount,

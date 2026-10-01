@@ -33,7 +33,7 @@ class AccountLinker @Inject constructor(
      * Returns the id of the account that owns [cardMask], or — when no mask is
      * present — the id of the single account whose bank name matches [bankId].
      */
-    suspend fun resolveAccountId(cardMask: String?, bankId: String? = null): String? {
+    suspend fun resolveAccountId(cardMask: String?, bankId: String? = null, hasBalance: Boolean = false): String? {
         // Card mask first (exact, then digit-tolerant) — this is the reliable path.
         resolveAccountByCardMask(cardMask)?.let { return it }
         // No card mask, or mask matched nothing — fall back to bank-sender identity.
@@ -48,7 +48,7 @@ class AccountLinker @Inject constructor(
         // приложении (инвариант #45). Положить её на единственный счёт банка значило бы записать
         // её «Остаток» балансом чужого счёта: накопительный счёт тестера (100 590 ₽) становился
         // балансом дебетовой карты. Без номера — прежнее поведение: банк — единственный признак.
-        return only.id.takeIf { mayFallBackToBank(cardMask, accountMasks(only.id)) }
+        return only.id.takeIf { mayFallBackToBank(cardMask, accountMasks(only.id), hasBalance) }
     }
 
     /**
@@ -191,6 +191,9 @@ class AccountLinker @Inject constructor(
         var moved = 0
         rows.groupBy { it.accountId!! }.forEach { (oldId, oldRows) ->
             if (ownsMask(accountMasks(oldId), mask)) return@forEach
+            // На кредитке с неизвестным лимитом «Остаток» непереводим (#12), и баланс шёл дельтами:
+            // увезти строки, не откатив их, значило бы оставить чужие суммы в её долге.
+            if (accountDao.getById(oldId)?.kind == AccountKind.CREDIT) return@forEach
             transactionDao.moveToAccount(oldRows.map { it.id }, accountId)
             moved += oldRows.size
             val old = accountDao.getById(oldId) ?: return@forEach
@@ -249,12 +252,16 @@ class AccountLinker @Inject constructor(
     companion object {
         /**
          * Можно ли положить операцию на счёт только потому, что он единственный у банка: да, когда
-         * в сообщении нет номера карты или у счёта не записано ни одного номера (тогда сравнивать
-         * не с чем — например, Альфа пишет хвост номера счёта «408*01139», а не карты). Нет, когда
-         * у счёта есть свои номера, а пришёл другой: это другая карта.
+         * в сообщении нет номера карты, у счёта не записано ни одного номера (сравнивать не с чем)
+         * или в сообщении нет «Остатка». Нет — когда номер чужой И сообщение несёт «Остаток»: только
+         * он и переписывает баланс, и это был бы баланс другой карты.
+         *
+         * Без «Остатка» прежнее поведение сохранено намеренно: Альфа пишет хвост номера СЧЁТА
+         * («Списание со счета 408*01139», без остатка), а у счёта записан номер карты — такие
+         * операции должны и дальше ложиться на счёт, двигать его дельтой и пополнять цели.
          */
-        fun mayFallBackToBank(cardMask: String?, accountMasks: List<String>): Boolean =
-            cardMask.isNullOrBlank() || accountMasks.isEmpty()
+        fun mayFallBackToBank(cardMask: String?, accountMasks: List<String>, hasBalance: Boolean): Boolean =
+            cardMask.isNullOrBlank() || accountMasks.isEmpty() || !hasBalance
 
         /** Совпадение по последним четырём цифрам — так же терпимо, как [resolveAccountByCardMask]. */
         fun ownsMask(accountMasks: List<String>, mask: String): Boolean {
