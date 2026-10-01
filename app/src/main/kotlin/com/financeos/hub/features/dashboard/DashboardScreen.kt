@@ -97,6 +97,9 @@ fun DashboardScreen(
     val shimmer = LocalShimmer.current
 
     var showAddAccountSheet  by remember { mutableStateOf(false) }
+    // Номер из подсказки о незаведённой карте — открывает тот же лист с подставленным номером.
+    var addAccountMask       by remember { mutableStateOf("") }
+    val unknownCards         by vm.unknownCards.collectAsState()
     var selectedBank         by remember { mutableStateOf<String?>(null) }
     val bankSheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTx           by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
@@ -226,7 +229,7 @@ fun DashboardScreen(
             ) {
                 Text("Счета", style = FosType.SectionCap, color = FosColors.TextMuted)
                 TextButton(
-                    onClick        = { showAddAccountSheet = true },
+                    onClick        = { addAccountMask = ""; showAddAccountSheet = true },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
                     Text("+ Добавить", style = FosType.Label, color = FosColors.Positive)
@@ -257,6 +260,20 @@ fun DashboardScreen(
                         )
                     }
                 }
+            }
+        }
+
+        // Решение «показывать ли» — снаружи item (инвариант #23).
+        if (unknownCards.isNotEmpty()) {
+            item(key = "unknown_cards") {
+                UnknownCardsHint(
+                    masks     = unknownCards,
+                    onAdd     = { mask ->
+                        addAccountMask      = mask.filter(Char::isDigit).takeLast(4)
+                        showAddAccountSheet = true
+                    },
+                    onDismiss = { vm.dismissUnknownCards(unknownCards) },
+                )
             }
         }
 
@@ -299,8 +316,9 @@ fun DashboardScreen(
 
     if (showAddAccountSheet) {
         AddAccountSheet(
-            onDismiss  = { showAddAccountSheet = false },
-            onSave     = { draft -> vm.createAccount(draft) },
+            initialMask = addAccountMask,
+            onDismiss   = { showAddAccountSheet = false; addAccountMask = "" },
+            onSave      = { draft -> vm.createAccount(draft) },
         )
     }
 

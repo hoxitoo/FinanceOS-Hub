@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -92,6 +93,12 @@ class UserPreferences @Inject constructor(
          * текст уведомлений постороннего приложения не сохраняется.
          */
         val BROKER_PACKAGE               = stringPreferencesKey("broker_package")
+
+        /**
+         * Номера незаведённых карт, о которых человек сказал «не добавлять». Подсказка на главной
+         * их больше не показывает; новая незнакомая карта показывается снова.
+         */
+        val DISMISSED_UNKNOWN_MASKS      = stringSetPreferencesKey("dismissed_unknown_masks")
     }
 
     val onboardingComplete: Flow<Boolean> = prefs
@@ -262,5 +269,12 @@ class UserPreferences @Inject constructor(
     /** «Не то приложение» — сбросить, и поиск начнётся заново. */
     suspend fun clearBrokerPackage() {
         context.dataStore.edit { it.remove(BROKER_PACKAGE) }
+    }
+
+    val dismissedUnknownMasks: Flow<Set<String>> = prefs
+        .map { it[DISMISSED_UNKNOWN_MASKS] ?: emptySet() }
+
+    suspend fun dismissUnknownMasks(masks: Collection<String>) {
+        context.dataStore.edit { it[DISMISSED_UNKNOWN_MASKS] = (it[DISMISSED_UNKNOWN_MASKS] ?: emptySet()) + masks }
     }
 }

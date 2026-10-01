@@ -196,6 +196,18 @@ class DashboardViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
 
+    /**
+     * Незаведённые карты: операции по ним есть, а на счёт они не легли (инвариант #45). Номера, о
+     * которых человек сказал «не добавлять», не показываются; новая незнакомая карта — снова да.
+     */
+    val unknownCards = combine(txRepo.observeUnknownMasks(), prefs.dismissedUnknownMasks) { masks, dismissed ->
+        masks.filterNot { it in dismissed }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun dismissUnknownCards(masks: List<String>) {
+        viewModelScope.launch { prefs.dismissUnknownMasks(masks) }
+    }
+
     private fun summariseCredit(cards: List<AccountEntity>): CreditSummary? {
         if (cards.isEmpty()) return null
         val debt  = cards.sumOf { it.debtKopecks }

@@ -43,7 +43,12 @@ class AccountLinker @Inject constructor(
             keywords.any { kw -> acc.bank.lowercase().contains(kw) }
         }
         // Only link when unambiguous (exactly one account for this bank).
-        return if (matches.size == 1) matches.first().id else null
+        val only = matches.singleOrNull() ?: return null
+        // Номер карты есть, но он не наш — это ДРУГАЯ карта того же банка, не заведённая в
+        // приложении (инвариант #45). Положить её на единственный счёт банка значило бы записать
+        // её «Остаток» балансом чужого счёта: накопительный счёт тестера (100 590 ₽) становился
+        // балансом дебетовой карты. Без номера — прежнее поведение: банк — единственный признак.
+        return only.id.takeIf { mayFallBackToBank(cardMask, accountMasks(only.id)) }
     }
 
     /**
@@ -163,7 +168,39 @@ class AccountLinker @Inject constructor(
     suspend fun relinkOrphans(accountId: String, cardMask: String?) {
         val mask = cardMask?.trim()?.takeIf { it.isNotBlank() } ?: return
         val linked = transactionDao.linkOrphansToAccount(accountId, mask)
-        if (linked > 0) snapToAuthoritativeIfNewer(accountId)
+        val moved  = rehomeFromBankFallback(accountId, mask)
+        if (linked > 0 || moved > 0) snapToAuthoritativeIfNewer(accountId)
+    }
+
+    /**
+     * Строки карты [mask], которые раньше легли на другой счёт по одному лишь банку, переезжают на
+     * [accountId] — счёт, которому эта карта теперь принадлежит (инвариант #45).
+     *
+     * До правки незнакомая карта клалась на единственный счёт своего банка, и её операции с
+     * «Остатком» лежат там до сих пор. Переезжают только они: их сумма в балансе не лежит, откат не
+     * нужен. Строка остаётся на месте, если прежний счёт сам владеет этим номером — тогда это его
+     * карта, а не ошибка привязки.
+     *
+     * Баланс прежнего счёта: если его текущая цифра — «Остаток» переехавшей карты, он возвращается
+     * к своему последнему «Остатку». Иначе не трогается: цифра пришла от его собственной карты или
+     * от человека.
+     */
+    private suspend fun rehomeFromBankFallback(accountId: String, mask: String): Int {
+        val rows = transactionDao.bankRowsOfMaskElsewhere(mask, accountId)
+        if (rows.isEmpty()) return 0
+        var moved = 0
+        rows.groupBy { it.accountId!! }.forEach { (oldId, oldRows) ->
+            if (ownsMask(accountMasks(oldId), mask)) return@forEach
+            transactionDao.moveToAccount(oldRows.map { it.id }, accountId)
+            moved += oldRows.size
+            val old = accountDao.getById(oldId) ?: return@forEach
+            val stolen = oldRows.mapNotNull { it.balanceKopecks?.let { b -> balanceFromReportedFigure(old, b) } }
+            if (old.balanceKopecks in stolen) {
+                val own = transactionDao.latestBalanceSnapshotForAccount(oldId) ?: return@forEach
+                balanceFromReportedFigure(old, own.balanceKopecks)?.let { accountDao.updateBalance(oldId, it) }
+            }
+        }
+        return moved
     }
 
     /**
@@ -197,11 +234,33 @@ class AccountLinker @Inject constructor(
      */
     suspend fun reconcileAccount(accountId: String, force: Boolean = false) {
         var linked = 0
-        accountMasks(accountId).forEach { linked += transactionDao.linkOrphansToAccount(accountId, it) }
+        accountMasks(accountId).forEach { mask ->
+            linked += transactionDao.linkOrphansToAccount(accountId, mask)
+            // Ручное «пересчитать» забирает и строки своих карт, лёгшие на чужой счёт по банку.
+            // На каждом приёме — нет: это лишний проход по таблице, а переезд нужен один раз.
+            if (force) linked += rehomeFromBankFallback(accountId, mask)
+        }
         // Snap to the bank's latest "Остаток" only when we actually adopted orphans (auto path) or
         // the user explicitly asked (force). This keeps the routine post-ingest call a no-op in the
         // common case, so it never overrides the per-transaction delta that syncBalance just applied.
         if (linked > 0 || force) snapToAuthoritativeIfNewer(accountId)
+    }
+
+    companion object {
+        /**
+         * Можно ли положить операцию на счёт только потому, что он единственный у банка: да, когда
+         * в сообщении нет номера карты или у счёта не записано ни одного номера (тогда сравнивать
+         * не с чем — например, Альфа пишет хвост номера счёта «408*01139», а не карты). Нет, когда
+         * у счёта есть свои номера, а пришёл другой: это другая карта.
+         */
+        fun mayFallBackToBank(cardMask: String?, accountMasks: List<String>): Boolean =
+            cardMask.isNullOrBlank() || accountMasks.isEmpty()
+
+        /** Совпадение по последним четырём цифрам — так же терпимо, как [resolveAccountByCardMask]. */
+        fun ownsMask(accountMasks: List<String>, mask: String): Boolean {
+            val last4 = mask.filter(Char::isDigit).takeLast(4)
+            return accountMasks.any { it == mask || (last4.length == 4 && it.filter(Char::isDigit).takeLast(4) == last4) }
+        }
     }
 
     /** All card last-4s that belong to [accountId]: the account's own mask + its registered cards. */

@@ -14,6 +14,9 @@ class TransactionRepository @Inject constructor(
 ) {
     fun observeAll(): Flow<List<TransactionEntity>> = dao.observeAll()
 
+    /** Номера карт из сообщений банка, не легшие ни на один счёт (инвариант #45). */
+    fun observeUnknownMasks(): Flow<List<String>> = dao.observeUnknownMasks()
+
     fun observeCurrentMonth(): Flow<List<TransactionEntity>> {
         val zone  = ZoneId.systemDefault()
         val month = YearMonth.now()
