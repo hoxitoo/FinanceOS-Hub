@@ -430,20 +430,19 @@ class TransactionsViewModel @Inject constructor(
         val s    = state.value
         val zone = ZoneId.systemDefault()
         val sb   = StringBuilder()
-        sb.appendLine("Дата,Тип,Сумма (₽),Получатель,Категория,Примечание")
+        sb.appendLine("Дата,Тип,Сумма,Валюта,Получатель,Категория,Примечание")
 
         s.grouped.entries
             .sortedByDescending { it.key }
             .forEach { (_, txList) ->
                 txList.sortedByDescending { it.timestamp }.forEach { tx ->
                     val date     = Instant.ofEpochMilli(tx.timestamp).atZone(zone).toLocalDate()
-                    val type     = if (tx.type == TransactionType.EXPENSE) "Расход" else "Доход"
-                    val amount   = kotlin.math.abs(tx.amountKopecks) / 100.0
                     sb.appendLine(
                         listOf(
                             date.toString(),
-                            type,
-                            amount.toString(),
+                            csvTypeLabel(tx.type, tx.amountKopecks),
+                            csvAmount(tx.amountKopecks),
+                            tx.currency,
                             csvField(tx.merchant),
                             csvField(s.categoryName(tx.categoryId)),
                             csvField(tx.description),
@@ -470,3 +469,20 @@ class TransactionsViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * Тип операции для выгрузки. Перевод — отдельный тип со стороной: прежняя выгрузка писала
+ * «Доход» любому, что не расход, и исходящий перевод в таблице выглядел заработком.
+ */
+internal fun csvTypeLabel(type: TransactionType, signedKopecks: Long): String = when (type) {
+    TransactionType.EXPENSE  -> "Расход"
+    TransactionType.INCOME   -> "Доход"
+    TransactionType.TRANSFER -> if (signedKopecks < 0) "Перевод (исходящий)" else "Перевод (входящий)"
+}
+
+/**
+ * Сумма по модулю, точкой и ровно двумя знаками: `Double.toString` писал 1,5 млн как «1.5E7», и
+ * таблица читала это как текст или как другое число.
+ */
+internal fun csvAmount(signedKopecks: Long): String =
+    java.math.BigDecimal.valueOf(kotlin.math.abs(signedKopecks), 2).toPlainString()
