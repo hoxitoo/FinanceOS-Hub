@@ -44,6 +44,7 @@ enum class FosTone(val accent: Color?) {
     Negative(FosColors.Negative),   // расход, превышение, тревога
     Warning (FosColors.Warning),    // прогноз, приближение к пределу
     Info    (FosColors.Info),       // справка, нейтральная подсказка
+    Invest  (FosColors.Invest),     // режим «Инвестор» — только на его экране
 }
 
 /** How a card is cut. Pick by the block's role on the screen, not by how it should look. */

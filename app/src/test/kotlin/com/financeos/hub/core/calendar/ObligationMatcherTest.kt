@@ -5,6 +5,7 @@ import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.InvestmentTransfers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -114,6 +115,18 @@ class ObligationMatcherTest {
         assertFalse(
             ObligationMatcher.fits(rent(), due, tx(-35_000_00L, due, type = TransactionType.TRANSFER), zone)
         )
+    }
+
+    @Test
+    fun `a top-up of the broker account closes an outgoing obligation`() {
+        // Перевод брокеру уводит деньги из «Свободно» так же, как трата, и до разметки переводом
+        // закрывал обязательство расходом. Ежемесячное пополнение не должно повиснуть просроченным.
+        val topUp = tx(-35_000_00L, due, type = TransactionType.TRANSFER, category = InvestmentTransfers.CATEGORY)
+        assertTrue(ObligationMatcher.fits(rent(), due, topUp, zone))
+        // Но только в своём направлении: вывод от брокера исходящее обязательство не закрывает.
+        val withdrawal = tx(35_000_00L, due, type = TransactionType.TRANSFER, category = InvestmentTransfers.CATEGORY)
+        assertFalse(ObligationMatcher.fits(rent(), due, withdrawal, zone))
+        assertTrue(ObligationMatcher.fits(rent(direction = PaymentDirection.IN), due, withdrawal, zone))
     }
 
     @Test

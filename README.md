@@ -25,6 +25,8 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Правка счёта и даты операции** | Пуш без реквизитов приходит без счёта — сумма есть, а откуда ушли деньги, приложение не знает. Раньше такую операцию приходилось удалять и вводить заново, теряя исходный текст и остаток банка. Теперь в карточке правятся счёт списания/зачисления (выбор банк → счёт, повторное нажатие отвязывает), вторая сторона перевода и дата. Баланс счёта сдвигается на сумму операции, **кроме** случая, когда банк уже прислал остаток по этому счёту позже — его цифра эти деньги уже учла. Что будет с балансом, карточка пишет до нажатия «Сохранить». Список счетов в карточке открывается свёрнутым — выбранный счёт виден в строке банка («•• 6703»), а сам список раскрывается только по нажатию |
 | **Фильтры операций** | Одна строка: лупа-поиск (раскрывается по нажатию), меню «Тип операции» (Все / Расходы / Доходы / **Переводы**) и «Дата» — календарь на один день или период. Пустой список при выставленном фильтре честно пишет «Ничего не найдено», а не «Операций пока нет» |
 | **Чья это карта** | На каждой операции видно источник — «•• 6703» в цвете банка. Заметность зависит от того, насколько источник редок среди видимых строк: карта, с которой идёт большинство покупок, подписана тихо-серым, а редкая — цветом банка. При 90 % операций с одного банка одинаковая цветная метка на всех строках превратилась бы в фон и перестала что-либо различать |
+| **Пополнение брокера** | Деньги, ушедшие брокеру («Получатель платежа BKS Mir Investitsiy» и другие брокеры), — это перевод своих денег, а не трата: в списке «↔ 10 000 ₽ · → брокеру» с категорией «Инвестиции», и они не попадают ни в траты, ни в бюджет, ни в оценку финансового здоровья. Вывод от брокера — тоже перевод, а не заработок. Брокер узнаётся по названию (БКС, Т-/Альфа-/ВТБ-/Сбер-Инвестиции, Финам, Freedom Finance, «Открытие Брокер»), а не по слову «инвестиции» — застройщик или «инвестиционный банк» тратой остаются. Уже записанные пополнения переразмечаются при обновлении и при восстановлении старой копии, если категорию у них не меняли руками. Восстановление копии больше не сбрасывает категории у операций на устройстве |
+| **Режим «Инвестор» (подготовка)** | Переключатель «Кошелёк \| Инвестор» в шапке главной. В режиме инвестора — своя палитра (индиго) и свой экран: портфель, брокеры, позиции, заявки и сделки; покупок, переводов и карт кошелька там нет. Пока пуши брокера не записываются — экран показывает пустое состояние, а по кнопке — пример, посчитанный из реальных пушей БКС. Приложение само замечает, из какого приложения приходят пуши брокера |
 | **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
 | **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
 | **Financial score** | 0–100 across 4 pillars; rendered as a **multi-colour donut** (one arc per pillar, dimmed shortfall) so a weak pillar is visible at a glance |
@@ -103,7 +105,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v20** (19 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v21** (20 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -116,7 +118,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v20 — 18 categories, ~216 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v21 — 19 categories, ~216 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only

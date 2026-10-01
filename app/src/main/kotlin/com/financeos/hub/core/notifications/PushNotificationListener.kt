@@ -2,9 +2,11 @@ package com.financeos.hub.core.notifications
 
 import android.app.Notification
 import android.content.Context
+import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
+import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.credit.CreditNoticeApplier
 import com.financeos.hub.core.credit.asRepaymentIfCredit
@@ -47,6 +49,20 @@ class PushNotificationListener : NotificationListenerService() {
      * Система привязала службу. Отсюда и только отсюда известно, что чтение пушей ДЕЙСТВИТЕЛЬНО
      * работает — выданное разрешение об этом не говорит ничего.
      */
+    // Поиск приложения брокера (noteBrokerPackage) смотрит на КАЖДОЕ уведомление каждого
+    // приложения, и onNotificationPosted идёт в главном потоке. Поэтому оба выключателя держатся
+    // здесь, в памяти, а не читаются из настроек на каждое уведомление: найдено имя или выключена
+    // служба — поиск отказывается одним сравнением, без корутины и без обращений к системе.
+    // `brokerKnown` до первого чтения считается true: не искать, пока не знаем, — безопасная сторона.
+    @Volatile private var listenerOn  = false
+    @Volatile private var brokerKnown = true
+
+    override fun onCreate() {
+        super.onCreate()   // Hilt внедряет зависимости здесь — коллекторы только после.
+        scope.launch { userPreferences.pushListenerEnabled.collect { listenerOn = it } }
+        scope.launch { userPreferences.brokerPackage.collect { brokerKnown = it != null } }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         ListenerHealth.markConnected(applicationContext)
@@ -72,7 +88,11 @@ class PushNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val sender = PACKAGE_TO_SENDER[sbn.packageName] ?: return
+        val sender = PACKAGE_TO_SENDER[sbn.packageName]
+        if (sender == null) {
+            noteBrokerPackage(sbn)
+            return
+        }
         // Признак жизни ставится ДО всех проверок и до корутины: важно, что уведомление вообще
         // дошло до службы. Станет оно операцией или окажется рекламой — уже другой вопрос, и на
         // диагностику «работает / не работает» он влиять не должен.
@@ -86,6 +106,41 @@ class PushNotificationListener : NotificationListenerService() {
     }
 
     /**
+     * Режим «Инвестор», подготовка: какое приложение присылает пуши брокера.
+     *
+     * Имя пакета приложения БКС угадывать нельзя — ошибка значит, что пуши молча не дойдут, а
+     * ошибиться легко. Поэтому оно ЗАМЕЧАЕТСЯ: уведомление незнакомого приложения, текст которого
+     * разбирается как событие брокера («Вы пополнили счет №…», «LQDT: заявка исполнена …»),
+     * записывает имя своего пакета. Сохраняется только имя пакета, текст — нет. Ничего не
+     * вставляется: брокерские события начнут записываться следующим шагом.
+     */
+    private fun noteBrokerPackage(sbn: StatusBarNotification) {
+        // Отсеивается ДО чтения текста: собственные уведомления, приложение SMS (БКС может дублировать
+        // пуш смской, и тогда запомнилось бы оно), «идущие» уведомления (музыка, загрузки — их
+        // переотправляют постоянно) и сводки групп (текста в них нет, он в дочерних).
+        // Найдено или служба выключена — дальше не смотрим вовсе (см. поля выше).
+        if (brokerKnown || !listenerOn) return
+        val n = sbn.notification ?: return
+        if (sbn.packageName == packageName) return
+        if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        scope.launch {
+            // Обращение к системе — уже не в главном потоке.
+            val smsApp = runCatching { Telephony.Sms.getDefaultSmsPackage(this@PushNotificationListener) }.getOrNull()
+            if (sbn.packageName == smsApp) return@launch
+            val body = extractBody(sbn)
+            if (body.isBlank()) return@launch
+            val normalized = body.replace('\u00A0', ' ').replace('\u202F', ' ')
+            if (BrokerPushParser.parse(normalized, sbn.postTime) != null) {
+                // Записывается, только если имени ещё нет, — одной правкой, чтобы два одновременных
+                // совпадения не перебили друг друга. Найденное не перезаписывается (пересланный в
+                // мессенджер пуш переписывал бы имя при каждой пересылке); ошибочное человек
+                // сбрасывает на экране инвестора.
+                userPreferences.setBrokerPackageIfAbsent(sbn.packageName)
+            }
+        }
+    }
+
+    /**
      * Collects the full notification text. Reading only TITLE/TEXT/BIG_TEXT misses the
      * "Остаток: … ; ··2548" line for some banks (notably Alfa pushes), which place the balance/
      * card in SUB_TEXT, SUMMARY_TEXT, INFO_TEXT, an InboxStyle line (TEXT_LINES) or the ticker —
@@ -95,7 +150,9 @@ class PushNotificationListener : NotificationListenerService() {
     private fun extractBody(sbn: StatusBarNotification): String {
         val n = sbn.notification ?: return ""
         val extras = n.extras ?: return ""
-        val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
+        // getCharSequence, не getString: заголовок с оформлением (Spanned) getString молча отдаёт как
+        // null — и заголовок «LQDT: заявка исполнена» или «Покупка» пропадал из текста целиком.
+        val title   = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
         val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
         val detail  = if (bigText.length > text.length) bigText else text
@@ -144,7 +201,8 @@ class PushNotificationListener : NotificationListenerService() {
         // Money arriving ON a credit card is a repayment, not income — see asRepaymentIfCredit.
         // Done after the account is resolved, because only the account knows it is a credit card.
         val parsed = asRepaymentIfCredit(rawParsed, accountLinker.kindOf(accountId))
-        val categoryId = classifier.classify(parsed.merchant, null)
+        val categoryId = parsed.categoryId
+            ?: classifier.classify(parsed.merchant, null)
             ?: CategoryDefaults.forType(parsed.type)
         val entity = TransactionEntity(
             id            = UUID.randomUUID().toString(),

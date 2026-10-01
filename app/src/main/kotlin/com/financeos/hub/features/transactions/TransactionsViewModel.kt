@@ -14,6 +14,7 @@ import com.financeos.hub.core.edit.TransactionEditor
 import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.pdf.PdfImporter
+import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.pdf.PdfTransactionParser
 import com.financeos.hub.core.transfer.TransferRouter
 import com.financeos.hub.data.repositories.AccountRepository
@@ -388,7 +389,10 @@ class TransactionsViewModel @Inject constructor(
 
                     parsed.forEach { raw ->
                         if (raw.dedupKey in existingIds) return@forEach
-                        val catId = runCatching {
+                        // Перевод брокеру — тот же признак, что у пушей (InvestmentTransfers): у
+                        // каждого способа завести операцию один список последствий (инвариант #30).
+                        val toBroker = InvestmentTransfers.isBroker(raw.merchant)
+                        val catId = if (toBroker) InvestmentTransfers.CATEGORY else runCatching {
                             classifier.classify(raw.merchant, null)
                         }.getOrNull()
                         txRepo.insert(
@@ -397,7 +401,7 @@ class TransactionsViewModel @Inject constructor(
                                 smsId         = raw.dedupKey,
                                 accountId     = null,
                                 categoryId    = catId,
-                                type          = raw.type,
+                                type          = if (toBroker) TransactionType.TRANSFER else raw.type,
                                 source        = TransactionSource.PDF,
                                 amountKopecks = if (raw.type == TransactionType.EXPENSE)
                                                     -raw.amountKopecks else raw.amountKopecks,

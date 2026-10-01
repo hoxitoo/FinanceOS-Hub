@@ -4,6 +4,7 @@ import com.financeos.hub.core.database.entities.PaymentDirection
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.parser.InvestmentTransfers
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -256,9 +257,18 @@ object ObligationMatcher {
 
         // Направление. Перевод между своими счетами исключён намеренно: он не тратит деньги, а
         // перекладывает, и закрывать им обязательство нельзя.
-        val expected = if (payment.direction == PaymentDirection.OUT) TransactionType.EXPENSE
-                       else TransactionType.INCOME
-        if (tx.type != expected) return false
+        //
+        // Исключение — перевод брокеру. Из «Свободно» он деньги уводит так же, как трата (брокерский
+        // счёт не наличные), и ежемесячное пополнение — законное обязательство. До того как такие
+        // списания стали переводами, они закрывали его как расход; без этой ветки оно повисло бы
+        // просроченным после первого же пополнения.
+        val out = payment.direction == PaymentDirection.OUT
+        val fitsDirection = when {
+            InvestmentTransfers.isInvestmentTransfer(tx) -> if (out) tx.amountKopecks < 0 else tx.amountKopecks > 0
+            out  -> tx.type == TransactionType.EXPENSE
+            else -> tx.type == TransactionType.INCOME
+        }
+        if (!fitsDirection) return false
 
         if (payment.accountId != null && tx.accountId != payment.accountId) return false
         if (payment.amountKopecks <= 0L) return false
