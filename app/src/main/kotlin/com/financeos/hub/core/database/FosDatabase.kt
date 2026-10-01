@@ -24,6 +24,7 @@ import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.core.database.entities.MerchantRuleEntity
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
+import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.database.entities.TransferRouteEntity
 
 @Database(
@@ -412,7 +413,8 @@ abstract class FosDatabase : RoomDatabase() {
          * («Другое», без категории, «Прочие доходы»). Строку, которую человек разложил руками, не
          * трогаем: признака «кто поставил категорию» в схеме нет, и чужой выбор дороже.
          *
-         * Получатель проверяется в Kotlin тем же [InvestmentTransfers.isBroker], что и при разборе,
+         * Условие — тот же [InvestmentTransfers.needsRelabel], что и при восстановлении копии, а
+         * получатель проверяется тем же [InvestmentTransfers.isBroker], что и при разборе,
          * а не отдельным LIKE: два списка признаков разошлись бы с первой же правкой, а у LIKE ещё и
          * регистр кириллицы не сворачивается (инвариант #13).
          *
@@ -426,15 +428,14 @@ abstract class FosDatabase : RoomDatabase() {
                 val ids = mutableListOf<String>()
                 db.query(
                     """
-                    SELECT id, merchant FROM transactions
-                    WHERE is_deleted = 0
-                      AND type IN ('EXPENSE', 'INCOME')
-                      AND merchant IS NOT NULL
-                      AND (category_id IS NULL OR category_id IN ('cat_other', 'cat_income'))
+                    SELECT id, type, category_id, merchant FROM transactions
+                    WHERE is_deleted = 0 AND merchant IS NOT NULL
                     """.trimIndent()
                 ).use { c ->
                     while (c.moveToNext()) {
-                        if (InvestmentTransfers.isBroker(c.getString(1))) ids += c.getString(0)
+                        val type = runCatching { TransactionType.valueOf(c.getString(1)) }.getOrNull() ?: continue
+                        val category = if (c.isNull(2)) null else c.getString(2)
+                        if (InvestmentTransfers.needsRelabel(type, category, c.getString(3))) ids += c.getString(0)
                     }
                 }
                 ids.forEach { id ->

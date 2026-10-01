@@ -3,6 +3,7 @@ package com.financeos.hub.core.backup
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.database.FosDatabase
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.BudgetDao
@@ -137,14 +138,20 @@ class BackupManager @Inject constructor(
             )
         }
         val transactions = rawTxs.map { tx ->
-            tx.copy(
-                accountId  = tx.accountId?.takeIf { it in accountIds },
-                categoryId = tx.categoryId?.takeIf { it in categoryIds },
+            // Копия, снятая до v21, несёт пополнения брокера расходом — разметить их так же, как
+            // это сделала миграция (инвариант #43). Категория «Инвестиции» есть в базе всегда
+            // (засеяна при создании и миграцией 20→21), поэтому ссылка безопасна и без копии.
+            InvestmentTransfers.relabel(
+                tx.copy(
+                    accountId  = tx.accountId?.takeIf { it in accountIds },
+                    categoryId = tx.categoryId?.takeIf { it in categoryIds },
+                )
             )
         }
 
         // FK-safe order: parents (categories, accounts) before children (cards, budgets, transactions).
-        // Use upsertAll (REPLACE) for categories so that user-renamed categories survive restore.
+        // upsertAll (@Upsert, not REPLACE) for categories: renamed categories survive, and existing
+        // operations keep their category instead of being nulled by ON DELETE SET NULL.
         db.withTransaction {
             categoryDao.upsertAll(categories)
             accounts.forEach { accountDao.upsert(it) }

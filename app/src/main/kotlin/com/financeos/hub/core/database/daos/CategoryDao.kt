@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.financeos.hub.core.database.entities.CategoryEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -22,8 +23,15 @@ interface CategoryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(categories: List<CategoryEntity>)
 
-    /** Used by backup restore — overwrites existing rows so renamed categories are preserved. */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * Used by backup restore — overwrites existing rows so renamed categories are preserved.
+     *
+     * `@Upsert`, NOT `@Insert(REPLACE)`: REPLACE is DELETE + INSERT in SQLite, and
+     * `transactions.category_id` is `ON DELETE SET NULL` — every restore wiped the category of every
+     * operation already on the device (the same trap as invariant #1 with cards). Since v21 that
+     * also erases the «Инвестиции» mark that makes a broker top-up a transfer (invariant #43).
+     */
+    @Upsert
     suspend fun upsertAll(categories: List<CategoryEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

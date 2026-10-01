@@ -90,6 +90,7 @@ class InvestmentTransfersTest {
             "BKS Mir Investitsiy", "БКС Мир Инвестиций", "ООО Компания БКС", "BCS Broker",
             "Т-Инвестиции", "АЛЬФА-ИНВЕСТИЦИИ", "ВТБ Мои Инвестиции", "Tinkoff Investicii",
             "АО ФИНАМ", "Finam", "Freedom Finance", "Фридом Финанс", "Открытие Брокер",
+            "Сбер Инвестиции",
         ).forEach { assertTrue(it, InvestmentTransfers.isBroker(it)) }
     }
 
@@ -98,7 +99,47 @@ class InvestmentTransfersTest {
         listOf(
             "Пятёрочка", "Ozon", "FONBET", "InvestStroy", "Investment Bank Shop",
             "ABKSHOP", "Бксмарт", "Озон Банк", "", null,
+            // Замечания ревью: общие слова «инвестиц» и «брокер» — это и застройщик, и банк по
+            // кредиту, и работодатель, и страховой брокер. Ни одного из них переводом не считать.
+            "Инвестиционно-строительная компания", "КБ Инвестиционный Банк",
+            "ООО УК Инвестиционные решения", "Investitsionnaya kompaniya",
+            "Страховой брокер Ингосстрах", "Ипотечный брокер", "Pawnbroker", "Финамарт",
         ).forEach { assertFalse(it.toString(), InvestmentTransfers.isBroker(it)) }
+    }
+
+    @Test
+    fun `a salary from an investment-sounding employer stays income`() {
+        // Ошибка с обратной стороны хуже потери: зарплата, ставшая переводом, пропала бы из дохода
+        // и из оценки сбережений.
+        val p = parsed(TransactionType.INCOME, "ООО УК Инвестиционные решения")
+        assertSame(p, InvestmentTransfers.reclassify(p))
+    }
+
+    // ── Старая история и копии до v21 ────────────────────────────────────────────
+
+    private fun stored(type: TransactionType, category: String?, merchant: String?) = TransactionEntity(
+        id = "t", accountId = null, categoryId = category, type = type,
+        source = TransactionSource.PUSH, amountKopecks = -1_000_000L, merchant = merchant,
+        description = null, timestamp = ts, smsId = null,
+    )
+
+    @Test
+    fun `an old broker expense in a machine category is relabelled, amount kept`() {
+        val r = InvestmentTransfers.relabel(stored(TransactionType.EXPENSE, "cat_other", "BKS Mir Investitsiy"))
+        assertEquals(TransactionType.TRANSFER, r.type)
+        assertEquals(InvestmentTransfers.CATEGORY, r.categoryId)
+        assertEquals(-1_000_000L, r.amountKopecks)
+        assertEquals(TransactionType.TRANSFER, InvestmentTransfers.relabel(stored(TransactionType.EXPENSE, null, "BKS")).type)
+    }
+
+    @Test
+    fun `a row the person categorised by hand is left alone`() {
+        val manual = stored(TransactionType.EXPENSE, "cat_shopping", "BKS Mir Investitsiy")
+        assertSame(manual, InvestmentTransfers.relabel(manual))
+        val transfer = stored(TransactionType.TRANSFER, null, "BKS Mir Investitsiy")
+        assertSame(transfer, InvestmentTransfers.relabel(transfer))
+        val shop = stored(TransactionType.EXPENSE, "cat_other", "Пятёрочка")
+        assertSame(shop, InvestmentTransfers.relabel(shop))
     }
 
     @Test

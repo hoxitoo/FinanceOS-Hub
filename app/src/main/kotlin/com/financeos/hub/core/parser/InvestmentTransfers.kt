@@ -27,19 +27,25 @@ object InvestmentTransfers {
     const val CATEGORY = "cat_invest"
 
     /**
-     * Признаки брокера в имени получателя. Все через [ciRegex] (инвариант #13).
+     * Признаки брокера в имени получателя — только НАЗВАНИЯ брокеров, все через [ciRegex] (#13).
      *
-     * Широкое «invest» сюда намеренно НЕ входит: «Investment», «InvestStroy» — это и застройщики, и
-     * магазины. Транслит русского «инвестиций» («Investitsiy», «Investicii») — уже признак
-     * российского брокера. «БКС»/«BKS» — только отдельным словом: внутри чужого слова эти три буквы
-     * встречаются слишком часто.
+     * Общие слова сюда намеренно не входят. «Инвестиц» — это и «Инвестиционно-строительная
+     * компания» (застройщик, платёж по договору), и «Инвестиционный банк» (платёж по кредиту), и
+     * работодатель «УК Инвестиционные решения» — его зарплата стала бы переводом и пропала бы из
+     * дохода. «Брокер» — и страховой, и ипотечный, и таможенный. Поэтому слово «инвестиции» и
+     * «брокер» считаются признаком только вместе с названием брокера, а короткие названия
+     * (БКС, Финам) — только отдельным словом: внутри чужого слова эти буквы встречаются часто.
      */
     private val BROKER_PATTERNS: List<Regex> = listOf(
-        ciRegex("""инвестиц"""),                                   // «Мир инвестиций», «Т-Инвестиции»
-        ciRegex("""investi[ct]s?i"""),                             // «Investitsiy», «Investicii»
-        ciRegex("""брокер|broker"""),                              // «БКС Брокер», «Открытие Брокер»
+        // БКС: «BKS Mir Investitsiy», «ООО Компания БКС», «BCS Broker».
         ciRegex("""(?<![\p{L}\p{N}])(?:бкс|bks|bcs)(?![\p{L}\p{N}])"""),
-        ciRegex("""финам|finam"""),
+        ciRegex("""мир\s+инвестиций|mir\s+investitsi"""),
+        // «Т-Инвестиции», «Альфа-Инвестиции», «ВТБ Мои Инвестиции», «Сбер Инвестиции».
+        ciRegex("""(?<![\p{L}\p{N}])(?:т|тинькофф|альфа|втб|сбер|сбербанк|газпромбанк|открытие|финам)[\s-]*(?:мои\s+)?инвестиции(?![\p{L}\p{N}])"""),
+        ciRegex("""(?<![\p{L}\p{N}])(?:t|tinkoff|alfa|vtb|sber)[\s-]*investi[ct]s?ii(?![\p{L}\p{N}])"""),
+        // «Открытие Брокер», «Финам брокер» — но не «страховой брокер».
+        ciRegex("""(?<![\p{L}\p{N}])(?:открытие|otkritie|финам|finam|атон|aton|цифра|альфа|alfa|втб|vtb|сбербанк|sberbank|газпромбанк|ренессанс|renaissance)[\s-]+(?:брокер|broker)(?![\p{L}\p{N}])"""),
+        ciRegex("""(?<![\p{L}\p{N}])(?:финам|finam)(?![\p{L}\p{N}])"""),
         ciRegex("""фридом\s*финанс|freedom\s*finance|freedom\s*24"""),
     )
 
@@ -52,6 +58,27 @@ object InvestmentTransfers {
     /** Строка уже размечена как перевод к брокеру или от него. */
     fun isInvestmentTransfer(tx: TransactionEntity): Boolean =
         tx.type == TransactionType.TRANSFER && tx.categoryId == CATEGORY
+
+    /**
+     * Строка, записанная ДО распознавания (старая история, копия до v21), которую надо разметить:
+     * расход или доход брокеру/от брокера, всё ещё лежащий в машинной категории. Строку, которую
+     * человек разложил руками, не трогаем — признака «кто поставил категорию» в схеме нет.
+     */
+    fun needsRelabel(type: TransactionType, categoryId: String?, merchant: String?): Boolean =
+        (type == TransactionType.EXPENSE || type == TransactionType.INCOME) &&
+            (categoryId == null || categoryId in MACHINE_CATEGORIES) &&
+            isBroker(merchant)
+
+    /** Машинные категории: «Другое», «Прочие доходы» — то, что ставит разбор, а не человек. */
+    val MACHINE_CATEGORIES = setOf("cat_other", "cat_income")
+
+    /** [needsRelabel] → перевод «Инвестиции»; сумма и знак прежние. */
+    fun relabel(tx: TransactionEntity): TransactionEntity =
+        if (needsRelabel(tx.type, tx.categoryId, tx.merchant)) {
+            tx.copy(type = TransactionType.TRANSFER, categoryId = CATEGORY)
+        } else {
+            tx
+        }
 
     /**
      * Списание брокеру → исходящий перевод, зачисление от брокера → входящий. Направление и сумма
