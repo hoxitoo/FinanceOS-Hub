@@ -76,7 +76,7 @@ class SmsReader @Inject constructor(
                     val window = 5 * 60 * 1000L
                     if (parsed != null && parsed.smsId !in knownIds &&
                         !transactionDao.existsSimilarSmsOrPush(parsed.signedKopecks(), parsed.timestamp - window, parsed.timestamp + window)) {
-                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId)
+                        val accountId  = accountLinker.resolveAccountId(parsed.cardMask, parsed.bankId, hasBalance = parsed.balanceKopecks != null)
                         // Money arriving ON a credit card is a repayment, not income.
                         val effective  = asRepaymentIfCredit(parsed, accountLinker.kindOf(accountId))
                         val categoryId = effective.categoryId

@@ -47,6 +47,9 @@ private val CURRENCIES = listOf("RUB" to "₽ Рубль", "USD" to "$ Долл�
 @Composable
 fun AddAccountSheet(
     initialBank : String = BANKS[0],
+    // Номер незаведённой карты из подсказки на главной: человек видит его в операциях и не должен
+    // перепечатывать.
+    initialMask : String = "",
     onDismiss   : () -> Unit,
     onSave      : (AccountDraft) -> Unit,
 ) {
@@ -54,7 +57,7 @@ fun AddAccountSheet(
     var selectedCurrency by remember { mutableStateOf("RUB") }
     var kind             by remember { mutableStateOf(AccountKind.CASH) }
     var name             by remember { mutableStateOf("") }
-    var cardMaskText     by remember { mutableStateOf("") }
+    var cardMaskText     by remember { mutableStateOf(initialMask) }
     var balanceText      by remember { mutableStateOf("") }
     // CREDIT-only fields. Created unconditionally (Rules of Hooks) and simply not rendered for a
     // cash account; switching kind therefore never rebuilds the slot table.
@@ -71,7 +74,7 @@ fun AddAccountSheet(
     // Банк может быть предвыбран вызывающим (тап по карточке банка на главной), поэтому сравнение
     // идёт с ним, а не с null: предвыбор — это не ввод человека.
     val dirty = {
-        name.isNotBlank() || cardMaskText.isNotBlank() || balanceText.isNotBlank() ||
+        name.isNotBlank() || cardMaskText != initialMask || balanceText.isNotBlank() ||
             selectedBank != initialBank || selectedCurrency != "RUB" || kind != AccountKind.CASH
     }
 

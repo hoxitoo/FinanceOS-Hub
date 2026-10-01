@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.database.converters.FosTypeConverters
 import com.financeos.hub.core.database.daos.AccountDao
@@ -39,7 +40,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -449,6 +450,103 @@ abstract class FosDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Правила словаря по выгрузке тестера + починка уже записанных пушей Сбера.
+         *
+         * 1. Пуши Сбера переразбираются новым разбором ([SberPushRepair]): сумма, склеенная с
+         *    цифрами названия, оплата по СБП, записанная переводом, приход «+», записанный тратой,
+         *    перевод в другой банк, записанный покупкой, игривый заголовок в названии. Строка
+         *    меняется, только если она ровно такая, какой её записал ПРЕЖНИЙ разбор, и только если у
+         *    неё есть банковский «Остаток» — тогда баланс задан банком и от суммы строки не зависит.
+         * 2. Расходы из сообщений банка и выписок (не ручные — там «Другое» мог выбрать человек),
+         *    всё ещё лежащие в машинной категории («Другое» или пусто), раскладываются
+         *    по словарю — тем же правилом первого совпадения, что у `DictionaryClassifier`. Узко,
+         *    как у [MIGRATION_14_15] и [MIGRATION_20_21]: выбранное человеком не трогается.
+         */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultMerchantRules(db)
+
+                val rules = mutableListOf<SberPushRepair.Rule>()
+                db.query(
+                    "SELECT pattern, is_regex, category_id FROM merchant_rules ORDER BY priority DESC, rowid"
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        rules += SberPushRepair.Rule(
+                            c.getString(0), c.getInt(1) != 0, if (c.isNull(2)) null else c.getString(2))
+                    }
+                }
+
+                // ── 1. Пуши Сбера ──
+                // Кредитки пропускаются: приход на кредитку живой приём превращает в погашение
+                // (`asRepaymentIfCredit`), а здесь он стал бы доходом — две формы одной операции.
+                val creditIds = HashSet<String>()
+                db.query("SELECT id FROM accounts WHERE kind = 'CREDIT'").use { c ->
+                    while (c.moveToNext()) creditIds += c.getString(0)
+                }
+                data class Row(val id: String, val category: String?, val fix: SberPushRepair.Fix)
+                val fixes = mutableListOf<Row>()
+                db.query(
+                    """
+                    SELECT id, type, amount_kopecks, merchant, balance_kopecks, goal_id,
+                           transfer_pair_id, raw_text, timestamp, category_id, account_id
+                    FROM transactions
+                    WHERE is_deleted = 0 AND source = 'PUSH' AND raw_text IS NOT NULL
+                      AND sms_id LIKE 'push_SBERBANK_%'
+                    """.trimIndent()
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        val type = runCatching { TransactionType.valueOf(c.getString(1)) }.getOrNull() ?: continue
+                        if (!c.isNull(10) && c.getString(10) in creditIds) continue
+                        val stored = SberPushRepair.Stored(
+                            type           = type,
+                            amountKopecks  = c.getLong(2),
+                            merchant       = if (c.isNull(3)) null else c.getString(3),
+                            balanceKopecks = if (c.isNull(4)) null else c.getLong(4),
+                            goalId         = if (c.isNull(5)) null else c.getString(5),
+                            transferPairId = if (c.isNull(6)) null else c.getString(6),
+                            rawText        = c.getString(7),
+                            timestamp      = c.getLong(8),
+                        )
+                        val fix = runCatching { SberPushRepair.plan(stored) }.getOrNull() ?: continue
+                        fixes += Row(c.getString(0), if (c.isNull(9)) null else c.getString(9), fix)
+                    }
+                }
+                fixes.forEach { (id, category, fix) ->
+                    // Сменился тип — прежняя категория подбиралась под другую операцию: подбираем
+                    // заново, как при приёме пуша. Тип тот же — категорию трогает только шаг 2.
+                    val newCategory = if (fix.typeChanged) {
+                        SberPushRepair.categorize(fix.merchant, rules) ?: CategoryDefaults.forType(fix.type)
+                    } else {
+                        category
+                    }
+                    db.execSQL(
+                        "UPDATE transactions SET type = ?, amount_kopecks = ?, merchant = ?, category_id = ? WHERE id = ?",
+                        arrayOf(fix.type.name, fix.amountKopecks, fix.merchant, newCategory, id),
+                    )
+                }
+
+                // ── 2. Расходы в машинной категории ──
+                val recat = mutableListOf<Pair<String, String>>()
+                db.query(
+                    """
+                    SELECT id, merchant FROM transactions
+                    WHERE is_deleted = 0 AND type = 'EXPENSE' AND merchant IS NOT NULL
+                      AND source != 'MANUAL'
+                      AND (category_id IS NULL OR category_id = 'cat_other')
+                    """.trimIndent()
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        val cat = SberPushRepair.categorize(c.getString(1), rules) ?: continue
+                        if (cat != "cat_other") recat += c.getString(0) to cat
+                    }
+                }
+                recat.forEach { (id, cat) ->
+                    db.execSQL("UPDATE transactions SET category_id = ? WHERE id = ?", arrayOf(cat, id))
+                }
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -756,10 +854,55 @@ abstract class FosDatabase : RoomDatabase() {
                 Triple("r460", "цветы",             "cat_shopping"),
                 Triple("r470", "wizz air",          "cat_travel"),
                 Triple("r471", "wizzair",           "cat_travel"),
+                // ── Выгрузка тестера (v22) ──────────────────────────────────────────
+                // Всё ниже лежало в «Другом». Сбер пишет продавца и латиницей, и кириллицей.
+                Triple("r480", "яндекс go",         "cat_transport"),
+                Triple("r481", "яндексgo",          "cat_transport"),
+                Triple("r482", "yandex go",         "cat_transport"),
+                Triple("r483", "yandexgo",          "cat_transport"),
+                Triple("r484", "yandex.go",         "cat_transport"),
+                Triple("r485", "yandex*go",         "cat_transport"),
+                Triple("r486", "yandex.taxi",       "cat_transport"),
+                Triple("r487", "yandex taxi",       "cat_transport"),
+                Triple("r488", "taxi",              "cat_transport"),
+                Triple("r490", "magnit",            "cat_grocery"),
+                Triple("r491", "monetka",           "cat_grocery"),
+                Triple("r492", "монетка",           "cat_grocery"),
+                Triple("r493", "fix price",         "cat_grocery"),
+                Triple("r494", "fixprice",          "cat_grocery"),
+                Triple("r495", "фикс прайс",        "cat_grocery"),
+                Triple("r496", "vkusvill",          "cat_grocery"),
+                Triple("r497", "pyaterochka",       "cat_grocery"),
+                Triple("r498", "perekrestok",       "cat_grocery"),
+                Triple("r500", "apteka",            "cat_health"),
+                Triple("r501", "аптечн",            "cat_health"),
+                Triple("r502", "dental",            "cat_health"),
+                Triple("r503", "дентал",            "cat_health"),
+                Triple("r504", "medsi",             "cat_health"),
+                Triple("r510", "pizza",             "cat_food"),
+                Triple("r511", "subway",            "cat_food"),
+                Triple("r512", "kafe",              "cat_food"),
+                Triple("r513", "pekar",             "cat_food"),
+                Triple("r514", "lakomka",           "cat_food"),
+                Triple("r515", "umnyy riteyl",      "cat_food"),
+                Triple("r516", "dodo",              "cat_food"),
+                Triple("r517", "додо",              "cat_food"),
+                Triple("r520", "яндексплюс",        "cat_subscription"),
+                Triple("r521", "yandexplus",        "cat_subscription"),
+                Triple("r522", "vk music",          "cat_subscription"),
+                Triple("r530", "энергосбыт",        "cat_housing"),
+                Triple("r531", "energosbyt",        "cat_housing"),
             )
             insertRules(db, rules, priority = 0)
             insertRules(db, PRIORITY_RULES, priority = 1)
+            // «WB» — только отдельным словом: подстрока «wb» сидит внутри случайных латинских имён.
+            // Сопоставление по подстроке тут не годится, поэтому это регулярка.
+            insertRules(db, REGEX_RULES, priority = 0, isRegex = true)
         }
+
+        private val REGEX_RULES = listOf(
+            Triple("r540", "(?<![a-z0-9])wb(?![a-z0-9])", "cat_shopping"),
+        )
 
         /**
          * Правила, которые обязаны победить более широкое правило, стоящее РАНЬШЕ них в списке.
@@ -781,11 +924,12 @@ abstract class FosDatabase : RoomDatabase() {
             db      : SupportSQLiteDatabase,
             rules   : List<Triple<String, String, String>>,
             priority: Int,
+            isRegex : Boolean = false,
         ) {
             rules.forEach { (id, pattern, catId) ->
                 db.execSQL(
-                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, ?, 0)",
-                    arrayOf(id, pattern, catId, priority),
+                    "INSERT OR IGNORE INTO merchant_rules(id, pattern, category_id, priority, is_regex) VALUES(?, ?, ?, ?, ?)",
+                    arrayOf(id, pattern, catId, priority, if (isRegex) 1 else 0),
                 )
             }
         }

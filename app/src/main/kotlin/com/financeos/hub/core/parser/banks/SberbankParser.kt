@@ -4,6 +4,7 @@ import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.AmountParser
 import com.financeos.hub.core.parser.BankParser
 import com.financeos.hub.core.parser.ParsedTransaction
+import com.financeos.hub.core.parser.SberPushTitle
 import com.financeos.hub.core.parser.TransferPatterns
 import com.financeos.hub.core.parser.ciRegex
 import javax.inject.Inject
@@ -56,8 +57,42 @@ class SberbankParser @Inject constructor() : BankParser {
         "(?:Карта|СЧЁТ|СЧЕТ)\\s*[*•·]{1,2}\\s*(\\d{4})|[*•·]{1,2}\\s*(\\d{4})(?!\\d)")
     private val pushIncomeKw = ciRegex("(?:Зачисление|Пополнение)")
 
+    // ── Сумма без склейки с названием ──────────────────────────────────────────
+    // Прежний [pushAmtRe] начинает сумму с ЛЮБОЙ цифры и тянет через пробелы, поэтому цифры в конце
+    // названия прилипали к сумме: «DODO PIZZA PERM-5 1 034 ₽» → 51 034 ₽, «R15173685 90 ₽» →
+    // 1 517 368 590 ₽ (реальные пуши, у тестера «трат на сто миллионов»). Сумма записывается по
+    // правилам денег: 1–3 цифры, дальше группы РОВНО по три, и не прямо после буквы или цифры.
+    // «5 1 034» так не разбить, «15173685 90» — тоже: остаётся только настоящая сумма.
+    // Не нашлось (сумма без разбивки, «10000 ₽», «1500,00 ₽») — прежний шаблон: пуш не должен
+    // потеряться. Начинать сразу после «.»/«,» тоже нельзя: иначе в «1500,00 ₽» нашлись бы «00» —
+    // ноль, и пуш пропал бы, а в «12345,67 ₽» — «67».
+    private val pushAmtStrict = Regex(
+        "(?<![\\p{L}\\p{N}.,])(\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})*(?:[.,]\\d{1,2})?)\\s*₽")
+
+    // «+ 77,23 ₽» — знак прихода. Только отдельно стоящий плюс: «СберПрайм+ 399 ₽» — это название.
+    private val pushPlusBefore = Regex("(?:^|\\s)\\+\\s*$")
+
+    // Оплата по СБП / QR в магазине — это покупка, а не перевод. Проверяется ДО TransferPatterns,
+    // который считает переводом любое «СБП». Отдельное слово «перевод» в тексте — уже не покупка.
+    private val sbpPayment = ciRegex("""оплат\p{L}*\s+(?:\p{L}+\s+)?по\s+(?:СБП|QR)(?![А-Яа-яёЁ])""")
+    private val transferWord = ciRegex("""(?<![А-Яа-яёЁ])перевод""")
+
+    // Названия доходов вместо обрубков «пенсии +», «средств +».
+    private val incomeNames: List<Pair<Regex, String>> = listOf(
+        ciRegex("""^Зачисление\s+пенсии""")   to "Пенсия",
+        ciRegex("""^Выплата\s+процентов""")   to "Проценты",
+        ciRegex("""^Зачисление\s+зарплаты""") to "Зарплата",
+        ciRegex("""^Зачисление\s+средств""")  to "Зачисление",
+    )
+
     override fun parse(sender: String, body: String, timestampMillis: Long): ParsedTransaction? {
         val smsId = "${sender}_${timestampMillis}_${body.hashCode()}"
+
+        // Оплата по СБП в магазине — покупка: сначала разбор пуша, и только если он не справился,
+        // прежний путь через TransferPatterns (как было до правки, чтобы пуш не потерялся).
+        if (sbpPayment.containsMatchIn(body) && !transferWord.containsMatchIn(body)) {
+            parsePush(body, smsId, timestampMillis)?.let { return it }
+        }
 
         // Transfers (перевод/СБП) must be recognised before expense/income so they are not
         // misread as a purchase or as inverted-sign income.
@@ -124,17 +159,36 @@ class SberbankParser @Inject constructor() : BankParser {
         val balance  = AmountParser.toKopecks(balMatch.groupValues[1]).takeIf { it >= 0L } ?: return null
 
         val bodyBeforeBal = body.substring(0, balMatch.range.first)
-        val amtMatch = pushAmtRe.findAll(bodyBeforeBal).lastOrNull() ?: return null
+        val amtMatch = pushAmtStrict.findAll(bodyBeforeBal).lastOrNull()
+            ?.takeIf { AmountParser.toKopecks(it.groupValues[1]) > 0L }
+            ?: pushAmtRe.findAll(bodyBeforeBal).lastOrNull()
+            ?: return null
         val amount   = AmountParser.toKopecks(amtMatch.groupValues[1])
         if (amount <= 0L) return null
 
         val card     = pushCardRe.find(body)?.let { m -> m.groupValues.drop(1).firstOrNull { it.isNotEmpty() } }
-        val isIncome = pushIncomeKw.containsMatchIn(body)
-        val merchant = bodyBeforeBal.substring(0, amtMatch.range.first)
-            .trim().trim('.', ',', ';', '-', '—', '–', ' ')
-            .replace(pushOpPrefix, "")
-            .trim()
-            .takeIf { it.isNotBlank() }
+        val beforeAmt = bodyBeforeBal.substring(0, amtMatch.range.first)
+        val isIncome = pushIncomeKw.containsMatchIn(body) || pushPlusBefore.containsMatchIn(beforeAmt)
+        val title    = SberPushTitle.parse(beforeAmt, pushOpPrefix, incomeNames)
+        val merchant = title.name
+
+        // «Деньги отправились в Альфа-Банк», «Денежки уже в Яндекс Банк» — деньги ушли в другой
+        // банк, это перевод, а не покупка. Только расход и только в игривом заголовке «ушли в …»:
+        // «Оплата Почта Банк» — платёж по кредиту, это трата, и она закрывает обязательство.
+        if (!isIncome && title.playful && SberPushTitle.isBank(merchant)) {
+            return ParsedTransaction(
+                type           = TransactionType.TRANSFER,
+                amountKopecks  = amount,
+                merchant       = merchant,
+                cardMask       = card,
+                balanceKopecks = balance,
+                timestamp      = ts,
+                bankId         = bankId,
+                rawSms         = body,
+                smsId          = smsId,
+                outgoing       = true,
+            )
+        }
 
         return ParsedTransaction(
             type           = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE,
