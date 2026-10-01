@@ -48,7 +48,7 @@ class InvestorViewModel @Inject constructor(
             0L  to "Пополнение счета Вы пополнили счет №580922/19-м на 10 000 RUB",
             3L  to "LQDT: заявка активна Лимитная заявка на покупку 4760 лотов LQDT по 2.0984",
             11L to "LQDT: заявка отменена Лимитная заявка на покупку 4760 лотов LQDT по 2.0984",
-            11L to "LQDT: заявка исполнена Лимитная заявка на покупку 4760 лотов LQDT по 2.0985",
+            12L to "LQDT: заявка исполнена Лимитная заявка на покупку 4760 лотов LQDT по 2.0985",
         )
         Portfolio.compute(pushes.mapNotNull { (m, text) -> BrokerPushParser.parse(text, start + m * minute) })
     }

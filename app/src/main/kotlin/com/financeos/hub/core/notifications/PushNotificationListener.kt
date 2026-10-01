@@ -2,6 +2,7 @@ package com.financeos.hub.core.notifications
 
 import android.app.Notification
 import android.content.Context
+import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
@@ -100,9 +101,19 @@ class PushNotificationListener : NotificationListenerService() {
      * вставляется: брокерские события начнут записываться следующим шагом.
      */
     private fun noteBrokerPackage(sbn: StatusBarNotification) {
+        // Отсеивается ДО чтения текста: собственные уведомления, приложение SMS (БКС может дублировать
+        // пуш смской, и тогда запомнилось бы оно), «идущие» уведомления (музыка, загрузки — их
+        // переотправляют постоянно) и сводки групп (текста в них нет, он в дочерних).
+        val n = sbn.notification ?: return
+        if (sbn.packageName == packageName) return
+        if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        if (sbn.packageName == runCatching { Telephony.Sms.getDefaultSmsPackage(this) }.getOrNull()) return
         scope.launch {
             if (!userPreferences.pushListenerEnabled.first()) return@launch
-            if (userPreferences.brokerPackage.first() == sbn.packageName) return@launch
+            // Найденное не перезаписывается: первым совпадением становится приложение брокера, а
+            // пересланный в мессенджер пуш иначе переписал бы имя при каждой пересылке. Заодно,
+            // когда имя уже известно, чужие уведомления больше не читаются вовсе.
+            if (userPreferences.brokerPackage.first() != null) return@launch
             val body = extractBody(sbn)
             if (body.isBlank()) return@launch
             val normalized = body.replace('\u00A0', ' ').replace('\u202F', ' ')
@@ -122,7 +133,9 @@ class PushNotificationListener : NotificationListenerService() {
     private fun extractBody(sbn: StatusBarNotification): String {
         val n = sbn.notification ?: return ""
         val extras = n.extras ?: return ""
-        val title   = extras.getString(Notification.EXTRA_TITLE)?.trim() ?: ""
+        // getCharSequence, не getString: заголовок с оформлением (Spanned) getString молча отдаёт как
+        // null — и заголовок «LQDT: заявка исполнена» или «Покупка» пропадал из текста целиком.
+        val title   = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
         val text    = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
         val detail  = if (bigText.length > text.length) bigText else text

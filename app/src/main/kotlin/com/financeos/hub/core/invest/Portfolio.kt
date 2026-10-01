@@ -130,6 +130,9 @@ object Portfolio {
         val orders = sorted.filterIsInstance<BrokerOrder>()
         // Одна заявка приходит несколькими пушами (активна → исполнена). В ленте — последний статус:
         // «активна» после «исполнена» той же заявки — это уже прошлое, а не вторая заявка.
+        // Цена в ключ НЕ входит: переставленная заявка (2.0984 → 2.0985, как у БКС 1 октября) — та же
+        // заявка. Цена ключа — две настоящие разные активные заявки одного объёма склеятся в одну
+        // строку; номера заявки в пуше нет, развести их нечем.
         val latest = orders.groupBy { listOf(it.broker, it.ticker, it.side, it.lots) }
             .values.map { it.last() }
         val active = latest.filter { it.status == OrderStatus.ACTIVE }.sortedByDescending { it.timestamp }

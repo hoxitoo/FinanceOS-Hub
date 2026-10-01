@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,7 +107,7 @@ fun DashboardScreen(
     val investorVm: InvestorViewModel = hiltViewModel()
     val investorMode  by investorVm.investorMode.collectAsState()
     val brokerPackage by investorVm.brokerPackage.collectAsState()
-    var showInvestSample by remember { mutableStateOf(false) }
+    var showInvestSample by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -135,9 +136,13 @@ fun DashboardScreen(
                 // «Кошелёк | Инвестор» — в свободном месте шапки, по центру между заголовком и
                 // кнопками. Пока настройка не прочитана, переключатель не рисуется: показать «Кошелёк»
                 // выбранным, а через миг перещёлкнуть — значит соврать на долю секунды.
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
                     investorMode?.let { inv ->
-                        ModeSwitch(investor = inv, onChange = { investorVm.setInvestorMode(it) })
+                        ModeSwitch(
+                            investor = inv,
+                            onChange = { investorVm.setInvestorMode(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

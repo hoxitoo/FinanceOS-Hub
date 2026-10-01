@@ -33,7 +33,6 @@ import com.financeos.hub.ui.theme.FosFormatter
 import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.fosCard
-import com.financeos.hub.ui.theme.fosCardSurface
 import com.financeos.hub.ui.theme.fosHeroCard
 import java.text.NumberFormat
 import java.util.Locale
@@ -112,7 +111,7 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit) {
             modifier = Modifier
                 .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .clickable(onClick = onShowSample)
-                .padding(vertical = 6.dp),
+                .padding(vertical = 12.dp),
         )
     }
 }
@@ -148,8 +147,10 @@ private fun PortfolioHero(portfolio: Portfolio.Result, isSample: Boolean, onHide
                 color = FosColors.TextSecondary,
             )
             val pct = s.pnlPercent?.let { " (${signedPercent(it)})" } ?: ""
+            // Ноль — без знака: «+0,00 ₽ (0,00 %)» спорит само с собой.
+            val pnl = if (s.pnlKopecks == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(s.pnlKopecks, sym)
             Text(
-                "Результат ${FosFormatter.signedAmount(s.pnlKopecks, sym)}$pct",
+                "Результат $pnl$pct",
                 style = FosType.SmallBold,
                 color = pnlColor(s.pnlKopecks),
             )
@@ -200,7 +201,11 @@ private fun PositionRow(p: Portfolio.Position) {
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(FosFormatter.amount(p.valueKopecks, sym), style = FosType.SmallBold, color = FosColors.TextPrimary)
-            Text(FosFormatter.signedAmount(p.pnlKopecks, sym), style = FosType.MicroNum, color = pnlColor(p.pnlKopecks))
+            Text(
+                if (p.pnlKopecks == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(p.pnlKopecks, sym),
+                style = FosType.MicroNum,
+                color = pnlColor(p.pnlKopecks),
+            )
         }
     }
 }
@@ -214,8 +219,8 @@ private fun OrderRow(o: BrokerOrder) {
         OrderStatus.CANCELLED -> "Отменена"  to FosColors.TextMuted
     }
     Row(
-        modifier = Modifier.fillMaxWidth().fosCardSurface(FosCardStyle.Sunken, FosTone.Neutral, FosDimens.RadiusCardSmall)
-            .padding(FosDimens.CardPaddingSmall),
+        modifier = Modifier.fillMaxWidth()
+            .fosCard(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall, FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
