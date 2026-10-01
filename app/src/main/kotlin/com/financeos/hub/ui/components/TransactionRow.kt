@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.parser.MerchantNames
@@ -160,9 +161,17 @@ fun TransactionRow(
                         style = FosType.TxAmount,
                         color = FosColors.TextPrimary,
                     )
-                    if (transaction.goalId != null) {
+                    // Куда ушли деньги — подписью под суммой, нейтрально: перевод не красится ни в
+                    // расход, ни в доход (правило #2), а «↔» без подписи не говорит, наружу или к себе.
+                    val note = when {
+                        transaction.goalId != null -> "→ в цель"
+                        InvestmentTransfers.isInvestmentTransfer(transaction) ->
+                            if (transaction.amountKopecks < 0) "→ брокеру" else "← от брокера"
+                        else -> null
+                    }
+                    note?.let {
                         Text(
-                            text  = "→ в цель",
+                            text  = it,
                             style = FosType.Micro,
                             color = FosColors.TextSecondary,
                         )

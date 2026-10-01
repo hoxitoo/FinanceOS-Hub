@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.database.converters.FosTypeConverters
 import com.financeos.hub.core.database.daos.AccountDao
 import com.financeos.hub.core.database.daos.BudgetDao
@@ -23,6 +24,7 @@ import com.financeos.hub.core.database.entities.GoalEntity
 import com.financeos.hub.core.database.entities.MerchantRuleEntity
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
+import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.core.database.entities.TransferRouteEntity
 
 @Database(
@@ -37,7 +39,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -400,6 +402,53 @@ abstract class FosDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Категория «Инвестиции» + разметка уже записанных пополнений брокерского счёта.
+         *
+         * Деньги, ушедшие брокеру, — перевод своих денег, а не трата ([InvestmentTransfers]). Новые
+         * сообщения размечаются при разборе; старые лежат в истории расходом и продолжали бы занижать
+         * оценку и раздувать траты за прошлые месяцы. Поэтому здесь сделано исключение из правила
+         * «категория не переразмечается задним числом» — и оно узкое, как у [MIGRATION_14_15]:
+         * строка трогается, только если она ВСЁ ЕЩЁ в той категории, которую поставила машина
+         * («Другое», без категории, «Прочие доходы»). Строку, которую человек разложил руками, не
+         * трогаем: признака «кто поставил категорию» в схеме нет, и чужой выбор дороже.
+         *
+         * Условие — тот же [InvestmentTransfers.needsRelabel], что и при восстановлении копии, а
+         * получатель проверяется тем же [InvestmentTransfers.isBroker], что и при разборе,
+         * а не отдельным LIKE: два списка признаков разошлись бы с первой же правкой, а у LIKE ещё и
+         * регистр кириллицы не сворачивается (инвариант #13).
+         *
+         * Меняются только тип и категория. Сумма и её знак прежние, поэтому баланс счёта, откат при
+         * удалении (`balanceEffectOf` от типа не зависит) и цели остаются ровно такими же.
+         */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertDefaultCategories(db)
+
+                val ids = mutableListOf<String>()
+                db.query(
+                    """
+                    SELECT id, type, category_id, merchant FROM transactions
+                    WHERE is_deleted = 0 AND merchant IS NOT NULL
+                      AND type IN ('EXPENSE', 'INCOME')
+                      AND (category_id IS NULL OR category_id IN ('cat_other', 'cat_income'))
+                    """.trimIndent()
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        val type = runCatching { TransactionType.valueOf(c.getString(1)) }.getOrNull() ?: continue
+                        val category = if (c.isNull(2)) null else c.getString(2)
+                        if (InvestmentTransfers.needsRelabel(type, category, c.getString(3))) ids += c.getString(0)
+                    }
+                }
+                ids.forEach { id ->
+                    db.execSQL(
+                        "UPDATE transactions SET type = 'TRANSFER', category_id = ? WHERE id = ?",
+                        arrayOf(InvestmentTransfers.CATEGORY, id),
+                    )
+                }
+            }
+        }
+
         val PREPOPULATE_CALLBACK = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -432,6 +481,8 @@ abstract class FosDatabase : RoomDatabase() {
                 // reshuffle new installs for no benefit.
                 Triple("cat_betting",    "Букмекер",         "🎰"),
                 Triple("cat_subscription", "Подписки",       "🔄"),
+                // Перевод брокеру и от него (InvestmentTransfers) — не трата и не доход.
+                Triple(InvestmentTransfers.CATEGORY, "Инвестиции", "📈"),
             )
             val colors = listOf(
                 "#FFB84D", "#4DFFA0", "#4D9FFF", "#FF6B6B", "#C084FC",
@@ -440,6 +491,7 @@ abstract class FosDatabase : RoomDatabase() {
                 "#4DFFA0", "#22D3A6", "#38BDF8",
                 "#F87171",   // cat_betting
                 "#818CF8",   // cat_subscription
+                "#FACC15",   // cat_invest
             )
             cats.forEachIndexed { i, (id, name, emoji) ->
                 db.execSQL(

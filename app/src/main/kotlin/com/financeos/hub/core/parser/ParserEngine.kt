@@ -23,9 +23,14 @@ class ParserEngine @Inject constructor(
         // bank parser, and a parser that recognises the sender may still fail to match the
         // body. Try every parser that recognises the sender and return the first that
         // actually produces a transaction, instead of giving up after the first match.
+        //
+        // Then one bank-agnostic pass: money sent to / received from a broker is a transfer of the
+        // person's own money, not spending or earnings (see InvestmentTransfers). Done here, once,
+        // so live SMS, push and the 90-day import all see the same answer.
         return parsers.asSequence()
             .filter { it.canHandle(sender) }
             .firstNotNullOfOrNull { it.parse(sender, normalizedBody, timestampMillis) }
+            ?.let(InvestmentTransfers::reclassify)
     }
 
     /**

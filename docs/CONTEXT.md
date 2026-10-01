@@ -65,6 +65,7 @@ Room schema **version 18**. Every migration is registered in `DatabaseModule.add
 | 17→18 | `goals.started_at` — когда начали копить; добавляется ПУСТЫМ, не из `created_at` |
 | 18→19 | `planned_payments.matched_tx_ids` — ВСЕ операции, закрывшие период (счёт, оплаченный по частям), а не одна |
 | 19→20 | `transactions.balance_detached` — строка на счёте, чья сумма в балансе не лежит (банк уже учёл её «Остатком»); ставится только правкой счёта |
+| 20→21 | category `cat_invest` («Инвестиции») + переразметка уже записанных пополнений брокера в TRANSFER — только строки в машинной категории, признак тот же `InvestmentTransfers.isBroker` |
 
 Схема растёт **только** миграцией: сборка падает при несоответствии, а `fallbackToDestructiveMigration`
 в этом проекте означал бы «стереть всю историю операций пользователя при обновлении».
@@ -152,7 +153,7 @@ rejectedTxId: String?       ← operation the user rejected via «Отвязат
 isActive: Boolean           ← soft delete: the row survives so autoSource keeps its claim
 ```
 
-## Default Categories (18)
+## Default Categories (19)
 ```
 Expense (15):
 cat_food, cat_grocery, cat_transport, cat_housing, cat_health,
@@ -161,11 +162,13 @@ cat_beauty, cat_pets, cat_other, cat_betting (Букмекер 🎰),
 cat_subscription (Подписки 🔄)
 Income (3):
 cat_salary (Зарплата 💼), cat_income (Прочие доходы 💰), cat_cashback (Кэшбэк 💸)
+Transfer (1):
+cat_invest (Инвестиции 📈) — перевод брокеру и от него, не трата (InvestmentTransfers)
 ```
 `sort_order` is the seed-list index, and existing installs keep their stored order via
 `INSERT OR IGNORE` — so a **new category must be appended LAST**, never inserted mid-list,
 or new and existing installs would disagree on the order. The colour list must be extended
-in step (18 categories / 18 colours) to keep `colors[i]` in range.
+in step (19 categories / 19 colours) to keep `colors[i]` in range.
 
 ### Adding a category is TWO operations, not one
 Seeding the category and its rules is only half the job. Rules go in with `INSERT OR IGNORE`
@@ -1070,9 +1073,10 @@ data class BankBrand(
 ### Suggested implementation order
 1. ~~`AccountKind` column + migration + net-worth split by kind~~ — сделано (v10→v12)
 2. ~~Credit cards (excluded from balance, transfer-routed repayments)~~ — сделано
-3. **Investment accounts** — следующий заход. Начинать с РАСПОЗНАВАНИЯ, а не с экрана:
-   пополнение брокерского счёта («Получатель платежа BKS Mir Investitsiy», реальный пуш Альфы)
-   сейчас проводится расходом и занижает финансовое здоровье, хотя деньги никуда не делись.
-   Порядок: правило распознавания → `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
+3. **Investment accounts** — распознавание СДЕЛАНО (v20→v21, `InvestmentTransfers`, инвариант #43 в
+   `CLAUDE.md`): пополнение брокера — перевод с категорией «Инвестиции», а не расход.
+   Каркас режима «Инвестор» СДЕЛАН (`core/invest/`, `features/investor/`, инвариант #44): переключатель,
+   экран, разбор пушей БКС, расчёт портфеля. Дальше: запись событий брокера → склейка ног пополнения →
+   `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
    → `EventKind.INVESTMENT` в календаре (место уже зарезервировано, нужна одна `fromInvestments(...)`).
 4. ~~Bank registry refactor~~ (done) + branded card UI (independent UI track; do once references arrive)
