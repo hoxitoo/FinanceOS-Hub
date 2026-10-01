@@ -154,4 +154,19 @@ class InvestmentTransfersTest {
         assertFalse(InvestmentTransfers.isInvestmentTransfer(row(TransactionType.EXPENSE, InvestmentTransfers.CATEGORY)))
         assertFalse(InvestmentTransfers.isInvestmentTransfer(row(TransactionType.TRANSFER, null)))
     }
+
+    // ── Название для экрана ──────────────────────────────────────────────────────
+
+    @Test
+    fun `the broker is shown by its Russian name`() {
+        // Альфа пишет получателя транслитом; в списке операций человек ищет глазами «БКС».
+        assertEquals("БКС", MerchantNames.display("BKS Mir Investitsiy"))
+        assertEquals("БКС", InvestmentTransfers.brokerName("ООО Компания БКС"))
+        assertEquals("Т-Инвестиции", InvestmentTransfers.brokerName("Tinkoff Investicii"))
+        assertEquals("Альфа-Инвестиции", InvestmentTransfers.brokerName("АЛЬФА-ИНВЕСТИЦИИ"))
+        assertEquals("Финам", InvestmentTransfers.brokerName("АО ФИНАМ"))
+        // Обычный продавец показывается как раньше.
+        assertEquals("Пятёрочка", MerchantNames.display("Пятёрочка"))
+        assertNull(InvestmentTransfers.brokerName("ООО УК Инвестиционные решения"))
+    }
 }

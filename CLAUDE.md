@@ -1090,6 +1090,12 @@ rowid). Дубликат паттерна с новым id встанет поз
   пометку брокера — перевод без категории снова спаривался бы с чужим.
 - `isInvestmentTransfer` требует И тип TRANSFER, И категорию: строка, которую человек перевёл в
   расход, — его выбор, и считается расходом.
+- **Брокер показывается по-русски** (`brokerName` → `MerchantNames.display`): Альфа пишет получателя
+  транслитом «BKS Mir Investitsiy», а в списке стоит «БКС». Исходный текст в операции не меняется —
+  по нему ищет поиск, он виден в карточке. Признак и название — одна таблица `BROKERS`, поэтому
+  «узнан как брокер» и «назван брокером» не могут разойтись.
+- **Новости и акции приложения брокера** («Новая публикация BCS_Platform: ⚡ БКС Мир инвестиций…»)
+  не разбираются: ни пополнения, ни заявки в них нет. Закреплено `BrokerPushParserTest`.
 
 ### 44. Режим «Инвестор» — другие деньги, и кошелёк их не видит ФИЗИЧЕСКИ
 Пуши брокера (пополнение брокерского счёта, заявки, сделки) и сам брокерский счёт показываются
@@ -1153,7 +1159,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (40 файлов, 497 случаев) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (40 файлов, 498 случаев) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`
