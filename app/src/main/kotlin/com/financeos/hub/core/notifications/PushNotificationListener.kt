@@ -197,7 +197,7 @@ class PushNotificationListener : NotificationListenerService() {
             return
         }
 
-        val accountId  = accountLinker.resolveAccountId(rawParsed.cardMask, rawParsed.bankId)
+        val accountId  = accountLinker.resolveAccountId(rawParsed.cardMask, rawParsed.bankId, hasBalance = rawParsed.balanceKopecks != null)
         // Money arriving ON a credit card is a repayment, not income — see asRepaymentIfCredit.
         // Done after the account is resolved, because only the account knows it is a credit card.
         val parsed = asRepaymentIfCredit(rawParsed, accountLinker.kindOf(accountId))

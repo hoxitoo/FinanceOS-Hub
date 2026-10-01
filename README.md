@@ -26,6 +26,8 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 | **Фильтры операций** | Одна строка: лупа-поиск (раскрывается по нажатию), меню «Тип операции» (Все / Расходы / Доходы / **Переводы**) и «Дата» — календарь на один день или период. Пустой список при выставленном фильтре честно пишет «Ничего не найдено», а не «Операций пока нет» |
 | **Чья это карта** | На каждой операции видно источник — «•• 6703» в цвете банка. Заметность зависит от того, насколько источник редок среди видимых строк: карта, с которой идёт большинство покупок, подписана тихо-серым, а редкая — цветом банка. При 90 % операций с одного банка одинаковая цветная метка на всех строках превратилась бы в фон и перестала что-либо различать |
 | **Пополнение брокера** | Деньги, ушедшие брокеру («Получатель платежа BKS Mir Investitsiy» и другие брокеры), — это перевод своих денег, а не трата: в списке «БКС · ↔ 10 000 ₽ · → брокеру» с категорией «Инвестиции» (брокер назван по-русски, хотя банк пишет «BKS Mir Investitsiy»), и они не попадают ни в траты, ни в бюджет, ни в оценку финансового здоровья. Вывод от брокера — тоже перевод, а не заработок. Брокер узнаётся по названию (БКС, Т-/Альфа-/ВТБ-/Сбер-Инвестиции, Финам, Freedom Finance, «Открытие Брокер»), а не по слову «инвестиции» — застройщик или «инвестиционный банк» тратой остаются. Уже записанные пополнения переразмечаются при обновлении и при восстановлении старой копии, если категорию у них не меняли руками. Восстановление копии больше не сбрасывает категории у операций на устройстве |
+| **Пуши Сбера с «игривым» заголовком** | «Шикарный перекус в DODO PIZZA PERM-5 1 034 ₽» — это трата 1 034 ₽ в «DODO PIZZA PERM-5», а не 51 034 ₽ в «Шикарный перекус в …»: цифры в конце названия больше не прилипают к сумме, весёлая фраза Сбера отрезается. Оплата по СБП в магазине — покупка, «Выплата процентов + 77 ₽» — доход, «Деньги отправились в Альфа-Банк» — перевод. Уже записанная история исправляется при обновлении (кроме строк, которые вы правили руками) |
+| **Карты, которых нет в приложении** | Операция с карты, не заведённой в приложении, больше не попадает на единственный счёт того же банка и не переписывает его баланс чужим «Остатком». На главной появляется подсказка с номерами таких карт: нажмите номер — откроется новый счёт с этим номером; добавленная карта забирает свои операции сама |
 | **Режим «Инвестор» (подготовка)** | Переключатель «Кошелёк \| Инвестор» в шапке главной — выпуклый ползунок, который переезжает под выбранный режим и меняет цвет: серебро — кошелёк, индиго — инвестор. В режиме инвестора — своя палитра (индиго) и свой экран: портфель, брокеры, позиции, заявки и сделки; покупок, переводов и карт кошелька там нет. Пока пуши брокера не записываются — экран показывает пустое состояние, а по кнопке — пример, посчитанный из реальных пушей БКС. Приложение само замечает, из какого приложения приходят пуши брокера |
 | **Swipe-to-delete** | Swipe **left** to reveal a red trash button, tap it to confirm — a flick alone never deletes |
 | **PDF import** | Import bank statements (Alfa-Bank "Операции по счету" layout) via SAF |
@@ -86,7 +88,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ## Screens
 
 1. **Dashboard** — net worth hero (3 variants: Calm/Contrast/Minimal), current-month label, income/expense/forecast metrics, **credit-card tile** (free limit + debt + nearest deadline), **«Свободно» tile** (без обязательств — приглашение в календарь, с ними — само число), accounts with volumetric bank cards, clickable recent transactions
-2. **Transactions** — сгруппированный по дням список; одна строка фильтров — 🔍 (поиск раскрывается по нажатию), «Тип операции» (Все / Расходы / Доходы / Переводы) и «Дата» (один день или период); swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, «↑ Экспорт» (CSV), «↓ Импорт» (PDF)
+2. **Transactions** — сгруппированный по дням список; одна строка фильтров — 🔍 (поиск раскрывается по нажатию), «Тип операции» (Все / Расходы / Доходы / Переводы) и «Дата» (один день или период); swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, «↑ Экспорт» (CSV: дата, тип — расход / доход / перевод исходящий или входящий, сумма, валюта, получатель, категория), «↓ Импорт» (PDF)
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
    - **Категории** — interactive 3D pie (tap to explode), ТОП-3 траты, full category list; tap any category for a month-vs-month drill-down of its operations
@@ -105,7 +107,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 
 - **Kotlin** + **Jetpack Compose** (BOM 2024.06, Material 3, custom dark theme)
 - **Hilt** — dependency injection with `@IntoSet` multibinding for parsers
-- **Room 2.6.1** — local SQLite, schema **v21** (20 миграций, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
+- **Room 2.6.1** — local SQLite, schema **v22** (21 миграция, каждая зарегистрирована в `DatabaseModule`), amounts as Long kopecks (×100). Account writes use `@Upsert` (never `@Insert(REPLACE)`, which would CASCADE-delete the account's cards)
 - **DataStore** — ~20 preference keys (hero variant, notifications, ML, shimmer/cat mode, SMS opt-in, budget-alert throttle state, update prefs)
 - **WorkManager** + **HiltWorkerFactory** — daily analytics job + 12 h update check
 - **TFLite 2.14.0** — optional ML layer (graceful fallback when model files absent)
@@ -118,7 +120,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 ```
 app/
 ├── core/
-│   ├── database/       # Entities, DAOs, FosDatabase (v21 — 19 categories, ~216 merchant rules)
+│   ├── database/       # Entities, DAOs, FosDatabase (v22 — 19 categories, ~253 merchant rules)
 │   ├── parser/         # BankParser, ParserEngine, 13 bank parsers, TransferPatterns, PromoFilter, CreditNoticeParser, AmountParser, MerchantNames, ciRegex
 │   ├── classifier/     # DictionaryClassifier, CategoryDefaults, CategoryClassifier interface
 │   ├── sms/            # SmsReceiver (real-time), SmsReader (90-day import) — SMS only

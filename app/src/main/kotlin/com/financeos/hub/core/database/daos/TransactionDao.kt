@@ -216,5 +216,38 @@ interface TransactionDao {
     data class CategorySum(val category_id: String?, val total: Long)
 
     /** Latest bank-reported balance for an account plus the timestamp of the message it came from. */
+    /**
+     * Банковские строки карты [mask], лежащие на ДРУГОМ счёте, — кандидаты в переезд, когда карту
+     * заводят (инвариант #45). Только строки с «Остатком»: их сумма в балансе не лежит, и переезд
+     * не требует отката. Строки с целью или парой перевода не трогаются.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+          AND source IN ('SMS', 'PUSH')
+          AND source_mask = :mask
+          AND account_id IS NOT NULL AND account_id != :accountId
+          AND balance_kopecks IS NOT NULL
+          AND goal_id IS NULL AND transfer_pair_id IS NULL
+    """)
+    suspend fun bankRowsOfMaskElsewhere(mask: String, accountId: String): List<TransactionEntity>
+
+    @Query("UPDATE transactions SET account_id = :accountId, updated_at = :now WHERE id IN (:ids)")
+    suspend fun moveToAccount(ids: List<String>, accountId: String, now: Long = System.currentTimeMillis())
+
+    /**
+     * Номера карт из сообщений банка, которые не легли ни на один счёт: карта не заведена в
+     * приложении. Главная предлагает её добавить — иначе операции есть, а на счёте их нет.
+     */
+    @Query("""
+        SELECT DISTINCT source_mask FROM transactions
+        WHERE is_deleted = 0
+          AND account_id IS NULL
+          AND source IN ('SMS', 'PUSH')
+          AND source_mask IS NOT NULL AND source_mask != ''
+        ORDER BY source_mask
+    """)
+    fun observeUnknownMasks(): Flow<List<String>>
+
     data class BalanceSnapshot(val balanceKopecks: Long, val timestamp: Long)
 }
