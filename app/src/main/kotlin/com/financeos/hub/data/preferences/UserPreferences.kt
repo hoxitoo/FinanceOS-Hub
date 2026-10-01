@@ -83,6 +83,15 @@ class UserPreferences @Inject constructor(
         val UPDATE_NOTIFICATIONS_ENABLED = booleanPreferencesKey("update_notifications_enabled")
         /** Last release version we already notified about — prevents re-notifying every cycle. */
         val LAST_NOTIFIED_VERSION        = stringPreferencesKey("last_notified_version")
+
+        // ── Режим «Инвестор» ───────────────────────────────────────────────────
+        /** «WALLET» | «INVESTOR» — что показывает главная. По умолчанию кошелёк. */
+        val APP_MODE                     = stringPreferencesKey("app_mode")
+        /**
+         * Имя пакета приложения брокера, замеченное по пушу знакомого формата. Только имя пакета —
+         * текст уведомлений постороннего приложения не сохраняется.
+         */
+        val BROKER_PACKAGE               = stringPreferencesKey("broker_package")
     }
 
     val onboardingComplete: Flow<Boolean> = prefs
@@ -232,5 +241,20 @@ class UserPreferences @Inject constructor(
 
     suspend fun setLastNotifiedVersion(version: String) {
         context.dataStore.edit { it[LAST_NOTIFIED_VERSION] = version }
+    }
+
+    /** Режим главной: `true` — инвестор. Неизвестное значение — кошелёк. */
+    val investorMode: Flow<Boolean> = prefs
+        .map { it[APP_MODE] == "INVESTOR" }
+
+    val brokerPackage: Flow<String?> = prefs
+        .map { it[BROKER_PACKAGE] }
+
+    suspend fun setInvestorMode(enabled: Boolean) {
+        context.dataStore.edit { it[APP_MODE] = if (enabled) "INVESTOR" else "WALLET" }
+    }
+
+    suspend fun setBrokerPackage(pkg: String) {
+        context.dataStore.edit { it[BROKER_PACKAGE] = pkg }
     }
 }

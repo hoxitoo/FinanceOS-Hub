@@ -41,6 +41,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.financeos.hub.core.invest.Portfolio
+import com.financeos.hub.features.investor.InvestorViewModel
+import com.financeos.hub.features.investor.ModeSwitch
+import com.financeos.hub.features.investor.investorItems
 import com.financeos.hub.core.bank.BankRegistry
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
@@ -97,10 +101,17 @@ fun DashboardScreen(
     var selectedTx           by remember { mutableStateOf<com.financeos.hub.core.database.entities.TransactionEntity?>(null) }
     var showForecastInfo     by remember { mutableStateOf(false) }
 
+    // Режим «Инвестор». Всё — до LazyColumn и без условий (инвариант #4): переключатель меняет
+    // содержимое на лету, и условный вызов испортил бы таблицу слотов.
+    val investorVm: InvestorViewModel = hiltViewModel()
+    val investorMode  by investorVm.investorMode.collectAsState()
+    val brokerPackage by investorVm.brokerPackage.collectAsState()
+    var showInvestSample by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(FosColors.Background)
+            .background(if (investorMode == true) FosColors.InvestBackground else FosColors.Background)
             .padding(horizontal = FosDimens.ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(FosDimens.CardGap),
     ) {
@@ -120,6 +131,14 @@ fun DashboardScreen(
                         style = FosType.Label,
                         color = FosColors.TextSecondary,
                     )
+                }
+                // «Кошелёк | Инвестор» — в свободном месте шапки, по центру между заголовком и
+                // кнопками. Пока настройка не прочитана, переключатель не рисуется: показать «Кошелёк»
+                // выбранным, а через миг перещёлкнуть — значит соврать на долю секунды.
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    investorMode?.let { inv ->
+                        ModeSwitch(investor = inv, onChange = { investorVm.setInvestorMode(it) })
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // «Кот-режим»: persistent mood-matched mascot in the header for the CONTRAST /
@@ -144,6 +163,23 @@ fun DashboardScreen(
                     )
                 }
             }
+        }
+
+        // Режим «Инвестор»: дальше — только его содержимое, ни одного блока кошелька. Пока режим
+        // не прочитан — ничего: показать кошелёк инвестору (или наоборот) хуже, чем пустой миг.
+        when (investorMode) {
+            null -> return@LazyColumn
+            true -> {
+                investorItems(
+                    portfolio     = if (showInvestSample) investorVm.sample else Portfolio.EMPTY,
+                    isSample      = showInvestSample,
+                    brokerPackage = brokerPackage,
+                    onShowSample  = { showInvestSample = true },
+                    onHideSample  = { showInvestSample = false },
+                )
+                return@LazyColumn
+            }
+            false -> Unit
         }
 
         // Hero — variant-based (CALM / CONTRAST / MINIMAL)

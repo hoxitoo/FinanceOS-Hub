@@ -1075,6 +1075,8 @@ data class BankBrand(
 2. ~~Credit cards (excluded from balance, transfer-routed repayments)~~ — сделано
 3. **Investment accounts** — распознавание СДЕЛАНО (v20→v21, `InvestmentTransfers`, инвариант #43 в
    `CLAUDE.md`): пополнение брокера — перевод с категорией «Инвестиции», а не расход.
-   Дальше: `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
+   Каркас режима «Инвестор» СДЕЛАН (`core/invest/`, `features/investor/`, инвариант #44): переключатель,
+   экран, разбор пушей БКС, расчёт портфеля. Дальше: запись событий брокера → склейка ног пополнения →
+   `AccountKind.INVESTMENT` в расчётах → отдельный итог на главной
    → `EventKind.INVESTMENT` в календаре (место уже зарезервировано, нужна одна `fromInvestments(...)`).
 4. ~~Bank registry refactor~~ (done) + branded card UI (independent UI track; do once references arrive)

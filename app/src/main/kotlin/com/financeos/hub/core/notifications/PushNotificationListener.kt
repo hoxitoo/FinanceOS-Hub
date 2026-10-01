@@ -5,6 +5,7 @@ import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
+import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.account.AccountLinker
 import com.financeos.hub.core.credit.CreditNoticeApplier
 import com.financeos.hub.core.credit.asRepaymentIfCredit
@@ -72,7 +73,11 @@ class PushNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val sender = PACKAGE_TO_SENDER[sbn.packageName] ?: return
+        val sender = PACKAGE_TO_SENDER[sbn.packageName]
+        if (sender == null) {
+            noteBrokerPackage(sbn)
+            return
+        }
         // Признак жизни ставится ДО всех проверок и до корутины: важно, что уведомление вообще
         // дошло до службы. Станет оно операцией или окажется рекламой — уже другой вопрос, и на
         // диагностику «работает / не работает» он влиять не должен.
@@ -82,6 +87,28 @@ class PushNotificationListener : NotificationListenerService() {
             val body = extractBody(sbn)
             if (body.isBlank()) return@launch
             processPush(sender, body, sbn.postTime)
+        }
+    }
+
+    /**
+     * Режим «Инвестор», подготовка: какое приложение присылает пуши брокера.
+     *
+     * Имя пакета приложения БКС угадывать нельзя — ошибка значит, что пуши молча не дойдут, а
+     * ошибиться легко. Поэтому оно ЗАМЕЧАЕТСЯ: уведомление незнакомого приложения, текст которого
+     * разбирается как событие брокера («Вы пополнили счет №…», «LQDT: заявка исполнена …»),
+     * записывает имя своего пакета. Сохраняется только имя пакета, текст — нет. Ничего не
+     * вставляется: брокерские события начнут записываться следующим шагом.
+     */
+    private fun noteBrokerPackage(sbn: StatusBarNotification) {
+        scope.launch {
+            if (!userPreferences.pushListenerEnabled.first()) return@launch
+            if (userPreferences.brokerPackage.first() == sbn.packageName) return@launch
+            val body = extractBody(sbn)
+            if (body.isBlank()) return@launch
+            val normalized = body.replace('\u00A0', ' ').replace('\u202F', ' ')
+            if (BrokerPushParser.parse(normalized, sbn.postTime) != null) {
+                userPreferences.setBrokerPackage(sbn.packageName)
+            }
         }
     }
 
