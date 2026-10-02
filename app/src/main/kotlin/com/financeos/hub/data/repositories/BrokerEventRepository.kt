@@ -35,6 +35,9 @@ class BrokerEventRepository @Inject constructor(
 
     suspend fun dismissAlert(id: String) = dao.dismiss(id)
 
+    /** «Не то приложение»: всё, что оно успело записать, — не события брокера. */
+    suspend fun forgetPackage(packageName: String) = dao.deleteFromPackage(packageName)
+
     private companion object {
         /** Две минуты: повтор приходит в пределах секунд, а два одинаковых перевода подряд — редкость. */
         const val DUP_WINDOW = 2 * 60_000L

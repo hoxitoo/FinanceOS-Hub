@@ -75,7 +75,11 @@ class InvestorViewModel @Inject constructor(
 
     /** Найдено не то приложение — забыть его, и служба уведомлений начнёт искать заново. */
     fun resetBrokerPackage() {
-        viewModelScope.launch { prefs.clearBrokerPackage() }
+        viewModelScope.launch {
+            // Сначала события ошибочного приложения: иначе они остались бы в портфеле навсегда.
+            brokerPackage.value?.let { brokerEvents.forgetPackage(it) }
+            prefs.clearBrokerPackage()
+        }
     }
 
     /** Портфель из реальных пушей БКС (1–2 октября) — для оценки экрана, пока своих данных нет. */

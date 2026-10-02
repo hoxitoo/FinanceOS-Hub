@@ -27,6 +27,10 @@ interface BrokerEventDao {
     @Query("SELECT EXISTS(SELECT 1 FROM broker_events WHERE raw_text = :raw AND timestamp BETWEEN :from AND :to)")
     suspend fun existsSameText(raw: String, from: Long, to: Long): Boolean
 
+    /** События, записанные от приложения [pkg] (ключ начинается с имени пакета). */
+    @Query("DELETE FROM broker_events WHERE substr(id, 1, length(:pkg) + 1) = :pkg || '_'")
+    suspend fun deleteFromPackage(pkg: String)
+
     @Query("UPDATE broker_events SET dismissed = 1 WHERE id = :id")
     suspend fun dismiss(id: String)
 }

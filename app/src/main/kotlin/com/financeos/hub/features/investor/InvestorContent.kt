@@ -72,8 +72,9 @@ fun LazyListScope.investorItems(
     // Выбранный счёт мог исчезнуть из данных (скрыли пример) — тогда это «весь портфель».
     val contract = portfolio.contracts.firstOrNull { it.key == selectedContract }
 
-    // Предупреждения — выше всего: брокер грозит закрыть позиции, и это важнее итогов.
-    val openAlerts = portfolio.openAlerts.filter { contract == null || contractKey(it.alert.contract) == contract.key }
+    // Предупреждения — выше всего и при ЛЮБОМ выбранном счёте: брокер грозит закрыть позиции, и
+    // требование по соседнему счёту не должно прятаться за выбором.
+    val openAlerts = portfolio.openAlerts
     items(openAlerts, key = { "alert_${it.alert.timestamp}_${it.alert.contract}" }) { st ->
         MarginAlertCard(st, portfolio.titleOf(st.alert.contract), onDismiss = { onDismissAlert(st.alert.id) })
     }
@@ -131,7 +132,25 @@ fun LazyListScope.investorItems(
             )
         }
     }
+    // Сброс найденного приложения — и когда данные уже есть: ошибочно найденное (мессенджер с
+    // пересланным пушем) успело бы записать события, и пустого состояния с кнопкой больше нет.
+    if (brokerPackage != null && !isSample) {
+        item(key = "invest_broker_app") { BrokerAppLine(brokerPackage, onResetBroker) }
+    }
     item(key = "invest_bottom") { Spacer(Modifier.height(24.dp)) }
+}
+
+@Composable
+private fun BrokerAppLine(pkg: String, onReset: () -> Unit) {
+    Text(
+        "Приложение брокера: $pkg · Не то приложение? Сбросить",
+        style    = FosType.Micro,
+        color    = FosColors.TextMuted,
+        modifier = Modifier
+            .clip(RoundedCornerShape(FosDimens.RadiusChip))
+            .clickable(onClick = onReset)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+    )
 }
 
 /** Затрагивает ли движение счёт с ключом [key]. */

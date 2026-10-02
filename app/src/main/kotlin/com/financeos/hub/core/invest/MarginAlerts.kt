@@ -38,9 +38,10 @@ object MarginAlerts {
             val repeat = prev != null && prev.requiredKopecks == a.requiredKopecks && !hasIncomingBetween(
                 events, a.contract, a.currency, prev.timestamp, a.timestamp,
             )
-            if (repeat && prev != null) {
-                // Закрытое вручную остаётся закрытым, даже если повтор пришёл незакрытым.
-                acc[acc.lastIndexOf(prev)] = prev.copy(dismissed = prev.dismissed || a.dismissed)
+            // Повтор ЗАКРЫТОГО вручную требования — снова карточка: брокер повторяет, значит, не
+            // оплачено, а при сомнении требование остаётся открытым.
+            if (repeat && prev != null && !prev.dismissed) {
+                acc[acc.lastIndexOf(prev)] = prev.copy(dismissed = a.dismissed)
             } else {
                 acc += a
             }

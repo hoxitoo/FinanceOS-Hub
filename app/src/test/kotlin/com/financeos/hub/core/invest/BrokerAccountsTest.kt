@@ -67,10 +67,18 @@ class BrokerAccountsTest {
     }
 
     @Test
-    fun `a repeated alert is one card, a dismissed one stays closed`() {
-        val states = MarginAlerts.evaluate(listOf(alert(5, dismissed = true), alert(7)))
+    fun `a repeated alert is one card`() {
+        val states = MarginAlerts.evaluate(listOf(alert(5), alert(7)))
         assertEquals(1, states.size)
-        assertFalse(states.single().isOpen)
+        assertTrue(states.single().isOpen)
+    }
+
+    @Test
+    fun `a repeat after a manual close opens the card again`() {
+        // Брокер повторяет требование — значит, оно не оплачено; закрытие вручную его не отменяет.
+        val states = MarginAlerts.evaluate(listOf(alert(5, dismissed = true), alert(600)))
+        assertEquals(1, states.count { it.isOpen })
+        assertEquals("a600", states.first { it.isOpen }.alert.id)
     }
 
     @Test

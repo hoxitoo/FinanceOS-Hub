@@ -97,8 +97,13 @@ class PushNotificationListener : NotificationListenerService() {
         if (sender == null) {
             // Приложение брокера идёт ТОЛЬКО в разбор брокера, мимо ParserEngine кошелька: иначе
             // «Перевод между счетами 189 RUB» банковский разбор прочитал бы переводом в кошельке.
-            if (brokerLoaded && listenerOn && sbn.packageName == brokerPackage) recordBrokerPush(sbn)
-            else noteBrokerPackage(sbn)
+            when {
+                // Настройки ещё не прочитаны (службу только что подняли) — решаем в корутине по
+                // самим настройкам, а не теряем пуш брокера молча.
+                !brokerLoaded -> recordBrokerPushIfKnown(sbn)
+                sbn.packageName == brokerPackage -> if (listenerOn) recordBrokerPush(sbn)
+                else -> noteBrokerPackage(sbn)
+            }
             return
         }
         // Признак жизни ставится ДО всех проверок и до корутины: важно, что уведомление вообще
@@ -153,10 +158,20 @@ class PushNotificationListener : NotificationListenerService() {
         }
     }
 
+    private fun recordBrokerPushIfKnown(sbn: StatusBarNotification) {
+        scope.launch {
+            if (userPreferences.brokerPackage.first() != sbn.packageName) return@launch
+            if (!userPreferences.pushListenerEnabled.first()) return@launch
+            recordBrokerPush(sbn)
+        }
+    }
+
     /** Пуш найденного приложения брокера → `broker_events`. Новости и акции не разбираются и не пишутся. */
     private fun recordBrokerPush(sbn: StatusBarNotification) {
         val n = sbn.notification ?: return
         if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        // Пуш дошёл до службы — для диагностики «работает / не работает» это тоже признак жизни.
+        ListenerHealth.markPushSeen(applicationContext)
         scope.launch {
             val body = extractBody(sbn)
             if (body.isBlank()) return@launch
