@@ -31,6 +31,7 @@ import com.financeos.hub.core.invest.BrokerInternalTransfer
 import com.financeos.hub.core.invest.BrokerOrder
 import com.financeos.hub.core.invest.MarginAlerts
 import com.financeos.hub.core.invest.SecurityGroups
+import com.financeos.hub.core.invest.isManual
 import com.financeos.hub.core.invest.contractKey
 import com.financeos.hub.core.invest.OrderSide
 import com.financeos.hub.core.invest.OrderStatus
@@ -66,13 +67,16 @@ fun LazyListScope.investorItems(
     onPickAccount   : () -> Unit,
     onOpenHistory   : () -> Unit,
     onOpenOrders    : () -> Unit,
+    onAdd           : () -> Unit,
+    onEventClick    : (BrokerEvent) -> Unit,
+    onPositionClick : (Portfolio.Position) -> Unit,
     onDismissAlert  : (String?) -> Unit,
     onShowSample    : () -> Unit,
     onHideSample    : () -> Unit,
     onResetBroker   : () -> Unit,
 ) {
     if (portfolio.isEmpty) {
-        item(key = "invest_empty") { InvestorEmpty(brokerPackage, onShowSample, onResetBroker) }
+        item(key = "invest_empty") { InvestorEmpty(brokerPackage, onShowSample, onResetBroker, onAdd) }
         item(key = "invest_bottom") { Spacer(Modifier.height(24.dp)) }
         return
     }
@@ -89,7 +93,7 @@ fun LazyListScope.investorItems(
 
     item(key = "invest_hero") {
         if (contract == null) {
-            PortfolioHero(portfolio, isSample, onHideSample, onPickAccount, onOpenHistory, onOpenOrders)
+            PortfolioHero(portfolio, isSample, onHideSample, onPickAccount, onOpenHistory, onOpenOrders, onAdd)
         } else {
             ContractHero(portfolio, contract, onPickAccount)
         }
@@ -98,14 +102,14 @@ fun LazyListScope.investorItems(
     if (contract == null) {
         // Группы, как у БКС: «Валюта» (деньги на счетах и валютные бумаги), «Акции», «Фонды»…
         // Движения денег и заявки — по кнопкам «История» и «Заявки» в главном блоке.
-        items(portfolio.groups, key = { "grp_${it.group.name}" }) { GroupCard(it) }
+        items(portfolio.groups, key = { "grp_${it.group.name}" }) { GroupCard(it, onPositionClick) }
     } else {
         // Выбранный счёт: его движения и прошлые предупреждения прямо на экране — больше о нём
         // ничего не известно.
         val feed = historyFeed(portfolio, contract.key)
         if (feed.isNotEmpty()) {
             item(key = "invest_moves_h") { FosSectionHeader("Движения денег", tone = FosTone.Invest) }
-            itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) -> FeedRow(e, portfolio) }
+            itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) -> FeedRow(e, portfolio, onEventClick) }
         }
     }
 
@@ -153,10 +157,10 @@ internal fun historyFeed(portfolio: Portfolio.Result, contractKey: String?): Lis
 }
 
 @Composable
-internal fun FeedRow(e: Any, portfolio: Portfolio.Result) {
+internal fun FeedRow(e: Any, portfolio: Portfolio.Result, onEventClick: (BrokerEvent) -> Unit) {
     when (e) {
         is MarginAlerts.State -> PastAlertRow(e, portfolio.titleOf(e.alert.contract))
-        is BrokerEvent        -> MovementRow(e, portfolio)
+        is BrokerEvent        -> MovementRow(e, portfolio, onEventClick)
     }
 }
 
@@ -183,7 +187,7 @@ private fun Portfolio.Result.shortOf(contract: String?): String {
 // ── Блоки ────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onResetBroker: () -> Unit) {
+private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onResetBroker: () -> Unit, onAdd: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Outline, FosTone.Invest),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -218,6 +222,13 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
                     .padding(vertical = 10.dp),
             )
         }
+        // Пуши могут не прийти вовсе — ввести портфель руками можно сразу (#49).
+        Text(
+            "Добавить вручную: счёт, актив или операцию →",
+            style    = FosType.Label,
+            color    = FosColors.Invest,
+            modifier = Modifier.clickable(onClick = onAdd).padding(vertical = 12.dp),
+        )
         Text(
             "Показать на примере ваших пушей БКС →",
             style    = FosType.Label,
@@ -243,6 +254,7 @@ private fun PortfolioHero(
     onPickAccount: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenOrders : () -> Unit,
+    onAdd        : () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().fosHeroCard(FosTone.Invest),
@@ -287,6 +299,8 @@ private fun PortfolioHero(
             val active = portfolio.activeOrders.size
             HeroButton("История", Modifier.weight(1f), onOpenHistory)
             HeroButton(if (active > 0) "Заявки · $active" else "Заявки", Modifier.weight(1f), onOpenOrders)
+            // Ручной ввод (#49): операция, актив, счёт — пуши могут не прийти.
+            HeroButton("Добавить", Modifier.weight(1f), onAdd)
         }
     }
 }
@@ -355,7 +369,7 @@ private fun HeroButton(label: String, modifier: Modifier, onClick: () -> Unit) {
  * Состояние «свёрнута» переживает прокрутку и поворот (`rememberSaveable` в элементе с ключом).
  */
 @Composable
-private fun GroupCard(g: Portfolio.Group) {
+private fun GroupCard(g: Portfolio.Group, onPositionClick: (Portfolio.Position) -> Unit) {
     var open by rememberSaveable(g.group.name) { mutableStateOf(true) }
     Column(
         modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Plain, FosTone.Neutral),
@@ -391,7 +405,7 @@ private fun GroupCard(g: Portfolio.Group) {
         }
         if (open) {
             g.cash.forEach { CashRow(it) }
-            g.positions.forEach { PositionRow(it) }
+            g.positions.forEach { p -> PositionRow(p) { onPositionClick(p) } }
         }
     }
 }
@@ -554,7 +568,7 @@ private fun PastAlertRow(st: MarginAlerts.State, title: String) {
 
 /** Пополнение, вывод или перевод между счетами. Перевод — нейтральный «↔», как в кошельке. */
 @Composable
-private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result) {
+private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, onClick: (BrokerEvent) -> Unit) {
     val (title, sub, amount, color) = when (e) {
         is BrokerInternalTransfer -> {
             val sym = FosFormatter.currencySymbol(e.currency)
@@ -577,14 +591,17 @@ private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result) {
         else -> return
     }
     Row(
+        // Нажатие — удалить (у примера id нет, нажимать нечего). Нажатие между огранкой и отступом.
         modifier = Modifier.fillMaxWidth()
-            .fosCard(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall, FosDimens.CardPaddingSmall),
+            .fosCardSurface(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall)
+            .clickable(enabled = e.id != null) { onClick(e) }
+            .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = FosType.BodySemi, color = FosColors.TextPrimary)
             Text(
-                "$sub · ${FosFormatter.dayLabel(e.timestamp)}",
+                "$sub · ${FosFormatter.dayLabel(e.timestamp)}${if (e.isManual) " · вручную" else ""}",
                 style = FosType.MicroNum,
                 color = FosColors.TextSecondary,
                 maxLines = 1,
@@ -603,9 +620,10 @@ private fun timeOf(ts: Long): String =
 
 /** «LQDT · 4 760 шт. · 2,0985 ₽ → 2,0985 ₽» слева, стоимость и результат справа — как у БКС. */
 @Composable
-private fun PositionRow(p: Portfolio.Position) {
+private fun PositionRow(p: Portfolio.Position, onClick: () -> Unit) {
     val sym = FosFormatter.currencySymbol(p.currency)
-    Row(verticalAlignment = Alignment.Top) {
+    // Нажатие — цена и удаление актива (#49).
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f)) {
             Text(p.ticker, style = FosType.BodySemi, color = FosColors.TextPrimary)
             Text("${grouped(p.quantity)} шт.", style = FosType.MicroNum, color = FosColors.TextSecondary)
@@ -630,7 +648,7 @@ private fun PositionRow(p: Portfolio.Position) {
 }
 
 @Composable
-internal fun OrderRow(o: BrokerOrder) {
+internal fun OrderRow(o: BrokerOrder, onClick: ((BrokerOrder) -> Unit)? = null) {
     val sym = FosFormatter.currencySymbol(o.currency)
     val (label, color) = when (o.status) {
         OrderStatus.ACTIVE    -> "Активна"   to FosColors.Invest
@@ -639,7 +657,9 @@ internal fun OrderRow(o: BrokerOrder) {
     }
     Row(
         modifier = Modifier.fillMaxWidth()
-            .fosCard(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall, FosDimens.CardPaddingSmall),
+            .fosCardSurface(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall)
+            .clickable(enabled = onClick != null && o.id != null) { onClick?.invoke(o) }
+            .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -649,7 +669,8 @@ internal fun OrderRow(o: BrokerOrder) {
                 color = if (o.status == OrderStatus.CANCELLED) FosColors.TextMuted else FosColors.TextPrimary,
             )
             Text(
-                "${grouped(o.lots)} лот. по ${price(o.priceMicros)} $sym · ${FosFormatter.dayLabel(o.timestamp)}",
+                "${grouped(o.lots)} ${if (o.isManual) "шт." else "лот."} по ${price(o.priceMicros)} $sym · ${FosFormatter.dayLabel(o.timestamp)}" +
+                    if (o.isManual) " · вручную" else "",
                 style = FosType.MicroNum,
                 color = FosColors.TextSecondary,
             )

@@ -44,6 +44,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.features.investor.BrokerAccountSheet
+import com.financeos.hub.features.investor.BrokerAddMenuSheet
+import com.financeos.hub.features.investor.BrokerAssetSheet
+import com.financeos.hub.features.investor.BrokerNewAccountSheet
+import com.financeos.hub.features.investor.BrokerOperationSheet
+import com.financeos.hub.features.investor.BrokerPositionSheet
+import com.financeos.hub.features.investor.ConfirmDelete
+import com.financeos.hub.features.investor.InvestAdd
+import com.financeos.hub.core.invest.isManual
 import com.financeos.hub.features.investor.InvestHistorySheet
 import com.financeos.hub.features.investor.InvestOrdersSheet
 import com.financeos.hub.features.investor.InvestorViewModel
@@ -120,6 +128,10 @@ fun DashboardScreen(
     var showBrokerAccounts by remember { mutableStateOf(false) }
     var showInvestHistory  by remember { mutableStateOf(false) }
     var showInvestOrders   by remember { mutableStateOf(false) }
+    // Ручной ввод инвестора (#49): какой лист открыт, что удаляем, какая бумага открыта.
+    var investAdd          by remember { mutableStateOf<InvestAdd?>(null) }
+    var investDeleteEvent  by remember { mutableStateOf<com.financeos.hub.core.invest.BrokerEvent?>(null) }
+    var investPosition     by remember { mutableStateOf<Portfolio.Position?>(null) }
     // Свои данные есть — пример больше не нужен; нет — по кнопке.
     val shownPortfolio = when {
         !investPortfolio.isEmpty -> investPortfolio
@@ -203,6 +215,10 @@ fun DashboardScreen(
                     onPickAccount    = { showBrokerAccounts = true },
                     onOpenHistory    = { showInvestHistory = true },
                     onOpenOrders     = { showInvestOrders = true },
+                    onAdd            = { investAdd = InvestAdd.MENU },
+                    onEventClick     = { investDeleteEvent = it },
+                    // У примера id нет — открывать бумагу на правку незачем.
+                    onPositionClick  = { if (!investPortfolio.isEmpty) investPosition = it },
                     onDismissAlert   = { investorVm.dismissAlert(it) },
                     onShowSample     = { showInvestSample = true },
                     onHideSample     = { showInvestSample = false; investorVm.selectContract(null) },
@@ -337,10 +353,53 @@ fun DashboardScreen(
     }
 
     if (showInvestHistory) {
-        InvestHistorySheet(shownPortfolio, onDismiss = { showInvestHistory = false })
+        InvestHistorySheet(shownPortfolio, onEventClick = { investDeleteEvent = it }, onDismiss = { showInvestHistory = false })
     }
     if (showInvestOrders) {
-        InvestOrdersSheet(shownPortfolio, onDismiss = { showInvestOrders = false })
+        InvestOrdersSheet(shownPortfolio, onEventClick = { investDeleteEvent = it }, onDismiss = { showInvestOrders = false })
+    }
+    // Ручной ввод — всегда в СВОИ данные: счета примера настоящими не являются.
+    when (investAdd) {
+        InvestAdd.MENU -> BrokerAddMenuSheet(
+            onOperation = { investAdd = InvestAdd.OPERATION },
+            onAsset     = { investAdd = InvestAdd.ASSET },
+            onAccount   = { investAdd = InvestAdd.ACCOUNT },
+            onDismiss   = { investAdd = null },
+        )
+        InvestAdd.OPERATION -> BrokerOperationSheet(
+            contracts = investPortfolio.contracts,
+            onSave    = { investorVm.addEvents(it) },
+            onDismiss = { investAdd = null },
+        )
+        InvestAdd.ASSET -> BrokerAssetSheet(
+            contracts = investPortfolio.contracts,
+            onSave    = { investorVm.addEvents(it) },
+            onDismiss = { investAdd = null },
+        )
+        InvestAdd.ACCOUNT -> BrokerNewAccountSheet(
+            onSave    = { broker, contract, label -> investorVm.saveAccount(broker, contract, label) },
+            onDismiss = { investAdd = null },
+        )
+        null -> Unit
+    }
+    investPosition?.let { p ->
+        BrokerPositionSheet(
+            position  = p,
+            onPrice   = { investorVm.setPrice(p.broker, p.ticker, it, p.currency) },
+            onDelete  = { investorVm.deleteAsset(p.broker, p.ticker) },
+            onDismiss = { investPosition = null },
+        )
+    }
+    investDeleteEvent?.let { e ->
+        ConfirmDelete(
+            title = "Удалить операцию?",
+            text  = if (e.isManual) "Операция введена вручную и уйдёт вместе со всей своей записью " +
+                "(у актива — и деньги, заведённые на его покупку)."
+            else "Операция пришла пушем. Удалите её, если брокер прислал неверное; повторно тот же пуш " +
+                "её не вернёт, но копия, снятая раньше, при восстановлении — вернёт.",
+            onConfirm = { investorVm.deleteEvent(e.id); investDeleteEvent = null },
+            onDismiss = { investDeleteEvent = null },
+        )
     }
 
     if (showBrokerAccounts) {
@@ -348,6 +407,8 @@ fun DashboardScreen(
             contracts = shownPortfolio.contracts,
             selected  = investContract,
             onSelect  = { investorVm.selectContract(it); showBrokerAccounts = false },
+            onAdd     = { showBrokerAccounts = false; investAdd = InvestAdd.ACCOUNT },
+            onHide    = { investorVm.hideAccount(it.broker, it.contract) },
             onDismiss = { showBrokerAccounts = false },
         )
     }

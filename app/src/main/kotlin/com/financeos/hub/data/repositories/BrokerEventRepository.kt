@@ -3,9 +3,13 @@ package com.financeos.hub.data.repositories
 import com.financeos.hub.core.database.daos.BrokerEventDao
 import com.financeos.hub.core.invest.BrokerEvent
 import com.financeos.hub.core.invest.BrokerEventMapper
+import com.financeos.hub.core.invest.BrokerAccountMark
 import com.financeos.hub.core.invest.BrokerPushParser
+import com.financeos.hub.core.invest.MANUAL_PREFIX
+import com.financeos.hub.core.invest.contractKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,6 +38,54 @@ class BrokerEventRepository @Inject constructor(
     }
 
     suspend fun dismissAlert(id: String) = dao.dismiss(id)
+
+    // ── Ручной ввод (инвариант #49) ──────────────────────────────────────────────
+
+    /**
+     * Записать события, введённые человеком, ОДНОЙ записью: у всех общий префикс id
+     * («manual_<uuid>_0», «…_1»), поэтому и удаляются они вместе — актив, заведённый как
+     * «пополнение + покупка», не оставит после удаления лишних денег на счёте.
+     */
+    suspend fun addManual(events: List<BrokerEvent>, now: Long = System.currentTimeMillis()) {
+        if (events.isEmpty()) return
+        val group = "$MANUAL_PREFIX${UUID.randomUUID()}"
+        dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
+    }
+
+    /** Завести счёт (или вернуть удалённый): одна строка на счёт, «завёл» и «удалил» её перезаписывают. */
+    suspend fun saveAccount(broker: String, contract: String, label: String?, now: Long = System.currentTimeMillis()) =
+        dao.upsert(BrokerEventMapper.toEntity(
+            BrokerAccountMark(broker, now, contract.trim(), label?.trim()?.takeIf { it.isNotEmpty() }),
+            accountRowId(broker, contract), "", now,
+        ))
+
+    /** «Удалить счёт»: скрыть из списка. Операции по нему остаются — их удаляют отдельно. */
+    suspend fun hideAccount(broker: String, contract: String, now: Long = System.currentTimeMillis()) =
+        dao.upsert(BrokerEventMapper.toEntity(
+            BrokerAccountMark(broker, now, contract.trim(), null, hidden = true),
+            accountRowId(broker, contract), "", now,
+        ))
+
+    /**
+     * Удалить событие. Ручное — вместе со всей своей записью (пополнение и покупка актива уходят
+     * вдвоём), пришедшее пушем — одной строкой.
+     */
+    suspend fun deleteEvent(id: String) {
+        if (id.startsWith(MANUAL_PREFIX)) dao.deleteByPrefix(id.substringBeforeLast('_') + "_")
+        else dao.delete(id)
+    }
+
+    /** Удалить актив целиком: все сделки и цены по бумаге (и деньги, заведённые вместе с ней). */
+    suspend fun deleteTicker(broker: String, ticker: String) {
+        dao.getAll()
+            .filter { it.broker == broker && it.ticker.equals(ticker, ignoreCase = true) }
+            .map { it.id }
+            .forEach { deleteEvent(it) }
+    }
+
+    // НЕ с префиксом ручных записей: `deleteEvent` удаляет ручную запись по префиксу группы, и
+    // «manual_acct_БКС_» снёс бы заодно все счета этого брокера.
+    private fun accountRowId(broker: String, contract: String) = "acct_${broker}_${contractKey(contract)}"
 
     /** «Не то приложение»: всё, что оно успело записать, — не события брокера. */
     suspend fun forgetPackage(packageName: String) = dao.deleteFromPackage(packageName)

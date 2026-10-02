@@ -52,6 +52,43 @@ class InvestorViewModel @Inject constructor(
 
     fun selectContract(key: String?) { _selectedContract.value = key }
 
+    // ── Ручной ввод (инвариант #49) ──────────────────────────────────────────────
+
+    fun addEvents(events: List<com.financeos.hub.core.invest.BrokerEvent>) {
+        viewModelScope.launch { brokerEvents.addManual(events) }
+    }
+
+    fun saveAccount(broker: String, contract: String, label: String?) {
+        viewModelScope.launch { brokerEvents.saveAccount(broker, contract, label) }
+    }
+
+    fun hideAccount(broker: String, contract: String) {
+        viewModelScope.launch {
+            brokerEvents.hideAccount(broker, contract)
+            // Удалённый счёт не может оставаться выбранным — экран показал бы пустоту.
+            if (_selectedContract.value == com.financeos.hub.core.invest.contractKey(contract)) _selectedContract.value = null
+        }
+    }
+
+    /** Удалить операцию (у примера id нет — удалять нечего). */
+    fun deleteEvent(id: String?) {
+        if (id == null) return
+        viewModelScope.launch { brokerEvents.deleteEvent(id) }
+    }
+
+    fun deleteAsset(broker: String, ticker: String) {
+        viewModelScope.launch { brokerEvents.deleteTicker(broker, ticker) }
+    }
+
+    /** «Указать цену»: текущая цена бумаги на сейчас. */
+    fun setPrice(broker: String, ticker: String, priceMicros: Long, currency: String) {
+        viewModelScope.launch {
+            brokerEvents.addManual(listOf(
+                com.financeos.hub.core.invest.BrokerPriceMark(broker, System.currentTimeMillis(), ticker, priceMicros, currency),
+            ))
+        }
+    }
+
     /** «Закрыть» на карточке предупреждения. У примера id нет — закрывать в базе нечего. */
     fun dismissAlert(id: String?) {
         if (id == null) return

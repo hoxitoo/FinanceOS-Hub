@@ -21,27 +21,29 @@ import com.financeos.hub.ui.theme.FosType
 /** «История» — движения денег у брокера и прошлые предупреждения, новые сверху. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InvestHistorySheet(portfolio: Portfolio.Result, onDismiss: () -> Unit) {
+fun InvestHistorySheet(portfolio: Portfolio.Result, onEventClick: (com.financeos.hub.core.invest.BrokerEvent) -> Unit, onDismiss: () -> Unit) {
     val feed = historyFeed(portfolio, null)
     InvestListSheet(
         title     = "История",
         empty     = "Пополнений, выводов и переводов между счетами пока не было.",
+        hint      = "Нажмите на операцию, чтобы удалить её.",
         count     = feed.size,
         onDismiss = onDismiss,
-    ) { index -> val (_, e) = feed[index]; FeedRow(e, portfolio) }
+    ) { index -> val (_, e) = feed[index]; FeedRow(e, portfolio, onEventClick) }
 }
 
 /** «Заявки» — активные сверху, затем исполненные и отменённые. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InvestOrdersSheet(portfolio: Portfolio.Result, onDismiss: () -> Unit) {
+fun InvestOrdersSheet(portfolio: Portfolio.Result, onEventClick: (com.financeos.hub.core.invest.BrokerEvent) -> Unit, onDismiss: () -> Unit) {
     val orders = portfolio.activeOrders + portfolio.history
     InvestListSheet(
         title     = "Заявки и сделки",
         empty     = "Заявок пока не было.",
+        hint      = "Нажмите на исполненную или отменённую сделку, чтобы удалить её.",
         count     = orders.size,
         onDismiss = onDismiss,
-    ) { index -> OrderRow(orders[index]) }
+    ) { index -> OrderRow(orders[index], onEventClick) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,6 +51,7 @@ fun InvestOrdersSheet(portfolio: Portfolio.Result, onDismiss: () -> Unit) {
 private fun InvestListSheet(
     title    : String,
     empty    : String,
+    hint     : String,
     count    : Int,
     onDismiss: () -> Unit,
     row      : @Composable (Int) -> Unit,
@@ -61,6 +64,7 @@ private fun InvestListSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "title") { Text(title, style = FosType.ScreenTitle, color = FosColors.TextPrimary) }
+            if (count > 0) item(key = "hint") { Text(hint, style = FosType.Micro, color = FosColors.TextMuted) }
             if (count == 0) {
                 item(key = "empty") {
                     Text(empty, style = FosType.Body, color = FosColors.TextMuted, modifier = Modifier.padding(vertical = 8.dp))
