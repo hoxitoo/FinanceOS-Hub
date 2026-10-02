@@ -28,6 +28,47 @@ data class BrokerCashMove(
     val currency     : String,
 ) : BrokerEvent
 
+/**
+ * Деньги переложили между ДВУМЯ счетами одного брокера: «Перевод между счетами 189 RUB. Со счета
+ * №580922/19-м на счет 3468071/25 (Облигации)».
+ *
+ * Итог у брокера НЕ меняется — это не пополнение и не вывод. Записать его пополнением значило бы
+ * посчитать деньги дважды.
+ */
+data class BrokerInternalTransfer(
+    override val broker   : String,
+    override val timestamp: Long,
+    val amountKopecks: Long,
+    val currency     : String,
+    val fromContract : String,
+    val toContract   : String,
+    /** Название счёта, как его пишет брокер в скобках: «Облигации». */
+    val fromLabel    : String? = null,
+    val toLabel      : String? = null,
+) : BrokerEvent
+
+/**
+ * Предупреждение брокера (маржин-колл): «Критично низкий баланс счета 3468071/25 (Облигации)
+ * Пополните счет … на сумму от 188.02. Если стоимость портфеля станет ниже 0, брокер приступит к
+ * закрытию ваших позиций».
+ *
+ * Факт о счёте, а не движение денег — как напоминание банка о платеже по кредитке. Закрывается
+ * деньгами, пришедшими на этот счёт ПОСЛЕ него (см. [MarginAlerts]).
+ */
+data class BrokerMarginAlert(
+    override val broker   : String,
+    override val timestamp: Long,
+    val contract        : String,
+    val label           : String?,
+    /** «Пополните … на сумму от 188.02» — сколько требует брокер, копейки. */
+    val requiredKopecks : Long,
+    /** Валюту пуш не пишет; счёт рублёвый — так у всех известных предупреждений БКС. */
+    val currency        : String = "RUB",
+    /** Строка в базе — чтобы предупреждение можно было закрыть вручную. Пусто у примера. */
+    val id              : String? = null,
+    val dismissed       : Boolean = false,
+) : BrokerEvent
+
 enum class OrderSide { BUY, SELL }
 
 /** Жизнь заявки: выставлена → исполнена или отменена. */
@@ -52,3 +93,10 @@ data class BrokerOrder(
 /** Миллионные доли валюты → копейки, с округлением до ближайшей. */
 internal fun microsToKopecks(micros: Long): Long =
     if (micros >= 0) (micros + 5_000) / 10_000 else -((-micros + 5_000) / 10_000)
+
+/**
+ * Номер счёта брокера для сравнения: «№3468071/25», «3468071/25 » и «3468071/25» — один счёт.
+ * Регистр сворачивается целиком: в номере бывает кириллица («580922/19-м»).
+ */
+fun contractKey(contract: String?): String? =
+    contract?.trim()?.removePrefix("№")?.trim()?.trimEnd('.', ',', ';')?.lowercase()?.takeIf { it.isNotBlank() }

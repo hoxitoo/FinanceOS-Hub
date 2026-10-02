@@ -12,6 +12,7 @@ import com.financeos.hub.core.database.daos.CategoryDao
 import com.financeos.hub.core.database.daos.GoalDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.daos.PlannedPaymentDao
+import com.financeos.hub.core.database.daos.BrokerEventDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import com.financeos.hub.core.database.entities.AccountEntity
 import com.financeos.hub.core.database.entities.AccountKind
@@ -27,6 +28,7 @@ import com.financeos.hub.core.database.entities.TransferMatchType
 import com.financeos.hub.core.database.entities.PaymentDirection
 import com.financeos.hub.core.database.entities.PaymentSchedule
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
+import com.financeos.hub.core.database.entities.BrokerEventEntity
 import com.financeos.hub.core.database.entities.TransferRouteEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
@@ -54,6 +56,7 @@ class BackupManager @Inject constructor(
     private val transferRouteDao: TransferRouteDao,
     private val plannedDao      : PlannedPaymentDao,
     private val transactionDao  : TransactionDao,
+    private val brokerEventDao  : BrokerEventDao,
 ) {
     data class RestoreCounts(
         val accounts    : Int,
@@ -64,9 +67,10 @@ class BackupManager @Inject constructor(
         val routes      : Int,
         val planned     : Int,
         val transactions: Int,
+        val brokerEvents: Int = 0,
     ) {
         val total: Int
-            get() = accounts + cards + categories + goals + budgets + routes + planned + transactions
+            get() = accounts + cards + categories + goals + budgets + routes + planned + transactions + brokerEvents
     }
 
     // ─── Export ───────────────────────────────────────────────────────────────
@@ -95,6 +99,9 @@ class BackupManager @Inject constructor(
         // уже подтверждали. Потеряв её, восстановленная копия предложит подтвердить всё заново.
         root.put("planned",    JSONArray().apply { plannedDao.getAll().forEach { put(it.toJson()) } })
         root.put("transactions", JSONArray().apply { transactionDao.getAllForBackup().forEach { put(it.toJson()) } })
+        // События брокера (режим «Инвестор», инвариант #47): без них восстановление на новом
+        // телефоне теряло бы всю историю портфеля — пуши брокера второй раз не придут.
+        root.put("brokerEvents", JSONArray().apply { brokerEventDao.getAll().forEach { put(it.toJson()) } })
         return root.toString(2)
     }
 
@@ -122,6 +129,8 @@ class BackupManager @Inject constructor(
         val rawBudgets  = root.optArray("budgets").map     { it.toBudget() }
         val rawTxs      = root.optArray("transactions").map { it.toTransaction() }
         val rawPlanned  = root.optArray("planned").map     { it.toPlanned() }
+        // Копия до v23 набора не несёт — пустой список, ничего не стирается.
+        val brokerEvents = root.optArray("brokerEvents").map { it.toBrokerEvent() }
 
         // Room enforces foreign keys, so a child row pointing at a parent that isn't part of
         // this backup would abort the whole restore. Drop / null-out dangling references first.
@@ -161,11 +170,15 @@ class BackupManager @Inject constructor(
             routes.forEach   { transferRouteDao.insert(it) }
             planned.forEach  { plannedDao.upsert(it) }
             transactionDao.insertAll(transactions)
+            // IGNORE по ключу: событие, уже лежащее на устройстве, не дублируется и не перезаписывается
+            // (закрытое здесь предупреждение не откроется снова из старой копии).
+            brokerEventDao.insertAll(brokerEvents)
         }
 
         return RestoreCounts(
             accounts.size, cards.size, categories.size,
             goals.size, budgets.size, routes.size, planned.size, transactions.size,
+            brokerEvents.size,
         )
     }
 
@@ -233,6 +246,16 @@ class BackupManager @Inject constructor(
         putNullable("matchedTxIds", matchedTxIds)
         putNullable("rejectedTxId", rejectedTxId)
         put("isActive", isActive); put("createdAt", createdAt); put("updatedAt", updatedAt)
+    }
+
+    private fun BrokerEventEntity.toJson() = JSONObject().apply {
+        put("id", id); put("broker", broker); put("kind", kind); put("timestamp", timestamp)
+        putNullable("amountKopecks", amountKopecks); put("currency", currency)
+        putNullable("contract", contract); putNullable("contractLabel", contractLabel)
+        putNullable("toContract", toContract); putNullable("toContractLabel", toContractLabel)
+        putNullable("ticker", ticker); putNullable("side", side); putNullable("lots", lots)
+        putNullable("priceMicros", priceMicros); putNullable("status", status); putNullable("orderKind", orderKind)
+        put("dismissed", dismissed); put("rawText", rawText); put("createdAt", createdAt)
     }
 
     private fun TransactionEntity.toJson() = JSONObject().apply {
@@ -346,6 +369,19 @@ class BackupManager @Inject constructor(
         isActive = optBoolean("isActive", true),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
         updatedAt = optLong("updatedAt", System.currentTimeMillis()),
+    )
+
+    private fun JSONObject.toBrokerEvent() = BrokerEventEntity(
+        id = getString("id"), broker = getString("broker"), kind = getString("kind"),
+        timestamp = getLong("timestamp"), amountKopecks = optLongOrNull("amountKopecks"),
+        currency = optString("currency", "RUB"),
+        contract = optStringOrNull("contract"), contractLabel = optStringOrNull("contractLabel"),
+        toContract = optStringOrNull("toContract"), toContractLabel = optStringOrNull("toContractLabel"),
+        ticker = optStringOrNull("ticker"), side = optStringOrNull("side"), lots = optLongOrNull("lots"),
+        priceMicros = optLongOrNull("priceMicros"), status = optStringOrNull("status"),
+        orderKind = optStringOrNull("orderKind"),
+        dismissed = optBoolean("dismissed", false), rawText = optString("rawText", ""),
+        createdAt = optLong("createdAt", System.currentTimeMillis()),
     )
 
     private fun JSONObject.toTransaction() = TransactionEntity(
