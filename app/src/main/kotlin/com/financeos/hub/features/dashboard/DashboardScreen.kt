@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.invest.Portfolio
+import com.financeos.hub.features.investor.BrokerAccountSheet
 import com.financeos.hub.features.investor.InvestorViewModel
 import com.financeos.hub.features.investor.ModeSwitch
 import com.financeos.hub.features.investor.investorItems
@@ -111,6 +112,16 @@ fun DashboardScreen(
     val investorMode  by investorVm.investorMode.collectAsState()
     val brokerPackage by investorVm.brokerPackage.collectAsState()
     var showInvestSample by rememberSaveable { mutableStateOf(false) }
+    val investPortfolio  by investorVm.portfolio.collectAsState()
+    val investAlert      by investorVm.hasOpenAlert.collectAsState()
+    val investContract   by investorVm.selectedContract.collectAsState()
+    var showBrokerAccounts by remember { mutableStateOf(false) }
+    // Свои данные есть — пример больше не нужен; нет — по кнопке.
+    val shownPortfolio = when {
+        !investPortfolio.isEmpty -> investPortfolio
+        showInvestSample         -> investorVm.sample
+        else                     -> Portfolio.EMPTY
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -144,6 +155,8 @@ fun DashboardScreen(
                         ModeSwitch(
                             investor = inv,
                             onChange = { investorVm.setInvestorMode(it) },
+                            // Точка — только когда открыт кошелёк: в режиме инвестора карточка видна сама.
+                            investorAttention = investAlert && !inv,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -179,12 +192,15 @@ fun DashboardScreen(
             null -> return@LazyColumn
             true -> {
                 investorItems(
-                    portfolio     = if (showInvestSample) investorVm.sample else Portfolio.EMPTY,
-                    isSample      = showInvestSample,
-                    brokerPackage = brokerPackage,
-                    onShowSample  = { showInvestSample = true },
-                    onHideSample  = { showInvestSample = false },
-                    onResetBroker = { investorVm.resetBrokerPackage() },
+                    portfolio        = shownPortfolio,
+                    isSample         = investPortfolio.isEmpty && showInvestSample,
+                    brokerPackage    = brokerPackage,
+                    selectedContract = investContract,
+                    onPickAccount    = { showBrokerAccounts = true },
+                    onDismissAlert   = { investorVm.dismissAlert(it) },
+                    onShowSample     = { showInvestSample = true },
+                    onHideSample     = { showInvestSample = false; investorVm.selectContract(null) },
+                    onResetBroker    = { investorVm.resetBrokerPackage() },
                 )
                 return@LazyColumn
             }
@@ -311,6 +327,15 @@ fun DashboardScreen(
                     Text("Понятно", color = FosColors.Info)
                 }
             },
+        )
+    }
+
+    if (showBrokerAccounts) {
+        BrokerAccountSheet(
+            contracts = shownPortfolio.contracts,
+            selected  = investContract,
+            onSelect  = { investorVm.selectContract(it); showBrokerAccounts = false },
+            onDismiss = { showBrokerAccounts = false },
         )
     }
 

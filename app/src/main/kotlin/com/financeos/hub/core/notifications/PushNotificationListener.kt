@@ -18,6 +18,7 @@ import com.financeos.hub.core.database.entities.TransactionSource
 import com.financeos.hub.core.parser.ParserEngine
 import com.financeos.hub.core.transfer.TransferRouter
 import com.financeos.hub.data.preferences.UserPreferences
+import com.financeos.hub.data.repositories.BrokerEventRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,7 @@ class PushNotificationListener : NotificationListenerService() {
     @Inject lateinit var transferRouter : TransferRouter
     @Inject lateinit var accountLinker  : AccountLinker
     @Inject lateinit var creditNoticeApplier: CreditNoticeApplier
+    @Inject lateinit var brokerEvents   : BrokerEventRepository
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         android.util.Log.e("PushListener", "Push processing failed", t)
@@ -53,14 +55,17 @@ class PushNotificationListener : NotificationListenerService() {
     // приложения, и onNotificationPosted идёт в главном потоке. Поэтому оба выключателя держатся
     // здесь, в памяти, а не читаются из настроек на каждое уведомление: найдено имя или выключена
     // служба — поиск отказывается одним сравнением, без корутины и без обращений к системе.
-    // `brokerKnown` до первого чтения считается true: не искать, пока не знаем, — безопасная сторона.
-    @Volatile private var listenerOn  = false
-    @Volatile private var brokerKnown = true
+    // До первого чтения настроек (`brokerLoaded == false`) не ищем и не пишем: безопасная сторона.
+    @Volatile private var listenerOn    = false
+    @Volatile private var brokerLoaded  = false
+    @Volatile private var brokerPackage : String? = null
 
     override fun onCreate() {
         super.onCreate()   // Hilt внедряет зависимости здесь — коллекторы только после.
         scope.launch { userPreferences.pushListenerEnabled.collect { listenerOn = it } }
-        scope.launch { userPreferences.brokerPackage.collect { brokerKnown = it != null } }
+        scope.launch {
+            userPreferences.brokerPackage.collect { brokerPackage = it; brokerLoaded = true }
+        }
     }
 
     override fun onListenerConnected() {
@@ -90,7 +95,10 @@ class PushNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val sender = PACKAGE_TO_SENDER[sbn.packageName]
         if (sender == null) {
-            noteBrokerPackage(sbn)
+            // Приложение брокера идёт ТОЛЬКО в разбор брокера, мимо ParserEngine кошелька: иначе
+            // «Перевод между счетами 189 RUB» банковский разбор прочитал бы переводом в кошельке.
+            if (brokerLoaded && listenerOn && sbn.packageName == brokerPackage) recordBrokerPush(sbn)
+            else noteBrokerPackage(sbn)
             return
         }
         // Признак жизни ставится ДО всех проверок и до корутины: важно, что уведомление вообще
@@ -111,15 +119,15 @@ class PushNotificationListener : NotificationListenerService() {
      * Имя пакета приложения БКС угадывать нельзя — ошибка значит, что пуши молча не дойдут, а
      * ошибиться легко. Поэтому оно ЗАМЕЧАЕТСЯ: уведомление незнакомого приложения, текст которого
      * разбирается как событие брокера («Вы пополнили счет №…», «LQDT: заявка исполнена …»),
-     * записывает имя своего пакета. Сохраняется только имя пакета, текст — нет. Ничего не
-     * вставляется: брокерские события начнут записываться следующим шагом.
+     * записывает имя своего пакета. Текст постороннего приложения не сохраняется; сохраняется только
+     * пуш, который и оказался событием брокера.
      */
     private fun noteBrokerPackage(sbn: StatusBarNotification) {
         // Отсеивается ДО чтения текста: собственные уведомления, приложение SMS (БКС может дублировать
         // пуш смской, и тогда запомнилось бы оно), «идущие» уведомления (музыка, загрузки — их
         // переотправляют постоянно) и сводки групп (текста в них нет, он в дочерних).
         // Найдено или служба выключена — дальше не смотрим вовсе (см. поля выше).
-        if (brokerKnown || !listenerOn) return
+        if (!brokerLoaded || brokerPackage != null || !listenerOn) return
         val n = sbn.notification ?: return
         if (sbn.packageName == packageName) return
         if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
@@ -136,7 +144,23 @@ class PushNotificationListener : NotificationListenerService() {
                 // мессенджер пуш переписывал бы имя при каждой пересылке); ошибочное человек
                 // сбрасывает на экране инвестора.
                 userPreferences.setBrokerPackageIfAbsent(sbn.packageName)
+                // Сам пуш, по которому приложение узнали, — тоже событие: без этого первое
+                // пополнение пропало бы из истории. Только если записалось именно это имя.
+                if (userPreferences.brokerPackage.first() == sbn.packageName) {
+                    brokerEvents.ingestPush(sbn.packageName, body, sbn.postTime)
+                }
             }
+        }
+    }
+
+    /** Пуш найденного приложения брокера → `broker_events`. Новости и акции не разбираются и не пишутся. */
+    private fun recordBrokerPush(sbn: StatusBarNotification) {
+        val n = sbn.notification ?: return
+        if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        scope.launch {
+            val body = extractBody(sbn)
+            if (body.isBlank()) return@launch
+            brokerEvents.ingestPush(sbn.packageName, body, sbn.postTime)
         }
     }
 

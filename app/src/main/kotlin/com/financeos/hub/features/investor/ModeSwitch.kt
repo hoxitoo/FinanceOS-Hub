@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +74,11 @@ fun ModeSwitch(
     investor : Boolean,
     onChange : (Boolean) -> Unit,
     modifier : Modifier = Modifier,
+    /**
+     * Янтарная точка на «Инвестор»: брокер прислал предупреждение, требующее действия, а открыт
+     * кошелёк. Только знак «загляни» — ни сумм, ни текста кошелёк не показывает (инвариант #44).
+     */
+    investorAttention: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val density  = LocalDensity.current
@@ -131,7 +138,10 @@ fun ModeSwitch(
             )
             Row(Modifier.fillMaxHeight()) {
                 Segment(WALLET, if (compact) "👛" else WALLET, selected = !investor, width = segment) { onChange(false) }
-                Segment(INVESTOR, if (compact) "📈" else INVESTOR, selected = investor, width = segment) { onChange(true) }
+                Segment(
+                    INVESTOR, if (compact) "📈" else INVESTOR, selected = investor, width = segment,
+                    dot = investorAttention,
+                ) { onChange(true) }
             }
         }
     }
@@ -143,6 +153,7 @@ private fun Segment(
     label   : String,
     selected: Boolean,
     width   : Dp,
+    dot     : Boolean = false,
     onClick : () -> Unit,
 ) {
     val color by animateColorAsState(
@@ -161,11 +172,22 @@ private fun Segment(
                 onClick           = onClick,
             )
             .semantics {
-                contentDescription = name
+                contentDescription = if (dot) "$name, есть предупреждение брокера" else name
                 this.selected = selected
             },
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, style = LABEL, color = color, maxLines = 1)
+        // Без условного хука: точка — обычный элемент, не анимация (инвариант #4 не задет).
+        if (dot) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 5.dp, end = 7.dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(FosColors.Warning),
+            )
+        }
     }
 }

@@ -5,25 +5,58 @@ import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.data.preferences.UserPreferences
+import com.financeos.hub.data.repositories.BrokerEventRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Режим «Инвестор» на главной — подготовительный шаг.
+ * Режим «Инвестор» на главной.
  *
- * Хранилища брокерских событий ещё нет: пуши БКС пока только распознаются (и по ним замечается имя
- * пакета приложения брокера). Поэтому настоящего портфеля экран не показывает — он показывает
- * честное пустое состояние и, по кнопке, [sample]: портфель, посчитанный ТЕМ ЖЕ разбором и ТЕМ ЖЕ
- * расчётом из реальных пушей БКС от 1 октября. Пример помечен как пример.
+ * Портфель считается из `broker_events` — пушей найденного приложения брокера (инвариант #47).
+ * Пока своих событий нет, экран показывает честное пустое состояние и, по кнопке, [sample]:
+ * портфель, посчитанный ТЕМ ЖЕ разбором и ТЕМ ЖЕ расчётом из реальных пушей БКС. Пример помечен.
  */
 @HiltViewModel
 class InvestorViewModel @Inject constructor(
     private val prefs: UserPreferences,
+    private val brokerEvents: BrokerEventRepository,
 ) : ViewModel() {
+
+    /** Портфель из своих событий. Считается вне главного потока: история растёт с каждым пушем. */
+    val portfolio: StateFlow<Portfolio.Result> = brokerEvents.observeAll()
+        .map { Portfolio.compute(it) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Portfolio.EMPTY)
+
+    /**
+     * Есть ли предупреждение брокера, требующее действия. Нужно и КОШЕЛЬКУ — точка на «Инвестор» в
+     * переключателе: человек, сидящий в кошельке, иначе не узнал бы, что брокер грозит закрыть
+     * позиции. Сумм и текста кошелёк не получает (инвариант #44).
+     */
+    val hasOpenAlert: StateFlow<Boolean> = portfolio
+        .map { it.openAlerts.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Выбранный счёт брокера (ключ [com.financeos.hub.core.invest.contractKey]); `null` — весь портфель. */
+    private val _selectedContract = MutableStateFlow<String?>(null)
+    val selectedContract: StateFlow<String?> = _selectedContract.asStateFlow()
+
+    fun selectContract(key: String?) { _selectedContract.value = key }
+
+    /** «Закрыть» на карточке предупреждения. У примера id нет — закрывать в базе нечего. */
+    fun dismissAlert(id: String?) {
+        if (id == null) return
+        viewModelScope.launch { brokerEvents.dismissAlert(id) }
+    }
 
     /**
      * `null`, пока настройка не прочитана: иначе при запуске в режиме инвестора главная на долю
@@ -45,7 +78,7 @@ class InvestorViewModel @Inject constructor(
         viewModelScope.launch { prefs.clearBrokerPackage() }
     }
 
-    /** Портфель из реальных пушей БКС (1 октября) — для оценки экрана, пока своих данных нет. */
+    /** Портфель из реальных пушей БКС (1–2 октября) — для оценки экрана, пока своих данных нет. */
     val sample: Portfolio.Result by lazy {
         val minute = 60_000L
         val start  = 1_790_837_580_000L   // 1 октября 2026, 09:53 МСК
@@ -54,6 +87,11 @@ class InvestorViewModel @Inject constructor(
             3L  to "LQDT: заявка активна Лимитная заявка на покупку 4760 лотов LQDT по 2.0984",
             11L to "LQDT: заявка отменена Лимитная заявка на покупку 4760 лотов LQDT по 2.0984",
             12L to "LQDT: заявка исполнена Лимитная заявка на покупку 4760 лотов LQDT по 2.0985",
+            // 2 октября, 11:24: предупреждение и перевод, который его покрыл (пришёл следом).
+            1531L to "Критично низкий баланс счета 3468071/25 (Облигации) Пополните счет 3468071/25 " +
+                "(Облигации) на сумму от 188.02. Если стоимость портфеля станет ниже 0, брокер приступит " +
+                "к закрытию ваших позиций. Уведомление о маржин-колле направлено на ваш e-mail.",
+            1532L to "Перевод между счетами 189 RUB. Со счета №580922/19-м на счет 3468071/25 (Облигации)",
         )
         Portfolio.compute(pushes.mapNotNull { (m, text) -> BrokerPushParser.parse(text, start + m * minute) })
     }

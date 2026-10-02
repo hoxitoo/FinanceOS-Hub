@@ -16,6 +16,9 @@ package com.financeos.hub.core.invest
  *   [lotSizes]; без них стоимость будет занижена во столько раз, сколько бумаг в лоте.
  * - **Комиссия не учитывается** — её в пушах нет. Остаток денег на счёте поэтому приблизителен.
  * - **Валюты не складываются**, как и в кошельке: итоги — по валюте.
+ * - **Перевод между счетами брокера итог не меняет** — деньги остались у того же брокера.
+ * - **Остаток по каждому счёту не считается.** Пуш о сделке не говорит, с какого счёта ушли деньги,
+ *   и угаданный остаток врал бы. Счета видны списком, со своими движениями и предупреждениями.
  */
 object Portfolio {
 
@@ -37,8 +40,10 @@ object Portfolio {
         val pnlKopecks  : Long get() = valueKopecks - costKopecks
     }
 
+    /** Деньги у брокера в одной валюте — по всем его счетам вместе. */
     data class BrokerAccount(
         val broker      : String,
+        /** Номер счёта, если у брокера известен ровно один; при нескольких — `null`. */
         val contract    : String?,
         val currency    : String,
         /** Пополнения − выводы − покупки + продажи. Без комиссий — см. описание объекта. */
@@ -46,6 +51,17 @@ object Portfolio {
         /** Сколько всего завели на счёт за вычетом выводов. */
         val netDepositsKopecks: Long,
     )
+
+    /** Счёт у брокера, узнанный из пушей: номер и название, если брокер его пишет. */
+    data class Contract(
+        val broker  : String,
+        val contract: String,
+        val label   : String?,
+    ) {
+        val key: String get() = contractKey(contract)!!
+        /** «3468071/25 (Облигации)» — как в приложении брокера. */
+        val title: String get() = if (label != null) "$contract ($label)" else contract
+    }
 
     data class Summary(
         val currency      : String,
@@ -68,8 +84,14 @@ object Portfolio {
         val activeOrders: List<BrokerOrder>,
         val history     : List<BrokerOrder>,
         val summaries   : List<Summary>,
+        val contracts   : List<Contract> = emptyList(),
+        /** Пополнения, выводы и переводы между счетами — новые сверху. */
+        val movements   : List<BrokerEvent> = emptyList(),
+        val alerts      : List<MarginAlerts.State> = emptyList(),
     ) {
-        val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() && history.isEmpty()
+        val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
+            history.isEmpty() && movements.isEmpty() && alerts.isEmpty()
+        val openAlerts: List<MarginAlerts.State> get() = alerts.filter { it.isOpen }
     }
 
     val EMPTY = Result(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
@@ -81,15 +103,27 @@ object Portfolio {
         val holdings = linkedMapOf<Triple<String, String, String>, Acc>()        // broker, ticker, currency
         val cash     = linkedMapOf<Pair<String, String>, Long>()                  // broker, currency
         val deposits = linkedMapOf<Pair<String, String>, Long>()
-        val contracts = mutableMapOf<String, String>()
+        // Счета брокера: номер → название. Название — из последнего пуша, где оно было.
+        val known = linkedMapOf<Pair<String, String>, Contract>()
+        fun see(broker: String, contract: String?, label: String?) {
+            val key = contractKey(contract) ?: return
+            val prev = known[broker to key]
+            known[broker to key] = Contract(broker, prev?.contract ?: contract!!.trim().removePrefix("№").trim(), label ?: prev?.label)
+        }
 
         for (e in sorted) when (e) {
             is BrokerCashMove -> {
                 val key = e.broker to e.currency
                 cash[key]     = (cash[key] ?: 0L) + e.amountKopecks
                 deposits[key] = (deposits[key] ?: 0L) + e.amountKopecks
-                e.contract?.let { contracts[e.broker] = it }
+                see(e.broker, e.contract, null)
             }
+            // Деньги остались у того же брокера: итог не меняется, меняется только счёт.
+            is BrokerInternalTransfer -> {
+                see(e.broker, e.fromContract, e.fromLabel)
+                see(e.broker, e.toContract, e.toLabel)
+            }
+            is BrokerMarginAlert -> see(e.broker, e.contract, e.label)
             is BrokerOrder -> {
                 if (e.status != OrderStatus.FILLED) continue
                 val qty    = e.lots * (lotSizes[e.ticker] ?: 1L)
@@ -117,10 +151,11 @@ object Portfolio {
             Position(k.first, k.second, k.third, a.qty, a.avg, a.last)
         }.sortedByDescending { it.valueKopecks }
 
+        val contracts = known.values.toList()
         val accounts = cash.keys.map { key ->
             BrokerAccount(
                 broker             = key.first,
-                contract           = contracts[key.first],
+                contract           = contracts.filter { it.broker == key.first }.singleOrNull()?.contract,
                 currency           = key.second,
                 cashKopecks        = cash[key] ?: 0L,
                 netDepositsKopecks = deposits[key] ?: 0L,
@@ -149,6 +184,12 @@ object Portfolio {
             )
         }
 
-        return Result(accounts, positions, active, history, summaries)
+        val movements = sorted.filter { it is BrokerCashMove || it is BrokerInternalTransfer }.reversed()
+        return Result(
+            accounts, positions, active, history, summaries,
+            contracts = contracts,
+            movements = movements,
+            alerts    = MarginAlerts.evaluate(sorted),
+        )
     }
 }
