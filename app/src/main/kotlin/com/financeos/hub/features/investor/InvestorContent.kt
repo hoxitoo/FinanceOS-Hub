@@ -44,7 +44,7 @@ import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.fosHeroCard
-import com.financeos.hub.ui.theme.fosInset
+import com.financeos.hub.ui.theme.fosCardSurface
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.abs
@@ -308,9 +308,11 @@ private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
 @Composable
 private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick: () -> Unit) {
     Row(
+        // Нажатие — между заливкой и отступом (как велит FosSurface): иначе поле вокруг подписи мёртвое.
         modifier = modifier
-            .fosInset(FosTone.Invest)
-            .clickable(onClick = onClick),
+            .fosCardSurface(FosCardStyle.Sunken, FosTone.Invest, FosDimens.RadiusInset)
+            .clickable(onClick = onClick)
+            .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -370,7 +372,13 @@ private fun CashRow(acc: Portfolio.BrokerAccount) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(SecurityGroups.currencyName(acc.currency), style = FosType.BodySemi, color = FosColors.TextPrimary)
-            Text("свободные деньги · ${acc.broker}", style = FosType.Micro, color = FosColors.TextMuted)
+            // Комиссий в пушах нет, поэтому цифра приблизительна и может уйти в минус — подпись это говорит.
+            Text(
+                if (acc.cashKopecks < 0) "деньги · ${acc.broker} · без комиссий, приблизительно"
+                else "свободные деньги · ${acc.broker}",
+                style = FosType.Micro,
+                color = FosColors.TextMuted,
+            )
         }
         Text(
             FosFormatter.amount(acc.cashKopecks, FosFormatter.currencySymbol(acc.currency)),

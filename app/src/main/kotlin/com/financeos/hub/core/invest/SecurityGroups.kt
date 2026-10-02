@@ -30,10 +30,12 @@ object SecurityGroups {
         // Индексы и смешанные
         "EQMX", "TMOS", "SBMX", "AKME", "TRUR", "TBRU", "SBRB", "SBGB", "AKMB", "OBLG", "INFL",
         "TDIV", "DIVD", "MKBD", "RCMX", "TEUR", "TUSD", "AKMP", "BOND", "SBCB", "SBHI", "SBWS",
+        "TPAY", "GROD", "SBSC", "AKFB", "TLCB", "TBEU", "TOFZ", "TITR", "TRND", "TSPX", "AKUP",
+        "AKQU", "AKSP", "SBRI", "SBPS", "SBDS", "SBSP", "SBMB", "SBRS", "BCSB", "BCSG", "BCSR",
     )
 
     /** Валютные инструменты биржи: «USD000UTSTOM», «CNYRUB_TOM», «EUR_RUB__TOM» и голые коды. */
-    private val CURRENCY = Regex("""^(?:USD|EUR|CNY|HKD|GBP|CHF|JPY|KZT|TRY|AED|BYN|AMD|KGS)(?:000UTS|RUB|_RUB)[_A-Z]*TO[MD]$""")
+    private val CURRENCY = Regex("""^(?:USD|EUR|CNY|HKD|GBP|CHF|JPY|KZT|TRY|AED|BYN|AMD|KGS)(?:000UTS|000000|RUB|_RUB)[_A-Z]*TO[MD]$""")
     private val CURRENCY_CODES = setOf("USD", "EUR", "CNY", "HKD", "GBP", "CHF", "JPY", "KZT", "TRY", "AED", "BYN", "AMD", "KGS")
 
     /** ОФЗ «SU26238RMFS4» и облигации с ISIN «RU000A105C93». */
@@ -42,7 +44,11 @@ object SecurityGroups {
     /** Бумаги, которыми торгуют вне биржи: «3800_HK» (так её пишет БКС). */
     private val OTC = Regex("""^\d{3,5}_[A-Z]{2}$""")
 
-    /** Акция Мосбиржи — 4 латинские буквы, у привилегированной — «P» пятой: SBER, SBERP, GAZP. */
+    /**
+     * Акция Мосбиржи — 4 латинские буквы, у привилегированной — «P» пятой: SBER, SBERP, GAZP.
+     * Это ЕДИНСТВЕННАЯ догадка в справочнике: у фондов тоже четыре буквы, и фонд, которого нет в
+     * [FUNDS], ляжет в «Акции». Цифры при этом верны — неверна только полка; лечится строкой в [FUNDS].
+     */
     private val SHARES = Regex("""^[A-Z]{4}P?$""")
 
     fun of(ticker: String): SecurityGroup {
