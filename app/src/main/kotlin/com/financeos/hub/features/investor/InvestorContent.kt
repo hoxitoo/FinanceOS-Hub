@@ -16,6 +16,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +30,7 @@ import com.financeos.hub.core.invest.BrokerEvent
 import com.financeos.hub.core.invest.BrokerInternalTransfer
 import com.financeos.hub.core.invest.BrokerOrder
 import com.financeos.hub.core.invest.MarginAlerts
+import com.financeos.hub.core.invest.SecurityGroups
 import com.financeos.hub.core.invest.contractKey
 import com.financeos.hub.core.invest.OrderSide
 import com.financeos.hub.core.invest.OrderStatus
@@ -39,6 +44,7 @@ import com.financeos.hub.ui.theme.FosTone
 import com.financeos.hub.ui.theme.FosType
 import com.financeos.hub.ui.theme.fosCard
 import com.financeos.hub.ui.theme.fosHeroCard
+import com.financeos.hub.ui.theme.fosInset
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.abs
@@ -58,6 +64,8 @@ fun LazyListScope.investorItems(
     brokerPackage   : String?,
     selectedContract: String?,
     onPickAccount   : () -> Unit,
+    onOpenHistory   : () -> Unit,
+    onOpenOrders    : () -> Unit,
     onDismissAlert  : (String?) -> Unit,
     onShowSample    : () -> Unit,
     onHideSample    : () -> Unit,
@@ -81,48 +89,27 @@ fun LazyListScope.investorItems(
 
     item(key = "invest_hero") {
         if (contract == null) {
-            PortfolioHero(portfolio, isSample, onHideSample, onPickAccount)
+            PortfolioHero(portfolio, isSample, onHideSample, onPickAccount, onOpenHistory, onOpenOrders)
         } else {
             ContractHero(portfolio, contract, onPickAccount)
         }
     }
 
     if (contract == null) {
-        if (portfolio.accounts.isNotEmpty()) {
-            item(key = "invest_brokers_h") { FosSectionHeader("Брокеры", tone = FosTone.Invest) }
-            items(portfolio.accounts, key = { "acc_${it.broker}_${it.currency}" }) {
-                BrokerCard(it, portfolio.contracts.count { c -> c.broker == it.broker })
-            }
-        }
-        if (portfolio.positions.isNotEmpty()) {
-            item(key = "invest_positions_h") { FosSectionHeader("Позиции", tone = FosTone.Invest) }
-            items(portfolio.positions, key = { "pos_${it.broker}_${it.ticker}_${it.currency}" }) { PositionRow(it) }
-        }
-    }
-
-    // Движения денег и прошлые предупреждения — по выбранному счёту или по всем.
-    val movements = portfolio.movements.filter { contract == null || it.touches(contract.key) }
-    val pastAlerts = portfolio.alerts.filter { !it.isOpen && (contract == null || contractKey(it.alert.contract) == contract.key) }
-    val feed = (movements.map { it.timestamp to it } + pastAlerts.map { it.alert.timestamp to it })
-        .sortedByDescending { it.first }
-    if (feed.isNotEmpty()) {
-        item(key = "invest_moves_h") { FosSectionHeader("Движения денег", tone = FosTone.Invest) }
-        itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) ->
-            when (e) {
-                is MarginAlerts.State -> PastAlertRow(e, portfolio.titleOf(e.alert.contract))
-                is BrokerEvent        -> MovementRow(e, portfolio)
-            }
+        // Группы, как у БКС: «Валюта» (деньги на счетах и валютные бумаги), «Акции», «Фонды»…
+        // Движения денег и заявки — по кнопкам «История» и «Заявки» в главном блоке.
+        items(portfolio.groups, key = { "grp_${it.group.name}" }) { GroupCard(it) }
+    } else {
+        // Выбранный счёт: его движения и прошлые предупреждения прямо на экране — больше о нём
+        // ничего не известно.
+        val feed = historyFeed(portfolio, contract.key)
+        if (feed.isNotEmpty()) {
+            item(key = "invest_moves_h") { FosSectionHeader("Движения денег", tone = FosTone.Invest) }
+            itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) -> FeedRow(e, portfolio) }
         }
     }
 
-    if (contract == null) {
-        val orders = portfolio.activeOrders + portfolio.history
-        if (orders.isNotEmpty()) {
-            item(key = "invest_orders_h") { FosSectionHeader("Заявки и сделки", tone = FosTone.Invest) }
-            // Индекс в ключе: один и тот же пуш может прийти дважды, и одинаковый ключ уронил бы список.
-            itemsIndexed(orders, key = { i, o -> "ord_${i}_${o.timestamp}" }) { _, o -> OrderRow(o) }
-        }
-    } else if (portfolio.positions.isNotEmpty() || portfolio.history.isNotEmpty()) {
+    if (contract != null && (portfolio.positions.isNotEmpty() || portfolio.history.isNotEmpty())) {
         item(key = "invest_orders_note") {
             Text(
                 "Бумаги и сделки — во «Всём портфеле»: пуш о сделке не пишет, с какого счёта она прошла.",
@@ -151,6 +138,27 @@ private fun BrokerAppLine(pkg: String, onReset: () -> Unit) {
             .clickable(onClick = onReset)
             .padding(horizontal = 4.dp, vertical = 10.dp),
     )
+}
+
+/**
+ * Движения денег и прошлые предупреждения, новые сверху; [contractKey] — только по этому счёту.
+ * Общая для экрана выбранного счёта и листа «История», чтобы они не разошлись.
+ */
+internal fun historyFeed(portfolio: Portfolio.Result, contractKey: String?): List<Pair<Long, Any>> {
+    val movements  = portfolio.movements.filter { contractKey == null || it.touches(contractKey) }
+    val pastAlerts = portfolio.alerts.filter {
+        !it.isOpen && (contractKey == null || contractKey(it.alert.contract) == contractKey)
+    }
+    return (movements.map { it.timestamp to it as Any } + pastAlerts.map { it.alert.timestamp to it as Any })
+        .sortedByDescending { it.first }
+}
+
+@Composable
+internal fun FeedRow(e: Any, portfolio: Portfolio.Result) {
+    when (e) {
+        is MarginAlerts.State -> PastAlertRow(e, portfolio.titleOf(e.alert.contract))
+        is BrokerEvent        -> MovementRow(e, portfolio)
+    }
 }
 
 /** Затрагивает ли движение счёт с ключом [key]. */
@@ -224,55 +232,150 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
     }
 }
 
+/**
+ * Главный блок, как у БКС: счёт сверху, крупная сумма, результат «за всё время», кнопки.
+ *
+ * Сумма — по цене ваших последних сделок, а не по рынку: котировок у приложения нет (бэклог). Это
+ * написано прямо под суммой, иначе расхождение с приложением брокера выглядело бы ошибкой.
+ */
 @Composable
 private fun PortfolioHero(
     portfolio    : Portfolio.Result,
     isSample     : Boolean,
     onHideSample : () -> Unit,
     onPickAccount: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenOrders : () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().fosHeroCard(FosTone.Invest),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ПОРТФЕЛЬ", style = FosType.SectionCap, color = FosColors.Invest, modifier = Modifier.weight(1f))
-            if (isSample) {
-                Text(
-                    "ПРИМЕР · скрыть",
-                    style    = FosType.Micro,
-                    color    = FosColors.Invest,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(FosDimens.RadiusChip))
-                        .background(FosColors.Invest.copy(alpha = 0.14f))
-                        .clickable(onClick = onHideSample)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
+        if (isSample) {
+            Text(
+                "ПРИМЕР · скрыть",
+                style    = FosType.Micro,
+                color    = FosColors.Invest,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                    .background(FosColors.Invest.copy(alpha = 0.14f))
+                    .clickable(onClick = onHideSample)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
         }
         if (portfolio.contracts.isNotEmpty()) AccountChip("Весь портфель", onPickAccount)
+        else Text("ПОРТФЕЛЬ", style = FosType.SectionCap, color = FosColors.Invest)
         // Валюты не складываются — по строке на каждую, как «Состояние» кошелька.
         portfolio.summaries.forEach { s ->
             val sym = FosFormatter.currencySymbol(s.currency)
             Text(FosFormatter.amount(s.totalKopecks, sym), style = FosType.HeroAmount, color = FosColors.TextPrimary)
-            Text(
-                "Бумаги ${FosFormatter.amount(s.valueKopecks, sym)} · деньги ${FosFormatter.amount(s.cashKopecks, sym)}",
-                style = FosType.MicroNum,
-                color = FosColors.TextSecondary,
-            )
-            val pct = s.pnlPercent?.let { " (${signedPercent(it)})" } ?: ""
-            // Ноль — без знака: «+0,00 ₽ (0,00 %)» спорит само с собой.
-            val pnl = if (s.pnlKopecks == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(s.pnlKopecks, sym)
-            Text(
-                "Результат $pnl$pct",
-                style = FosType.SmallBold,
-                color = pnlColor(s.pnlKopecks),
-            )
+            ResultPill(s.pnlKopecks, s.pnlPercent, sym)
         }
         Text(
-            "Стоимость — по цене вашей последней сделки, без комиссий",
+            "по цене ваших сделок, без комиссий",
             style = FosType.Micro,
             color = FosColors.TextMuted,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val active = portfolio.activeOrders.size
+            HeroButton("История", "🕘", Modifier.weight(1f), onOpenHistory)
+            HeroButton(if (active > 0) "Заявки · $active" else "Заявки", "📄", Modifier.weight(1f), onOpenOrders)
+        }
+    }
+}
+
+/** «−1 527,81 ₽ · 10,51 % за всё время» — пилюля под суммой, как у БКС. */
+@Composable
+private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
+    val amount = if (pnl == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(pnl, sym)
+    val percent = pct?.let { " · ${signedPercent(it)}" } ?: ""
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(FosDimens.RadiusChip))
+            .background(FosColors.Surface2)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("$amount$percent", style = FosType.MicroNum, color = pnlColor(pnl))
+        Text("  за всё время", style = FosType.Micro, color = FosColors.TextSecondary)
+    }
+}
+
+@Composable
+private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier = modifier
+            .fosInset(FosTone.Invest)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = FosType.BodySemi, color = FosColors.TextPrimary, maxLines = 1)
+        Text(icon, style = FosType.Body)
+    }
+}
+
+/**
+ * Группа бумаг — сворачиваемая карточка, как у БКС: заголовок с суммой и результатом, внутри строки.
+ * Состояние «свёрнута» переживает прокрутку и поворот (`rememberSaveable` в элементе с ключом).
+ */
+@Composable
+private fun GroupCard(g: Portfolio.Group) {
+    var open by rememberSaveable(g.group.name) { mutableStateOf(true) }
+    Column(
+        modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Plain, FosTone.Neutral),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                .clickable { open = !open },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(g.group.title, style = FosType.BodySemi, color = FosColors.TextPrimary)
+                g.valueByCurrency.forEach { (cur, value) ->
+                    val sym  = FosFormatter.currencySymbol(cur)
+                    val pnl  = g.pnlByCurrency[cur]
+                    val cost = g.costByCurrency[cur] ?: 0L
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(FosFormatter.amount(value, sym), style = FosType.SmallBold, color = FosColors.TextPrimary)
+                        if (pnl != null && cost != 0L) {
+                            Text(
+                                "  ${signedPercent(pnl * 100.0 / cost)}",
+                                style = FosType.MicroNum,
+                                color = pnlColor(pnl),
+                            )
+                        }
+                    }
+                }
+            }
+            Text(if (open) "▲" else "▼", style = FosType.Label, color = FosColors.TextSecondary)
+        }
+        if (open) {
+            g.cash.forEach { CashRow(it) }
+            g.positions.forEach { PositionRow(it) }
+        }
+    }
+}
+
+/** Свободные деньги на счетах в одной валюте — «Российский рубль 11,14 ₽». */
+@Composable
+private fun CashRow(acc: Portfolio.BrokerAccount) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(SecurityGroups.currencyName(acc.currency), style = FosType.BodySemi, color = FosColors.TextPrimary)
+            Text("свободные деньги · ${acc.broker}", style = FosType.Micro, color = FosColors.TextMuted)
+        }
+        Text(
+            FosFormatter.amount(acc.cashKopecks, FosFormatter.currencySymbol(acc.currency)),
+            style = FosType.SmallBold,
+            color = FosColors.TextPrimary,
         )
     }
 }
@@ -461,42 +564,18 @@ private fun timeOf(ts: Long): String =
     java.time.Instant.ofEpochMilli(ts).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 
-@Composable
-private fun BrokerCard(acc: Portfolio.BrokerAccount, contractCount: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Rail, FosTone.Invest, FosDimens.RadiusCardSmall, FosDimens.CardPaddingSmall),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(acc.broker, style = FosType.BodySemi, color = FosColors.TextPrimary)
-            val sub = acc.contract?.let { "Счёт №$it" }
-                ?: if (contractCount > 1) "$contractCount ${accountsWord(contractCount)}" else null
-            sub?.let { Text(it, style = FosType.MicroNum, color = FosColors.TextSecondary) }
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                FosFormatter.amount(acc.cashKopecks, FosFormatter.currencySymbol(acc.currency)),
-                style = FosType.SmallBold,
-                color = FosColors.TextPrimary,
-            )
-            Text("свободно", style = FosType.Micro, color = FosColors.TextMuted)
-        }
-    }
-}
-
+/** «LQDT · 4 760 шт. · 2,0985 ₽ → 2,0985 ₽» слева, стоимость и результат справа — как у БКС. */
 @Composable
 private fun PositionRow(p: Portfolio.Position) {
     val sym = FosFormatter.currencySymbol(p.currency)
-    Row(
-        modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall, FosDimens.CardPaddingSmall),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f)) {
             Text(p.ticker, style = FosType.BodySemi, color = FosColors.TextPrimary)
+            Text("${grouped(p.quantity)} шт.", style = FosType.MicroNum, color = FosColors.TextSecondary)
             Text(
-                "${grouped(p.quantity)} шт · ср. ${price(p.avgPriceMicros)} $sym",
+                "${price(p.avgPriceMicros)} $sym → ${price(p.lastPriceMicros)} $sym",
                 style = FosType.MicroNum,
-                color = FosColors.TextSecondary,
+                color = FosColors.TextMuted,
             )
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -506,12 +585,15 @@ private fun PositionRow(p: Portfolio.Position) {
                 style = FosType.MicroNum,
                 color = pnlColor(p.pnlKopecks),
             )
+            p.pnlPercent?.let {
+                Text(signedPercent(it), style = FosType.MicroNum, color = pnlColor(p.pnlKopecks))
+            }
         }
     }
 }
 
 @Composable
-private fun OrderRow(o: BrokerOrder) {
+internal fun OrderRow(o: BrokerOrder) {
     val sym = FosFormatter.currencySymbol(o.currency)
     val (label, color) = when (o.status) {
         OrderStatus.ACTIVE    -> "Активна"   to FosColors.Invest
@@ -550,15 +632,6 @@ private fun OrderRow(o: BrokerOrder) {
 
 // ── Форматирование ───────────────────────────────────────────────────────────
 
-private fun accountsWord(n: Int): String {
-    val m100 = n % 100; val m10 = n % 10
-    return when {
-        m100 in 11..14 -> "счетов"
-        m10 == 1       -> "счёт"
-        m10 in 2..4    -> "счёта"
-        else           -> "счетов"
-    }
-}
 
 private fun pnlColor(kopecks: Long): Color = when {
     kopecks > 0L -> FosColors.Positive

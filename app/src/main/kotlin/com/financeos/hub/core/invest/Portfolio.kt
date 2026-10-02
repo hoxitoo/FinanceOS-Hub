@@ -38,6 +38,30 @@ object Portfolio {
         /** Стоимость по цене последней сделки, копейки. */
         val valueKopecks: Long get() = microsToKopecks(lastPriceMicros * quantity)
         val pnlKopecks  : Long get() = valueKopecks - costKopecks
+        /** Результат в процентах от вложенного; `null`, если вложено ноль. */
+        val pnlPercent  : Double? get() = if (costKopecks == 0L) null else pnlKopecks * 100.0 / costKopecks
+        val group       : SecurityGroup get() = SecurityGroups.of(ticker)
+    }
+
+    /**
+     * Группа на экране, как у БКС: бумаги одной группы и — в «Валюте» — свободные деньги на счетах.
+     * Итоги по валютам раздельно: курса у офлайн-приложения нет, рубли с юанями не складываются.
+     */
+    data class Group(
+        val group    : SecurityGroup,
+        val positions: List<Position>,
+        /** Свободные деньги по валютам — только у группы «Валюта». */
+        val cash     : List<BrokerAccount>,
+    ) {
+        /** Стоимость группы по валютам: валюта → копейки. */
+        val valueByCurrency: Map<String, Long> get() =
+            (positions.map { it.currency to it.valueKopecks } + cash.map { it.currency to it.cashKopecks })
+                .groupBy({ it.first }, { it.second }).mapValues { it.value.sum() }
+        /** Результат бумаг группы по валютам. Деньги результата не дают. */
+        val pnlByCurrency: Map<String, Long> get() =
+            positions.groupBy { it.currency }.mapValues { (_, ps) -> ps.sumOf { it.pnlKopecks } }
+        val costByCurrency: Map<String, Long> get() =
+            positions.groupBy { it.currency }.mapValues { (_, ps) -> ps.sumOf { it.costKopecks } }
     }
 
     /** Деньги у брокера в одной валюте — по всем его счетам вместе. */
@@ -92,6 +116,16 @@ object Portfolio {
         val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
             history.isEmpty() && movements.isEmpty() && alerts.isEmpty()
         val openAlerts: List<MarginAlerts.State> get() = alerts.filter { it.isOpen }
+
+        /** Группы в порядке экрана БКС; пустые не показываются. */
+        val groups: List<Group> get() {
+            val byGroup = positions.groupBy { it.group }
+            return SecurityGroup.values().mapNotNull { g ->
+                val ps   = byGroup[g].orEmpty()
+                val cash = if (g == SecurityGroup.CURRENCY) accounts.filter { it.cashKopecks != 0L } else emptyList()
+                if (ps.isEmpty() && cash.isEmpty()) null else Group(g, ps, cash)
+            }
+        }
     }
 
     val EMPTY = Result(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
