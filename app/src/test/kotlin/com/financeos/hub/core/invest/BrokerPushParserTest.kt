@@ -45,6 +45,41 @@ class BrokerPushParserTest {
         assertEquals(2_098_500L, filled.priceMicros)
     }
 
+    // Пуши БКС от 2 октября, 11:24 (скриншот пользователя).
+    private val transferPush = "Перевод между счетами 189 RUB. Со счета №580922/19-м на счет 3468071/25 (Облигации)"
+    private val alertPush = "Критично низкий баланс счета 3468071/25 (Облигации) Пополните счет 3468071/25 " +
+        "(Облигации) на сумму от 188.02. Если стоимость портфеля станет ниже 0, брокер приступит к " +
+        "закрытию ваших позиций. Уведомление о маржин-колле направлено на ваш e-mail."
+
+    @Test
+    fun `transfer between two accounts of the broker`() {
+        val e = BrokerPushParser.parse(transferPush, ts)
+        assertTrue(e is BrokerInternalTransfer)
+        e as BrokerInternalTransfer
+        assertEquals(18_900L, e.amountKopecks)
+        assertEquals("RUB", e.currency)
+        assertEquals("580922/19-м", e.fromContract)
+        assertNull(e.fromLabel)
+        assertEquals("3468071/25", e.toContract)
+        assertEquals("Облигации", e.toLabel)
+    }
+
+    @Test
+    fun `low balance warning is an alert, not a deposit`() {
+        // «Пополните счет» — просьба, а не «пополнили»: деньги не двигались.
+        val e = BrokerPushParser.parse(alertPush, ts)
+        assertTrue(e is BrokerMarginAlert)
+        e as BrokerMarginAlert
+        assertEquals("3468071/25", e.contract)
+        assertEquals("Облигации", e.label)
+        assertEquals(18_802L, e.requiredKopecks)
+    }
+
+    @Test
+    fun `an alert without an amount is not guessed`() {
+        assertNull(BrokerPushParser.parse("Критично низкий баланс счета 3468071/25 (Облигации)", ts))
+    }
+
     @Test
     fun `header and body must name the same security`() {
         assertNull(BrokerPushParser.parse(

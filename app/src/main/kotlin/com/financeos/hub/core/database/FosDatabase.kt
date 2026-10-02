@@ -9,6 +9,7 @@ import com.financeos.hub.core.classifier.CategoryDefaults
 import com.financeos.hub.core.parser.InvestmentTransfers
 import com.financeos.hub.core.database.converters.FosTypeConverters
 import com.financeos.hub.core.database.daos.AccountDao
+import com.financeos.hub.core.database.daos.BrokerEventDao
 import com.financeos.hub.core.database.daos.BudgetDao
 import com.financeos.hub.core.database.daos.CardDao
 import com.financeos.hub.core.database.daos.CategoryDao
@@ -18,6 +19,7 @@ import com.financeos.hub.core.database.daos.PlannedPaymentDao
 import com.financeos.hub.core.database.daos.TransactionDao
 import com.financeos.hub.core.database.daos.TransferRouteDao
 import com.financeos.hub.core.database.entities.AccountEntity
+import com.financeos.hub.core.database.entities.BrokerEventEntity
 import com.financeos.hub.core.database.entities.BudgetEntity
 import com.financeos.hub.core.database.entities.CardEntity
 import com.financeos.hub.core.database.entities.CategoryEntity
@@ -39,8 +41,9 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         CardEntity::class,
         TransferRouteEntity::class,
         PlannedPaymentEntity::class,
+        BrokerEventEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -54,6 +57,7 @@ abstract class FosDatabase : RoomDatabase() {
     abstract fun cardDao(): CardDao
     abstract fun transferRouteDao(): TransferRouteDao
     abstract fun plannedPaymentDao(): PlannedPaymentDao
+    abstract fun brokerEventDao(): BrokerEventDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -544,6 +548,41 @@ abstract class FosDatabase : RoomDatabase() {
                 recat.forEach { (id, cat) ->
                     db.execSQL("UPDATE transactions SET category_id = ? WHERE id = ?", arrayOf(cat, id))
                 }
+            }
+        }
+
+        /**
+         * `broker_events` — события брокера из пушей (инвариант #44, #47). Отдельная таблица, чтобы
+         * кошелёк их физически не читал. Колонки и индекс — ровно как у [BrokerEventEntity]: Room
+         * сверяет схему при открытии.
+         */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `broker_events` (
+                        `id` TEXT NOT NULL,
+                        `broker` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `amount_kopecks` INTEGER,
+                        `currency` TEXT NOT NULL,
+                        `contract` TEXT,
+                        `contract_label` TEXT,
+                        `to_contract` TEXT,
+                        `to_contract_label` TEXT,
+                        `ticker` TEXT,
+                        `side` TEXT,
+                        `lots` INTEGER,
+                        `price_micros` INTEGER,
+                        `status` TEXT,
+                        `order_kind` TEXT,
+                        `dismissed` INTEGER NOT NULL,
+                        `raw_text` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_broker_events_timestamp` ON `broker_events`(`timestamp`)")
             }
         }
 
