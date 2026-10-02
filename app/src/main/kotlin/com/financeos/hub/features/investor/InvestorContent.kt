@@ -134,7 +134,6 @@ private fun BrokerAppLine(pkg: String, onReset: () -> Unit) {
         style    = FosType.Micro,
         color    = FosColors.TextMuted,
         modifier = Modifier
-            .clip(RoundedCornerShape(FosDimens.RadiusChip))
             .clickable(onClick = onReset)
             .padding(horizontal = 4.dp, vertical = 10.dp),
     )
@@ -215,7 +214,6 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
                 style    = FosType.Micro,
                 color    = FosColors.TextSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .clickable(onClick = onResetBroker)
                     .padding(vertical = 10.dp),
             )
@@ -225,7 +223,6 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
             style    = FosType.Label,
             color    = FosColors.Invest,
             modifier = Modifier
-                .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .clickable(onClick = onShowSample)
                 .padding(vertical = 12.dp),
         )
@@ -261,7 +258,7 @@ private fun PortfolioHero(
                     .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .background(FosColors.Invest.copy(alpha = 0.14f))
                     .clickable(onClick = onHideSample)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
             )
         }
         if (portfolio.contracts.isNotEmpty()) AccountChip("Весь портфель", onPickAccount)
@@ -282,8 +279,8 @@ private fun PortfolioHero(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val active = portfolio.activeOrders.size
-            HeroButton("История", "🕘", Modifier.weight(1f), onOpenHistory)
-            HeroButton(if (active > 0) "Заявки · $active" else "Заявки", "📄", Modifier.weight(1f), onOpenOrders)
+            HeroButton("История", Modifier.weight(1f), onOpenHistory)
+            HeroButton(if (active > 0) "Заявки · $active" else "Заявки", Modifier.weight(1f), onOpenOrders)
         }
     }
 }
@@ -306,7 +303,7 @@ private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
 }
 
 @Composable
-private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroButton(label: String, modifier: Modifier, onClick: () -> Unit) {
     Row(
         // Нажатие — между заливкой и отступом (как велит FosSurface): иначе поле вокруг подписи мёртвое.
         modifier = modifier
@@ -314,10 +311,11 @@ private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick:
             .clickable(onClick = onClick)
             .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        // Без значков (решение пользователя): эмодзи рисуется по-разному на разных телефонах и
+        // спорит с подписью. Подпись — по центру кнопки.
+        horizontalArrangement = Arrangement.Center,
     ) {
         Text(label, style = FosType.BodySemi, color = FosColors.TextPrimary, maxLines = 1)
-        Text(icon, style = FosType.Body)
     }
 }
 
@@ -332,10 +330,11 @@ private fun GroupCard(g: Portfolio.Group) {
         modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Plain, FosTone.Neutral),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // Без clip: скругление чипа на высокой строке срезало первую букву заголовка и первую цифру
+        // суммы («Валюта» читалось как «ʙалюта»). Нажатие — на всю строку, рябь прямоугольная.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .clickable { open = !open },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -489,7 +488,6 @@ private fun MarginAlertCard(st: MarginAlerts.State, title: String, onDismiss: ()
                 style    = FosType.Label,
                 color    = FosColors.TextSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .clickable(onClick = onDismiss)
                     .padding(vertical = 8.dp),
             )
@@ -633,7 +631,7 @@ internal fun OrderRow(o: BrokerOrder) {
             modifier = Modifier
                 .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .background(color.copy(alpha = 0.12f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 9.dp, vertical = 2.dp),
         )
     }
 }
