@@ -29,6 +29,7 @@ import javax.inject.Inject
 class InvestorViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val brokerEvents: BrokerEventRepository,
+    private val selection: InvestSelection,
 ) : ViewModel() {
 
     /** Портфель из своих событий. Считается вне главного потока: история растёт с каждым пушем. */
@@ -47,7 +48,7 @@ class InvestorViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Выбранный счёт брокера (ключ [com.financeos.hub.core.invest.contractKey]); `null` — весь портфель. */
-    private val _selectedContract = MutableStateFlow<String?>(null)
+    private val _selectedContract = selection.contract
     val selectedContract: StateFlow<String?> = _selectedContract.asStateFlow()
 
     fun selectContract(key: String?) { _selectedContract.value = key }

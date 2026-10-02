@@ -19,6 +19,11 @@ sealed class FosRoute(val route: String) {
     object Calculator   : FosRoute("calculator")
     object Calendar     : FosRoute("calendar")
     object Lifetime     : FosRoute("lifetime")
+    // Вкладки режима «Инвестор» (#50). «Портфель» — это Dashboard в режиме инвестора.
+    object InvestOps      : FosRoute("invest_ops")
+    object InvestAnalytics: FosRoute("invest_analytics")
+    object InvestCalendar : FosRoute("invest_calendar")
+    object InvestAccounts : FosRoute("invest_accounts")
 
     companion object {
         /** Routes that may be opened via an external deep link (notification intent). */

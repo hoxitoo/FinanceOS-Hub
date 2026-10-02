@@ -165,7 +165,7 @@ internal fun FeedRow(e: Any, portfolio: Portfolio.Result, onEventClick: (BrokerE
 }
 
 /** Затрагивает ли движение счёт с ключом [key]. */
-private fun BrokerEvent.touches(key: String): Boolean = when (this) {
+internal fun BrokerEvent.touches(key: String): Boolean = when (this) {
     is BrokerCashMove         -> contractKey(contract) == key
     is BrokerInternalTransfer -> contractKey(fromContract) == key || contractKey(toContract) == key
     else                      -> false
@@ -482,13 +482,13 @@ private fun ContractHero(portfolio: Portfolio.Result, contract: Portfolio.Contra
     }
 }
 
-private fun incomingTo(e: BrokerEvent, key: String): Long = when (e) {
+internal fun incomingTo(e: BrokerEvent, key: String): Long = when (e) {
     is BrokerCashMove         -> if (contractKey(e.contract) == key && e.amountKopecks > 0) e.amountKopecks else 0L
     is BrokerInternalTransfer -> if (contractKey(e.toContract) == key) e.amountKopecks else 0L
     else                      -> 0L
 }
 
-private fun outgoingFrom(e: BrokerEvent, key: String): Long = when (e) {
+internal fun outgoingFrom(e: BrokerEvent, key: String): Long = when (e) {
     is BrokerCashMove         -> if (contractKey(e.contract) == key && e.amountKopecks < 0) -e.amountKopecks else 0L
     is BrokerInternalTransfer -> if (contractKey(e.fromContract) == key) e.amountKopecks else 0L
     else                      -> 0L
@@ -692,13 +692,13 @@ internal fun OrderRow(o: BrokerOrder, onClick: ((BrokerOrder) -> Unit)? = null) 
 // ── Форматирование ───────────────────────────────────────────────────────────
 
 
-private fun pnlColor(kopecks: Long): Color = when {
+internal fun pnlColor(kopecks: Long): Color = when {
     kopecks > 0L -> FosColors.Positive
     kopecks < 0L -> FosColors.Negative
     else         -> FosColors.TextSecondary   // ноль — не рост и не убыток
 }
 
-private fun signedPercent(p: Double): String {
+internal fun signedPercent(p: Double): String {
     val text = String.format(Locale("ru"), "%.2f %%", abs(p))
     return when {
         p > 0.005  -> "+$text"
