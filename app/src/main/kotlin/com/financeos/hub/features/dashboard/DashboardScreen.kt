@@ -408,7 +408,8 @@ fun DashboardScreen(
             selected  = investContract,
             onSelect  = { investorVm.selectContract(it); showBrokerAccounts = false },
             onAdd     = { showBrokerAccounts = false; investAdd = InvestAdd.ACCOUNT },
-            onHide    = { investorVm.hideAccount(it.broker, it.contract) },
+            // У примера счета взяты из настоящих пушей: скрыть их здесь — скрыть настоящие счета.
+            onHide    = if (investPortfolio.isEmpty) null else { c -> investorVm.hideAccount(c.broker, c.contract) },
             onDismiss = { showBrokerAccounts = false },
         )
     }

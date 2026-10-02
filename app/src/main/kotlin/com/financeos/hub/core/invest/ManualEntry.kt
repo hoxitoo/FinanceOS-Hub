@@ -70,6 +70,9 @@ object ManualEntry {
         val t = ticker?.trim()?.uppercase()?.takeIf { it.isNotEmpty() } ?: return null
         val q = quantity?.takeIf { it > 0 } ?: return null
         val p = priceMicros?.takeIf { it > 0 } ?: return null
+        // Стоимость считается как цена × количество в миллионных долях — абсурдный ввод не должен
+        // переполнить Long и превратиться в отрицательную сумму.
+        runCatching { Math.multiplyExact(p, q) }.getOrNull() ?: return null
         return BrokerOrder(
             broker = broker, timestamp = ts, ticker = t,
             side = if (kind == Kind.SELL) OrderSide.SELL else OrderSide.BUY,

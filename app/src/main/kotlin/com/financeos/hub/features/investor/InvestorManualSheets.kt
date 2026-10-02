@@ -146,7 +146,11 @@ fun BrokerOperationSheet(
             MoneyField(amount, { amount = it }, "Сумма, ₽")
         }
         if (contracts.isNotEmpty()) {
-            ContractChips(if (kind == ManualEntry.Kind.TRANSFER) "Со счёта" else "Счёт", contracts, from, allowNone = kind != ManualEntry.Kind.TRANSFER) { from = it }
+            ContractChips(if (kind == ManualEntry.Kind.TRANSFER) "Со счёта" else "Счёт", contracts, from, allowNone = kind != ManualEntry.Kind.TRANSFER) {
+                from = it
+                // «На счёт» не может совпасть с «Со счёта»: чип пропал бы из списка, а выбор остался.
+                if (to == it) to = null
+            }
             if (kind == ManualEntry.Kind.TRANSFER) {
                 ContractChips("На счёт", contracts.filter { it.contract != from }, to, allowNone = false) { to = it }
             }

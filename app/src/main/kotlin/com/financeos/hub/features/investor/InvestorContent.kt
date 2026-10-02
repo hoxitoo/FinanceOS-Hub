@@ -658,7 +658,8 @@ internal fun OrderRow(o: BrokerOrder, onClick: ((BrokerOrder) -> Unit)? = null) 
     Row(
         modifier = Modifier.fillMaxWidth()
             .fosCardSurface(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall)
-            .clickable(enabled = onClick != null && o.id != null) { onClick?.invoke(o) }
+            // Активную заявку не удаляют: она ещё может исполниться, и её следующий пуш придёт.
+            .clickable(enabled = onClick != null && o.id != null && o.status != OrderStatus.ACTIVE) { onClick?.invoke(o) }
             .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
     ) {

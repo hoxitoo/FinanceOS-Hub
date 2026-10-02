@@ -37,6 +37,8 @@ class ManualEntryTest {
         assertEquals("580922/19-м", o.contract)
         assertNull(ManualEntry.operation(Kind.BUY, BKS, ts, ticker = "", quantity = 1, priceMicros = 1))
         assertNull(ManualEntry.operation(Kind.BUY, BKS, ts, ticker = "SBER", quantity = 0, priceMicros = 1))
+        // Цена × количество, переполняющие Long, — не сделка, а ошибка ввода.
+        assertNull(ManualEntry.operation(Kind.BUY, BKS, ts, ticker = "SBER", quantity = 999_999_999_999, priceMicros = 999_999_999_999_000_000))
     }
 
     @Test

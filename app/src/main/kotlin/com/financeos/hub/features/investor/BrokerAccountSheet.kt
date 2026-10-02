@@ -36,7 +36,8 @@ fun BrokerAccountSheet(
     selected : String?,
     onSelect : (String?) -> Unit,
     onAdd    : () -> Unit,
-    onHide   : (Portfolio.Contract) -> Unit,
+    /** `null` — удалять нельзя (показан пример: его счета — настоящие счета человека). */
+    onHide   : ((Portfolio.Contract) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -53,7 +54,7 @@ fun BrokerAccountSheet(
             Text("Выбор счёта", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
             AccountOption("Весь портфель", null, selected == null) { onSelect(null) }
             contracts.forEach { c ->
-                AccountOption(c.title, c.broker, selected == c.key, onDelete = { toHide = c }) { onSelect(c.key) }
+                AccountOption(c.title, c.broker, selected == c.key, onDelete = onHide?.let { { toHide = c } }) { onSelect(c.key) }
             }
             Text(
                 "+ Добавить счёт",
@@ -76,7 +77,7 @@ fun BrokerAccountSheet(
             text  = "Счёт пропадёт из списка, даже если брокер упомянет его в пуше. Операции по нему " +
                 "останутся в истории и в итоге — ошибочные удалите в «Истории». Вернуть счёт можно, " +
                 "добавив его снова.",
-            onConfirm = { onHide(c); toHide = null },
+            onConfirm = { onHide?.invoke(c); toHide = null },
             onDismiss = { toHide = null },
         )
     }

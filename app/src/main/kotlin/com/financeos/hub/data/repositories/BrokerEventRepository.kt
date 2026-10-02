@@ -71,8 +71,21 @@ class BrokerEventRepository @Inject constructor(
      * вдвоём), пришедшее пушем — одной строкой.
      */
     suspend fun deleteEvent(id: String) {
-        if (id.startsWith(MANUAL_PREFIX)) dao.deleteByPrefix(id.substringBeforeLast('_') + "_")
-        else dao.delete(id)
+        if (id.startsWith(MANUAL_PREFIX)) { dao.deleteByPrefix(id.substringBeforeLast('_') + "_"); return }
+        val row = dao.getAll().firstOrNull { it.id == id } ?: return
+        // Заявка из пушей — это цепочка «активна → исполнена/отменена». Удалить только последний
+        // статус значило бы воскресить «активна»: на экране появилась бы заявка, которой нет.
+        if (row.kind == BrokerEventMapper.ORDER) {
+            dao.getAll()
+                .filter {
+                    it.kind == BrokerEventMapper.ORDER && !it.id.startsWith(MANUAL_PREFIX) &&
+                        it.broker == row.broker && it.ticker == row.ticker && it.side == row.side &&
+                        it.lots == row.lots && it.timestamp <= row.timestamp
+                }
+                .forEach { dao.delete(it.id) }
+        } else {
+            dao.delete(id)
+        }
     }
 
     /** Удалить актив целиком: все сделки и цены по бумаге (и деньги, заведённые вместе с ней). */
