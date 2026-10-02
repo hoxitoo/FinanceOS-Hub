@@ -134,7 +134,6 @@ private fun BrokerAppLine(pkg: String, onReset: () -> Unit) {
         style    = FosType.Micro,
         color    = FosColors.TextMuted,
         modifier = Modifier
-            .clip(RoundedCornerShape(FosDimens.RadiusChip))
             .clickable(onClick = onReset)
             .padding(horizontal = 4.dp, vertical = 10.dp),
     )
@@ -215,7 +214,6 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
                 style    = FosType.Micro,
                 color    = FosColors.TextSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .clickable(onClick = onResetBroker)
                     .padding(vertical = 10.dp),
             )
@@ -225,7 +223,6 @@ private fun InvestorEmpty(brokerPackage: String?, onShowSample: () -> Unit, onRe
             style    = FosType.Label,
             color    = FosColors.Invest,
             modifier = Modifier
-                .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .clickable(onClick = onShowSample)
                 .padding(vertical = 12.dp),
         )
@@ -261,19 +258,25 @@ private fun PortfolioHero(
                     .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .background(FosColors.Invest.copy(alpha = 0.14f))
                     .clickable(onClick = onHideSample)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
             )
         }
         if (portfolio.contracts.isNotEmpty()) AccountChip("Весь портфель", onPickAccount)
         else Text("ПОРТФЕЛЬ", style = FosType.SectionCap, color = FosColors.Invest)
+        // Период пилюли — как у БКС. Хук без условий и до ветвлений (инвариант #4).
+        var period by rememberSaveable { mutableStateOf(Portfolio.ResultPeriod.ALL) }
         // Валюты не складываются — по строке на каждую, как «Состояние» кошелька.
         portfolio.summaries.forEach { s ->
             val sym = FosFormatter.currencySymbol(s.currency)
             Text(FosFormatter.amount(s.totalKopecks, sym), style = FosType.HeroAmount, color = FosColors.TextPrimary)
-            ResultPill(s.pnlKopecks, s.pnlPercent, sym)
+            val r = portfolio.periods[period]?.firstOrNull { it.currency == s.currency }
+            ResultPill(r?.pnlKopecks ?: 0L, r?.percent, sym, period.label)
         }
+        PeriodChips(period) { period = it }
         Text(
-            "по цене ваших сделок, без комиссий",
+            if (period == Portfolio.ResultPeriod.ALL) "по цене ваших сделок, без комиссий"
+            // Без котировок стоимость меняется только на своих сделках — иначе ноль выглядел бы ошибкой.
+            else "по цене ваших сделок, без комиссий; без сделок за период — ноль",
             style = FosType.Micro,
             color = FosColors.TextMuted,
         )
@@ -282,15 +285,40 @@ private fun PortfolioHero(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val active = portfolio.activeOrders.size
-            HeroButton("История", "🕘", Modifier.weight(1f), onOpenHistory)
-            HeroButton(if (active > 0) "Заявки · $active" else "Заявки", "📄", Modifier.weight(1f), onOpenOrders)
+            HeroButton("История", Modifier.weight(1f), onOpenHistory)
+            HeroButton(if (active > 0) "Заявки · $active" else "Заявки", Modifier.weight(1f), onOpenOrders)
+        }
+    }
+}
+
+/** «24 часа · Месяц · Всё время» — какой результат показывать в пилюле. */
+@Composable
+private fun PeriodChips(selected: Portfolio.ResultPeriod, onSelect: (Portfolio.ResultPeriod) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Portfolio.ResultPeriod.values().forEach { p ->
+            val on = p == selected
+            Text(
+                when (p) {
+                    Portfolio.ResultPeriod.DAY   -> "24 часа"
+                    Portfolio.ResultPeriod.MONTH -> "Месяц"
+                    Portfolio.ResultPeriod.ALL   -> "Всё время"
+                },
+                style    = FosType.Label,
+                color    = if (on) FosColors.TextPrimary else FosColors.TextSecondary,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                    .background(if (on) FosColors.Invest.copy(alpha = 0.22f) else FosColors.Surface2)
+                    .clickable { onSelect(p) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
         }
     }
 }
 
 /** «−1 527,81 ₽ · 10,51 % за всё время» — пилюля под суммой, как у БКС. */
 @Composable
-private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
+private fun ResultPill(pnl: Long, pct: Double?, sym: String, label: String) {
     val amount = if (pnl == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(pnl, sym)
     val percent = pct?.let { " · ${signedPercent(it)}" } ?: ""
     Row(
@@ -301,12 +329,12 @@ private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("$amount$percent", style = FosType.MicroNum, color = pnlColor(pnl))
-        Text("  за всё время", style = FosType.Micro, color = FosColors.TextSecondary)
+        Text("  $label", style = FosType.Micro, color = FosColors.TextSecondary)
     }
 }
 
 @Composable
-private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroButton(label: String, modifier: Modifier, onClick: () -> Unit) {
     Row(
         // Нажатие — между заливкой и отступом (как велит FosSurface): иначе поле вокруг подписи мёртвое.
         modifier = modifier
@@ -314,10 +342,11 @@ private fun HeroButton(label: String, icon: String, modifier: Modifier, onClick:
             .clickable(onClick = onClick)
             .padding(FosDimens.CardPaddingSmall),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        // Без значков (решение пользователя): эмодзи рисуется по-разному на разных телефонах и
+        // спорит с подписью. Подпись — по центру кнопки.
+        horizontalArrangement = Arrangement.Center,
     ) {
         Text(label, style = FosType.BodySemi, color = FosColors.TextPrimary, maxLines = 1)
-        Text(icon, style = FosType.Body)
     }
 }
 
@@ -332,10 +361,11 @@ private fun GroupCard(g: Portfolio.Group) {
         modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Plain, FosTone.Neutral),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // Без clip: скругление чипа на высокой строке срезало первую букву заголовка и первую цифру
+        // суммы («Валюта» читалось как «ʙалюта»). Нажатие — на всю строку, рябь прямоугольная.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .clickable { open = !open },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -489,7 +519,6 @@ private fun MarginAlertCard(st: MarginAlerts.State, title: String, onDismiss: ()
                 style    = FosType.Label,
                 color    = FosColors.TextSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
                     .clickable(onClick = onDismiss)
                     .padding(vertical = 8.dp),
             )
@@ -633,7 +662,7 @@ internal fun OrderRow(o: BrokerOrder) {
             modifier = Modifier
                 .clip(RoundedCornerShape(FosDimens.RadiusChip))
                 .background(color.copy(alpha = 0.12f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 9.dp, vertical = 2.dp),
         )
     }
 }

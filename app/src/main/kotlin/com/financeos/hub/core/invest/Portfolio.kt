@@ -112,6 +112,8 @@ object Portfolio {
         /** Пополнения, выводы и переводы между счетами — новые сверху. */
         val movements   : List<BrokerEvent> = emptyList(),
         val alerts      : List<MarginAlerts.State> = emptyList(),
+        /** Результат за 24 часа / месяц / всё время — по валютам. */
+        val periods     : Map<ResultPeriod, List<PeriodResult>> = emptyMap(),
     ) {
         val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
             history.isEmpty() && movements.isEmpty() && alerts.isEmpty()
@@ -130,7 +132,61 @@ object Portfolio {
 
     val EMPTY = Result(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
 
-    fun compute(events: List<BrokerEvent>, lotSizes: Map<String, Long> = emptyMap()): Result {
+    /** Период пилюли результата, как у БКС. */
+    enum class ResultPeriod(val label: String) {
+        DAY("за 24 часа"),
+        MONTH("за месяц"),
+        ALL("за всё время"),
+    }
+
+    /** Результат за период в одной валюте. */
+    data class PeriodResult(
+        val currency  : String,
+        val pnlKopecks: Long,
+        /** В процентах от того, что было на счёте в начале периода плюс заведённое за период. */
+        val percent   : Double?,
+    )
+
+    /**
+     * Результат за период — как считает брокер: на сколько изменилось всё, что лежит у брокера,
+     * МИНУС деньги, которые за это время завели (и плюс выведенные). Пополнение на 10 000 —
+     * не доход: без вычета «за день» после пополнения показывало бы +10 000.
+     *
+     * Без котировок стоимость меняется только на своих сделках (цена последней сделки), поэтому
+     * между сделками результат за 24 часа — ноль; экран это подписывает.
+     */
+    internal fun periodResults(before: Result, now: Result): List<PeriodResult> {
+        val currencies = (now.summaries.map { it.currency } + before.summaries.map { it.currency }).distinct()
+        return currencies.map { cur ->
+            val totalNow  = now.summaries.firstOrNull { it.currency == cur }?.totalKopecks ?: 0L
+            val totalThen = before.summaries.firstOrNull { it.currency == cur }?.totalKopecks ?: 0L
+            val depNow    = now.accounts.filter { it.currency == cur }.sumOf { it.netDepositsKopecks }
+            val depThen   = before.accounts.filter { it.currency == cur }.sumOf { it.netDepositsKopecks }
+            val inflow    = depNow - depThen
+            val pnl       = (totalNow - totalThen) - inflow
+            val base      = totalThen + inflow
+            PeriodResult(cur, pnl, if (base <= 0L) null else pnl * 100.0 / base)
+        }
+    }
+
+    fun compute(
+        events  : List<BrokerEvent>,
+        lotSizes: Map<String, Long> = emptyMap(),
+        now     : Long = System.currentTimeMillis(),
+        zone    : java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ): Result {
+        val result = computeAt(events, lotSizes)
+        if (result.isEmpty) return result
+        val monthAgo = java.time.Instant.ofEpochMilli(now).atZone(zone).minusMonths(1).toInstant().toEpochMilli()
+        fun upTo(t: Long) = computeAt(events.filter { it.timestamp < t }, lotSizes)
+        return result.copy(periods = mapOf(
+            ResultPeriod.DAY   to periodResults(upTo(now - 24 * 3_600_000L), result),
+            ResultPeriod.MONTH to periodResults(upTo(monthAgo), result),
+            ResultPeriod.ALL   to periodResults(EMPTY, result),
+        ))
+    }
+
+    private fun computeAt(events: List<BrokerEvent>, lotSizes: Map<String, Long>): Result {
         val sorted = events.sortedBy { it.timestamp }
 
         data class Acc(var qty: Long = 0, var avg: Long = 0, var last: Long = 0)
