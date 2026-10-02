@@ -1306,6 +1306,13 @@ rowid). Дубликат паттерна с новым id встанет поз
   «Валюта» читалось как «ʙалюта», «9 988,86» — как «ↄ 988,86». У ссылок и строк-заголовков — без
   `clip` (рябь прямоугольная), у чипов — боковой отступ не меньше половины их высоты.
 - Кнопки «История» / «Заявки» — без значков (решение пользователя), подпись по центру.
+- **Пилюля результата — с выбором «24 часа / Месяц / Всё время»** (`Portfolio.ResultPeriod`, как у
+  БКС). Результат за период = изменение ВСЕГО у брокера (бумаги + деньги) минус деньги, заведённые
+  за период (`periodResults`); процент — от того, что было в начале, плюс заведённое. Без вычета
+  пополнение на 10 000 показывалось бы как +10 000 «за день». «Месяц» — календарный, от этого же
+  числа прошлого месяца. Без котировок стоимость меняется только на своих сделках, поэтому между
+  сделками результат за период — ноль, и под пилюлей это написано. «Всё время» теперь тоже по этой
+  формуле (итог минус заведённое) и включает зафиксированный результат продаж.
 
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
@@ -1327,7 +1334,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (47 файлов, 543 случая) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (48 файлов, 546 случаев) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`

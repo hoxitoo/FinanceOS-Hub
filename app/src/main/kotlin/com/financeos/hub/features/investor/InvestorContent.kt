@@ -263,14 +263,20 @@ private fun PortfolioHero(
         }
         if (portfolio.contracts.isNotEmpty()) AccountChip("Весь портфель", onPickAccount)
         else Text("ПОРТФЕЛЬ", style = FosType.SectionCap, color = FosColors.Invest)
+        // Период пилюли — как у БКС. Хук без условий и до ветвлений (инвариант #4).
+        var period by rememberSaveable { mutableStateOf(Portfolio.ResultPeriod.ALL) }
         // Валюты не складываются — по строке на каждую, как «Состояние» кошелька.
         portfolio.summaries.forEach { s ->
             val sym = FosFormatter.currencySymbol(s.currency)
             Text(FosFormatter.amount(s.totalKopecks, sym), style = FosType.HeroAmount, color = FosColors.TextPrimary)
-            ResultPill(s.pnlKopecks, s.pnlPercent, sym)
+            val r = portfolio.periods[period]?.firstOrNull { it.currency == s.currency }
+            ResultPill(r?.pnlKopecks ?: 0L, r?.percent, sym, period.label)
         }
+        PeriodChips(period) { period = it }
         Text(
-            "по цене ваших сделок, без комиссий",
+            if (period == Portfolio.ResultPeriod.ALL) "по цене ваших сделок, без комиссий"
+            // Без котировок стоимость меняется только на своих сделках — иначе ноль выглядел бы ошибкой.
+            else "по цене ваших сделок, без комиссий; без сделок за период — ноль",
             style = FosType.Micro,
             color = FosColors.TextMuted,
         )
@@ -285,9 +291,34 @@ private fun PortfolioHero(
     }
 }
 
+/** «24 часа · Месяц · Всё время» — какой результат показывать в пилюле. */
+@Composable
+private fun PeriodChips(selected: Portfolio.ResultPeriod, onSelect: (Portfolio.ResultPeriod) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Portfolio.ResultPeriod.values().forEach { p ->
+            val on = p == selected
+            Text(
+                when (p) {
+                    Portfolio.ResultPeriod.DAY   -> "24 часа"
+                    Portfolio.ResultPeriod.MONTH -> "Месяц"
+                    Portfolio.ResultPeriod.ALL   -> "Всё время"
+                },
+                style    = FosType.Label,
+                color    = if (on) FosColors.TextPrimary else FosColors.TextSecondary,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(FosDimens.RadiusChip))
+                    .background(if (on) FosColors.Invest.copy(alpha = 0.22f) else FosColors.Surface2)
+                    .clickable { onSelect(p) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
 /** «−1 527,81 ₽ · 10,51 % за всё время» — пилюля под суммой, как у БКС. */
 @Composable
-private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
+private fun ResultPill(pnl: Long, pct: Double?, sym: String, label: String) {
     val amount = if (pnl == 0L) FosFormatter.amount(0L, sym) else FosFormatter.signedAmount(pnl, sym)
     val percent = pct?.let { " · ${signedPercent(it)}" } ?: ""
     Row(
@@ -298,7 +329,7 @@ private fun ResultPill(pnl: Long, pct: Double?, sym: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("$amount$percent", style = FosType.MicroNum, color = pnlColor(pnl))
-        Text("  за всё время", style = FosType.Micro, color = FosColors.TextSecondary)
+        Text("  $label", style = FosType.Micro, color = FosColors.TextSecondary)
     }
 }
 
