@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import com.financeos.hub.core.database.entities.BrokerEventEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -30,6 +31,17 @@ interface BrokerEventDao {
     /** События, записанные от приложения [pkg] (ключ начинается с имени пакета). */
     @Query("DELETE FROM broker_events WHERE substr(id, 1, length(:pkg) + 1) = :pkg || '_'")
     suspend fun deleteFromPackage(pkg: String)
+
+    /** Вставка с заменой — для отметок счёта: «завёл» и «удалил» пишутся в одну и ту же строку. */
+    @Upsert
+    suspend fun upsert(event: BrokerEventEntity)
+
+    @Query("DELETE FROM broker_events WHERE id = :id")
+    suspend fun delete(id: String)
+
+    /** Все строки одной ручной записи (актив = пополнение + покупка) — по общему началу id. */
+    @Query("DELETE FROM broker_events WHERE substr(id, 1, length(:prefix)) = :prefix")
+    suspend fun deleteByPrefix(prefix: String)
 
     @Query("UPDATE broker_events SET dismissed = 1 WHERE id = :id")
     suspend fun dismiss(id: String)

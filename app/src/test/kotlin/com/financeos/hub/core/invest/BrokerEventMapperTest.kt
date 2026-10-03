@@ -17,9 +17,20 @@ class BrokerEventMapperTest {
         val cash = BrokerCashMove(BKS, ts, "580922/19-м", 1_000_000L, "RUB")
         val transfer = BrokerInternalTransfer(BKS, ts, 18_900L, "RUB", "580922/19-м", "3468071/25", null, "Облигации")
         val order = BrokerOrder(BKS, ts, "LQDT", OrderSide.BUY, 4760, 2_098_500L, OrderStatus.FILLED, "Лимитная")
-        assertEquals(cash, roundTrip(cash))
-        assertEquals(transfer, roundTrip(transfer))
-        assertEquals(order, roundTrip(order))
+        // Строка возвращается со своим id — по нему её и удаляют.
+        assertEquals(cash.copy(id = "x"), roundTrip(cash))
+        assertEquals(transfer.copy(id = "x"), roundTrip(transfer))
+        assertEquals(order.copy(id = "x"), roundTrip(order))
+    }
+
+    @Test
+    fun `manual accounts, prices and the account of a trade survive the database`() {
+        val acc = BrokerAccountMark(BKS, ts, "3468071/25", "Облигации", hidden = true)
+        val price = BrokerPriceMark(BKS, ts, "LQDT", 2_100_900L)
+        val order = BrokerOrder(BKS, ts, "SBER", OrderSide.SELL, 10, 300_000_000L, OrderStatus.FILLED, contract = "580922/19-м")
+        assertEquals(acc.copy(id = "x"), roundTrip(acc))
+        assertEquals(price.copy(id = "x"), roundTrip(price))
+        assertEquals(order.copy(id = "x"), roundTrip(order))
     }
 
     @Test

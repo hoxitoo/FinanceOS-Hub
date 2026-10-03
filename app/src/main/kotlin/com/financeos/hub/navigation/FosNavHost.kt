@@ -18,12 +18,16 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -38,6 +42,12 @@ import com.financeos.hub.features.credit.CreditCardsScreen
 import com.financeos.hub.features.dashboard.DashboardScreen
 import com.financeos.hub.features.subscriptions.SubscriptionsScreen
 import com.financeos.hub.features.goals.GoalsScreen
+import com.financeos.hub.features.investor.InvestorBottomBar
+import com.financeos.hub.features.investor.InvestorViewModel
+import com.financeos.hub.features.investor.screens.InvestAccountsScreen
+import com.financeos.hub.features.investor.screens.InvestAnalyticsScreen
+import com.financeos.hub.features.investor.screens.InvestCalendarScreen
+import com.financeos.hub.features.investor.screens.InvestOpsScreen
 import com.financeos.hub.features.onboarding.OnboardingScreen
 import com.financeos.hub.features.settings.SettingsScreen
 import com.financeos.hub.features.transactions.TransactionsScreen
@@ -65,29 +75,53 @@ fun FosNavHost(initialDeepRoute: String? = null) {
         }
     }
 
-    // destination.route returns the template string for routes with args
-    val showBottomBar = currentRoute != null && (
-        currentRoute == FosRoute.Dashboard.route ||
-        currentRoute.startsWith(FosRoute.Transactions.route) ||
-        currentRoute == FosRoute.Analytics.route ||
-        currentRoute == FosRoute.Budget.route ||
-        currentRoute == FosRoute.Goals.route
-    )
+    // Режим «Инвестор» меняет нижнюю панель целиком (#50): у кошелька и инвестора — свои вкладки.
+    // Пока режим не прочитан (null), панели нет — показать вкладки кошелька инвестору на миг
+    // значит показать не те деньги (#44).
+    val modeVm: InvestorViewModel = hiltViewModel()
+    val investorMode by modeVm.investorMode.collectAsState()
+    val investAlert  by modeVm.hasOpenAlert.collectAsState()
+
+    // Смена режима убирает из стека экраны ДРУГОГО режима: иначе «Назад» после переключения
+    // открыл бы операции брокера в кошельке (или бюджет под панелью инвестора) — #44, #50.
+    // Первое прочтение режима (null → значение) стек не трогает: там может быть deep-link.
+    var lastMode by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(investorMode) {
+        val mode = investorMode ?: return@LaunchedEffect
+        if (lastMode != null && lastMode != mode) {
+            navController.popBackStack(FosRoute.Dashboard.route, inclusive = false)
+        }
+        lastMode = mode
+    }
+
+    // destination.route returns the template string for routes with args.
+    // Панель — только на вкладках ТЕКУЩЕГО режима: вкладки кошелька и инвестора не смешиваются.
+    val showBottomBar = currentRoute != null && when (investorMode) {
+        null  -> false
+        true  -> currentRoute == FosRoute.Dashboard.route || currentRoute in INVEST_ROUTES
+        false -> currentRoute == FosRoute.Dashboard.route ||
+            currentRoute.startsWith(FosRoute.Transactions.route) ||
+            currentRoute == FosRoute.Analytics.route ||
+            currentRoute == FosRoute.Budget.route ||
+            currentRoute == FosRoute.Goals.route
+    }
 
     Scaffold(
         containerColor = FosColors.Background,
         bottomBar = {
             if (showBottomBar) {
-                FosBottomBar(
-                    currentRoute = currentRoute,
-                    onNavigate = { route ->
-                        navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState    = true
-                        }
+                val navigate: (String) -> Unit = { route ->
+                    navController.navigate(route) {
+                        popUpTo(FosRoute.Dashboard.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState    = true
                     }
-                )
+                }
+                if (investorMode == true) {
+                    InvestorBottomBar(currentRoute = currentRoute, alert = investAlert, onNavigate = navigate)
+                } else {
+                    FosBottomBar(currentRoute = currentRoute, onNavigate = navigate)
+                }
             }
         }
     ) { inner ->
@@ -161,12 +195,25 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             composable(FosRoute.Categories.route) {
                 CategoriesScreen(onBack = { navController.popBackStack() })
             }
+            // Вкладки инвестора. «Портфель» — Dashboard: там переключатель режима.
+            composable(FosRoute.InvestOps.route)       { InvestOpsScreen() }
+            composable(FosRoute.InvestAnalytics.route) { InvestAnalyticsScreen() }
+            composable(FosRoute.InvestCalendar.route)  { InvestCalendarScreen() }
+            composable(FosRoute.InvestAccounts.route)  {
+                InvestAccountsScreen(onOpenAccount = {
+                    navController.navigate(FosRoute.Dashboard.route) {
+                        popUpTo(FosRoute.Dashboard.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState    = true
+                    }
+                })
+            }
             composable(FosRoute.Subscriptions.route) {
                 SubscriptionsScreen(
                     onBack         = { navController.popBackStack() },
                     onCategoryClick = { catId ->
                         navController.navigate(FosRoute.Transactions.withCategory(catId)) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(FosRoute.Dashboard.route) { saveState = true }
                             launchSingleTop = true
                             restoreState    = true
                         }
@@ -178,6 +225,11 @@ fun FosNavHost(initialDeepRoute: String? = null) {
 }
 
 private data class NavItem(val route: String, val label: String, val icon: String)
+
+private val INVEST_ROUTES = setOf(
+    FosRoute.InvestOps.route, FosRoute.InvestAnalytics.route,
+    FosRoute.InvestCalendar.route, FosRoute.InvestAccounts.route,
+)
 
 private val NAV_ITEMS = listOf(
     NavItem(FosRoute.Dashboard.route,    "Главная",    "home"),

@@ -15,7 +15,18 @@ sealed interface BrokerEvent {
     /** Брокер, приславший событие («БКС»). */
     val broker   : String
     val timestamp: Long
+    /**
+     * Строка в базе — чтобы событие можно было удалить. `null` у примера и у только что
+     * разобранного пуша. У введённого вручную начинается с [MANUAL_PREFIX] (инвариант #49).
+     */
+    val id       : String?
 }
+
+/** Префикс id событий, введённых человеком, а не пришедших пушем. */
+const val MANUAL_PREFIX = "manual_"
+
+/** Событие введено вручную — его можно править и удалять без оглядки на пуши. */
+val BrokerEvent.isManual: Boolean get() = id?.startsWith(MANUAL_PREFIX) == true
 
 /** Деньги пришли на брокерский счёт (+) или ушли с него (−). */
 data class BrokerCashMove(
@@ -26,6 +37,7 @@ data class BrokerCashMove(
     /** Знаковая сумма в копейках: + пополнение, − вывод. */
     val amountKopecks: Long,
     val currency     : String,
+    override val id  : String? = null,
 ) : BrokerEvent
 
 /**
@@ -45,6 +57,7 @@ data class BrokerInternalTransfer(
     /** Название счёта, как его пишет брокер в скобках: «Облигации». */
     val fromLabel    : String? = null,
     val toLabel      : String? = null,
+    override val id  : String? = null,
 ) : BrokerEvent
 
 /**
@@ -65,7 +78,7 @@ data class BrokerMarginAlert(
     /** Валюту пуш не пишет; счёт рублёвый — так у всех известных предупреждений БКС. */
     val currency        : String = "RUB",
     /** Строка в базе — чтобы предупреждение можно было закрыть вручную. Пусто у примера. */
-    val id              : String? = null,
+    override val id     : String? = null,
     val dismissed       : Boolean = false,
 ) : BrokerEvent
 
@@ -88,6 +101,36 @@ data class BrokerOrder(
     /** «Лимитная» / «Рыночная» — как написал брокер; для подписи. */
     val kind       : String? = null,
     val currency   : String = "RUB",
+    /** Счёт сделки. Пуш его не пишет (только ручной ввод знает), поэтому чаще всего `null`. */
+    val contract   : String? = null,
+    override val id: String? = null,
+) : BrokerEvent
+
+/**
+ * Счёт у брокера, заведённый или скрытый ЧЕЛОВЕКОМ (инвариант #49): пуши могут не прийти вовсе, а
+ * счёт, о котором брокер не писал, иначе нельзя было бы выбрать. [hidden] — «удалить счёт»: счёт
+ * пропадает из списка, даже если пуши его упоминали; операции по нему остаются в истории.
+ */
+data class BrokerAccountMark(
+    override val broker   : String,
+    override val timestamp: Long,
+    val contract: String,
+    val label   : String?,
+    val hidden  : Boolean = false,
+    override val id: String? = null,
+) : BrokerEvent
+
+/**
+ * Текущая цена бумаги, указанная вручную. Котировок у приложения нет, и без этого стоимость
+ * стояла бы на цене последней своей сделки вечно. Меняет только цену, не количество и не деньги.
+ */
+data class BrokerPriceMark(
+    override val broker   : String,
+    override val timestamp: Long,
+    val ticker     : String,
+    val priceMicros: Long,
+    val currency   : String = "RUB",
+    override val id: String? = null,
 ) : BrokerEvent
 
 /** Миллионные доли валюты → копейки, с округлением до ближайшей. */
