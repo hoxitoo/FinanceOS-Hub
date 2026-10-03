@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -64,7 +63,9 @@ fun InvestorBottomBar(currentRoute: String?, alert: Boolean, onNavigate: (String
             selected = currentRoute == FosRoute.Dashboard.route,
             alert    = alert,
             onClick  = { onNavigate(FosRoute.Dashboard.route) },
-            modifier = Modifier.weight(1f),
+            // По центру строки — через align, НЕ fillMaxHeight: у NavigationBar только МИНИМАЛЬНАЯ
+            // высота, и fillMaxHeight растягивал панель на весь экран, закрывая всё приложение.
+            modifier = Modifier.weight(1f).align(Alignment.CenterVertically),
         )
         RIGHT.forEach { Tab(it, currentRoute, onNavigate) }
     }
@@ -95,9 +96,7 @@ private fun androidx.compose.foundation.layout.RowScope.Tab(
 @Composable
 private fun PortfolioTab(selected: Boolean, alert: Boolean, onClick: () -> Unit, modifier: Modifier) {
     Column(
-        // Строка NavigationBar выравнивает детей по верху: без этого круг сидел бы выше соседей.
         modifier = modifier
-            .fillMaxHeight()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication        = null,
