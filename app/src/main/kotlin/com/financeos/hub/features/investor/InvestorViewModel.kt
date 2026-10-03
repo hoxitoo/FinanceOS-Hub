@@ -29,6 +29,7 @@ import javax.inject.Inject
 class InvestorViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val brokerEvents: BrokerEventRepository,
+    private val selection: InvestSelection,
 ) : ViewModel() {
 
     /** Портфель из своих событий. Считается вне главного потока: история растёт с каждым пушем. */
@@ -47,10 +48,47 @@ class InvestorViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Выбранный счёт брокера (ключ [com.financeos.hub.core.invest.contractKey]); `null` — весь портфель. */
-    private val _selectedContract = MutableStateFlow<String?>(null)
+    private val _selectedContract = selection.contract
     val selectedContract: StateFlow<String?> = _selectedContract.asStateFlow()
 
     fun selectContract(key: String?) { _selectedContract.value = key }
+
+    // ── Ручной ввод (инвариант #49) ──────────────────────────────────────────────
+
+    fun addEvents(events: List<com.financeos.hub.core.invest.BrokerEvent>) {
+        viewModelScope.launch { brokerEvents.addManual(events) }
+    }
+
+    fun saveAccount(broker: String, contract: String, label: String?) {
+        viewModelScope.launch { brokerEvents.saveAccount(broker, contract, label) }
+    }
+
+    fun hideAccount(broker: String, contract: String) {
+        viewModelScope.launch {
+            brokerEvents.hideAccount(broker, contract)
+            // Удалённый счёт не может оставаться выбранным — экран показал бы пустоту.
+            if (_selectedContract.value == com.financeos.hub.core.invest.contractKey(contract)) _selectedContract.value = null
+        }
+    }
+
+    /** Удалить операцию (у примера id нет — удалять нечего). */
+    fun deleteEvent(id: String?) {
+        if (id == null) return
+        viewModelScope.launch { brokerEvents.deleteEvent(id) }
+    }
+
+    fun deleteAsset(broker: String, ticker: String) {
+        viewModelScope.launch { brokerEvents.deleteTicker(broker, ticker) }
+    }
+
+    /** «Указать цену»: текущая цена бумаги на сейчас. */
+    fun setPrice(broker: String, ticker: String, priceMicros: Long, currency: String) {
+        viewModelScope.launch {
+            brokerEvents.addManual(listOf(
+                com.financeos.hub.core.invest.BrokerPriceMark(broker, System.currentTimeMillis(), ticker, priceMicros, currency),
+            ))
+        }
+    }
 
     /** «Закрыть» на карточке предупреждения. У примера id нет — закрывать в базе нечего. */
     fun dismissAlert(id: String?) {

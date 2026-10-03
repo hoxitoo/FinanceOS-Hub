@@ -116,7 +116,7 @@ object Portfolio {
         val periods     : Map<ResultPeriod, List<PeriodResult>> = emptyMap(),
     ) {
         val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
-            history.isEmpty() && movements.isEmpty() && alerts.isEmpty()
+            history.isEmpty() && movements.isEmpty() && alerts.isEmpty() && contracts.isEmpty()
         val openAlerts: List<MarginAlerts.State> get() = alerts.filter { it.isOpen }
 
         /** Группы в порядке экрана БКС; пустые не показываются. */
@@ -195,6 +195,7 @@ object Portfolio {
         val deposits = linkedMapOf<Pair<String, String>, Long>()
         // Счета брокера: номер → название. Название — из последнего пуша, где оно было.
         val known = linkedMapOf<Pair<String, String>, Contract>()
+        val hidden = mutableSetOf<Pair<String, String>>()
         fun see(broker: String, contract: String?, label: String?) {
             val key = contractKey(contract) ?: return
             val prev = known[broker to key]
@@ -214,7 +215,19 @@ object Portfolio {
                 see(e.broker, e.toContract, e.toLabel)
             }
             is BrokerMarginAlert -> see(e.broker, e.contract, e.label)
+            // Счёт, заведённый или скрытый человеком. Действует ПОСЛЕДНЯЯ отметка: удалил и завёл
+            // снова — счёт вернулся.
+            is BrokerAccountMark -> {
+                val key = contractKey(e.contract)
+                if (key != null) {
+                    if (e.hidden) hidden += e.broker to key
+                    else { hidden -= e.broker to key; see(e.broker, e.contract, e.label) }
+                }
+            }
+            // Цена, указанная вручную: двигает только «текущую цену» уже купленной бумаги.
+            is BrokerPriceMark -> holdings[Triple(e.broker, e.ticker, e.currency)]?.let { it.last = e.priceMicros }
             is BrokerOrder -> {
+                see(e.broker, e.contract, null)
                 if (e.status != OrderStatus.FILLED) continue
                 val qty    = e.lots * (lotSizes[e.ticker] ?: 1L)
                 val amount = microsToKopecks(e.priceMicros * qty)
@@ -241,7 +254,7 @@ object Portfolio {
             Position(k.first, k.second, k.third, a.qty, a.avg, a.last)
         }.sortedByDescending { it.valueKopecks }
 
-        val contracts = known.values.toList()
+        val contracts = known.filterKeys { it !in hidden }.values.toList()
         val accounts = cash.keys.map { key ->
             BrokerAccount(
                 broker             = key.first,
