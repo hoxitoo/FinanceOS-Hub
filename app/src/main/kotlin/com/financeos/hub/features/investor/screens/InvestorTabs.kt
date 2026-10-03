@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.invest.BrokerEvent
+import com.financeos.hub.core.invest.MarginAlerts
 import com.financeos.hub.core.invest.BrokerOrder
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.core.invest.contractKey
@@ -188,7 +189,8 @@ fun InvestOpsScreen(vm: InvestorViewModel = hiltViewModel()) {
             item(key = "hint") {
                 Text("Нажмите на операцию, чтобы удалить её.", style = FosType.Micro, color = FosColors.TextMuted)
             }
-            itemsIndexed(rows, key = { i, (ts, _) -> "row_${i}_$ts" }) { _, (_, e) ->
+            // Ключ — id события: индекс сдвигался бы с каждым новым пушем сверху (#4).
+            itemsIndexed(rows, key = { i, (ts, e) -> rowKey(e) ?: "row_${i}_$ts" }) { _, (_, e) ->
                 when (e) {
                     is BrokerOrder -> OrderRow(e) { manual.deleting = it }
                     else           -> FeedRow(e, portfolio) { manual.deleting = it }
@@ -257,9 +259,15 @@ fun InvestAnalyticsScreen(vm: InvestorViewModel = hiltViewModel()) {
         }
 
         // Состав — в основной валюте: доли разных валют без курса не сравнить.
-        val main = portfolio.summaries.maxBy { it.totalKopecks }
-        val total = main.totalKopecks
-        val shares = portfolio.groups.mapNotNull { g -> g.valueByCurrency[main.currency]?.takeIf { it != 0L }?.let { g to it } }
+        // Основная валюта — где больше всего бумаг, а не где больше копеек: копейки разных валют
+        // несравнимы (#40). Отрицательные деньги (комиссий в пушах нет, #48) в долю не идут, и
+        // целое — сумма показанных долей, иначе они не сложились бы в 100 %.
+        val byCount = portfolio.positions.groupingBy { it.currency }.eachCount()
+        val main = portfolio.summaries.maxWith(
+            compareBy<Portfolio.Summary>({ byCount[it.currency] ?: 0 }, { it.currency == "RUB" }),
+        )
+        val shares = portfolio.groups.mapNotNull { g -> g.valueByCurrency[main.currency]?.takeIf { it > 0L }?.let { g to it } }
+        val total = shares.sumOf { it.second }
         if (total > 0 && shares.isNotEmpty()) {
             item(key = "mix_h") { FosSectionHeader("Состав", tone = FosTone.Invest) }
             items(shares, key = { "mix_${it.first.group.name}" }) { (g, value) ->
@@ -433,4 +441,11 @@ fun InvestAccountsScreen(onOpenAccount: () -> Unit, vm: InvestorViewModel = hilt
             onDismiss = { toHide = null },
         )
     }
+}
+
+/** Устойчивый ключ строки ленты: id события из базы; у примера id нет. */
+private fun rowKey(e: Any): String? = when (e) {
+    is BrokerEvent        -> e.id
+    is MarginAlerts.State -> e.alert.id
+    else                  -> null
 }

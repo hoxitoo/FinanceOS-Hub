@@ -22,10 +22,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -80,15 +82,29 @@ fun FosNavHost(initialDeepRoute: String? = null) {
     val investorMode by modeVm.investorMode.collectAsState()
     val investAlert  by modeVm.hasOpenAlert.collectAsState()
 
-    // destination.route returns the template string for routes with args
-    val showBottomBar = currentRoute != null && investorMode != null && (
-        currentRoute == FosRoute.Dashboard.route ||
-        currentRoute.startsWith(FosRoute.Transactions.route) ||
-        currentRoute == FosRoute.Analytics.route ||
-        currentRoute == FosRoute.Budget.route ||
-        currentRoute == FosRoute.Goals.route ||
-        currentRoute in INVEST_ROUTES
-    )
+    // Смена режима убирает из стека экраны ДРУГОГО режима: иначе «Назад» после переключения
+    // открыл бы операции брокера в кошельке (или бюджет под панелью инвестора) — #44, #50.
+    // Первое прочтение режима (null → значение) стек не трогает: там может быть deep-link.
+    var lastMode by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(investorMode) {
+        val mode = investorMode ?: return@LaunchedEffect
+        if (lastMode != null && lastMode != mode) {
+            navController.popBackStack(FosRoute.Dashboard.route, inclusive = false)
+        }
+        lastMode = mode
+    }
+
+    // destination.route returns the template string for routes with args.
+    // Панель — только на вкладках ТЕКУЩЕГО режима: вкладки кошелька и инвестора не смешиваются.
+    val showBottomBar = currentRoute != null && when (investorMode) {
+        null  -> false
+        true  -> currentRoute == FosRoute.Dashboard.route || currentRoute in INVEST_ROUTES
+        false -> currentRoute == FosRoute.Dashboard.route ||
+            currentRoute.startsWith(FosRoute.Transactions.route) ||
+            currentRoute == FosRoute.Analytics.route ||
+            currentRoute == FosRoute.Budget.route ||
+            currentRoute == FosRoute.Goals.route
+    }
 
     Scaffold(
         containerColor = FosColors.Background,
@@ -96,7 +112,7 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             if (showBottomBar) {
                 val navigate: (String) -> Unit = { route ->
                     navController.navigate(route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        popUpTo(FosRoute.Dashboard.route) { saveState = true }
                         launchSingleTop = true
                         restoreState    = true
                     }
@@ -186,7 +202,7 @@ fun FosNavHost(initialDeepRoute: String? = null) {
             composable(FosRoute.InvestAccounts.route)  {
                 InvestAccountsScreen(onOpenAccount = {
                     navController.navigate(FosRoute.Dashboard.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        popUpTo(FosRoute.Dashboard.route) { saveState = true }
                         launchSingleTop = true
                         restoreState    = true
                     }
@@ -197,7 +213,7 @@ fun FosNavHost(initialDeepRoute: String? = null) {
                     onBack         = { navController.popBackStack() },
                     onCategoryClick = { catId ->
                         navController.navigate(FosRoute.Transactions.withCategory(catId)) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(FosRoute.Dashboard.route) { saveState = true }
                             launchSingleTop = true
                             restoreState    = true
                         }

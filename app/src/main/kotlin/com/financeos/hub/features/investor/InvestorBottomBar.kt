@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -93,7 +95,9 @@ private fun androidx.compose.foundation.layout.RowScope.Tab(
 @Composable
 private fun PortfolioTab(selected: Boolean, alert: Boolean, onClick: () -> Unit, modifier: Modifier) {
     Column(
+        // Строка NavigationBar выравнивает детей по верху: без этого круг сидел бы выше соседей.
         modifier = modifier
+            .fillMaxHeight()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication        = null,
@@ -105,6 +109,7 @@ private fun PortfolioTab(selected: Boolean, alert: Boolean, onClick: () -> Unit,
                 this.selected = selected
             },
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Box {
             Box(
