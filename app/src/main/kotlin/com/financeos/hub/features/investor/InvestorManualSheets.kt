@@ -350,8 +350,10 @@ fun BrokerNewAccountSheet(
 }
 
 /**
- * Бумага в портфеле: указать текущую цену или удалить целиком. Цену без котировок знает только
- * человек — без неё стоимость стоит на цене последней своей сделки.
+ * Карточка бумаги: текущая цена, СДЕЛКИ, из которых сложилась позиция, и удаление целиком.
+ * Позиция — сумма сделок, поэтому исправляется не она, а сделка: нажатие открывает её карточку
+ * правки (#51) — количество, цену, дату, счёт. Цену без котировок знает только человек — без неё
+ * стоимость стоит на цене последней своей сделки.
  */
 @Composable
 fun BrokerPositionSheet(
@@ -359,6 +361,10 @@ fun BrokerPositionSheet(
     onPrice  : (Long) -> Unit,
     onDelete : () -> Unit,
     onDismiss: () -> Unit,
+    /** Исполненные и отменённые сделки по этой бумаге — новые сверху. */
+    trades   : List<com.financeos.hub.core.invest.BrokerOrder> = emptyList(),
+    estimates: Map<com.financeos.hub.core.invest.BrokerOrder, Long> = emptyMap(),
+    onTrade  : ((com.financeos.hub.core.invest.BrokerOrder) -> Unit)? = null,
 ) {
     var priceText by remember(position.ticker) { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }
@@ -376,6 +382,15 @@ fun BrokerPositionSheet(
         SaveButton(enabled = parsed != null, label = "Указать цену") {
             parsed?.let(onPrice)
             onDismiss()
+        }
+        if (trades.isNotEmpty()) {
+            Text("Сделки", style = FosType.SectionCap, color = FosColors.TextMuted)
+            Text(
+                "Нажмите на сделку, чтобы исправить количество, цену, дату или счёт.",
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+            )
+            trades.forEach { o -> OrderRow(o, estimates[o], onTrade) }
         }
         TextButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Удалить актив", style = FosType.Label, color = FosColors.Negative)
