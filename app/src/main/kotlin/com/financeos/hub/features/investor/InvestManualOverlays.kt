@@ -54,6 +54,12 @@ fun InvestManualOverlays(state: InvestManualState, vm: InvestorViewModel, portfo
             onPrice   = { vm.setPrice(p.broker, p.ticker, it, p.currency) },
             onDelete  = { vm.deleteAsset(p.broker, p.ticker) },
             onDismiss = { state.position = null },
+            trades    = portfolio.history.filter {
+                it.broker == p.broker && it.ticker == p.ticker && it.currency == p.currency
+            },
+            estimates = portfolio.estimates,
+            // Карточка позиции закрывается, открывается карточка правки сделки.
+            onTrade   = { o -> state.position = null; state.editing = o },
         )
     }
     state.editing?.let { e ->
