@@ -106,4 +106,21 @@ class BrokerPushParserTest {
         assertEquals(1_000_000L, BrokerPushParser.priceMicros("1"))
         assertNull(BrokerPushParser.priceMicros("0"))
     }
+
+    // Сняты с устройства 5 октября: две покупки LQDT за минуту — рыночная (без цены) и лимитная.
+    @Test
+    fun `a filled market order arrives without a price and is still an order (#52)`() {
+        val market = BrokerPushParser.parse("LQDT: заявка исполнена Рыночная заявка на покупку 20 лотов LQDT", ts) as BrokerOrder
+        assertEquals("LQDT", market.ticker)
+        assertEquals(20L, market.lots)
+        assertEquals(OrderStatus.FILLED, market.status)
+        assertEquals("Рыночная", market.kind)
+        assertEquals(false, market.priceKnown)
+        val limit = BrokerPushParser.parse("LQDT: заявка исполнена Лимитная заявка на покупку 20 лотов LQDT по 2.1017", ts) as BrokerOrder
+        assertEquals(2_101_700L, limit.priceMicros)
+        // Тикер не обрывается: без «по …» он обязан кончаться словом.
+        assertNull(BrokerPushParser.parse("LQDT: заявка исполнена Рыночная заявка на покупку 20 лотов LQDTX", ts))
+        // Цена есть, но не читается — не тот формат.
+        assertNull(BrokerPushParser.parse("LQDT: заявка исполнена Лимитная заявка на покупку 20 лотов LQDT по 0", ts))
+    }
 }

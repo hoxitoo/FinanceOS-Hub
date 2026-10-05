@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.invest.Portfolio
+import com.financeos.hub.core.invest.isManual
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.BrokerEventRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,8 +33,12 @@ class InvestorViewModel @Inject constructor(
     private val selection: InvestSelection,
 ) : ViewModel() {
 
+    /** Свои события брокера как есть — лист правки собирает по ним запись целиком (#51). */
+    private val events: StateFlow<List<com.financeos.hub.core.invest.BrokerEvent>> = brokerEvents.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Портфель из своих событий. Считается вне главного потока: история растёт с каждым пушем. */
-    val portfolio: StateFlow<Portfolio.Result> = brokerEvents.observeAll()
+    val portfolio: StateFlow<Portfolio.Result> = events
         .map { Portfolio.compute(it) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Portfolio.EMPTY)
@@ -57,6 +62,23 @@ class InvestorViewModel @Inject constructor(
 
     fun addEvents(events: List<com.financeos.hub.core.invest.BrokerEvent>) {
         viewModelScope.launch { brokerEvents.addManual(events) }
+    }
+
+    /**
+     * Вся запись, к которой относится строка: у ручной — строки с общим префиксом группы (актив =
+     * пополнение + покупка + цена), у пуша — она сама.
+     */
+    fun recordOf(e: com.financeos.hub.core.invest.BrokerEvent): List<com.financeos.hub.core.invest.BrokerEvent> {
+        val id = e.id ?: return listOf(e)
+        if (!e.isManual) return listOf(e)
+        val group = id.substringBeforeLast('_') + "_"
+        return events.value.filter { it.id?.startsWith(group) == true }.ifEmpty { listOf(e) }
+    }
+
+    /** Сохранить правку записи [id] (#51). */
+    fun replaceEvents(id: String?, events: List<com.financeos.hub.core.invest.BrokerEvent>) {
+        if (id == null || events.isEmpty()) return
+        viewModelScope.launch { brokerEvents.replace(id, events) }
     }
 
     fun saveAccount(broker: String, contract: String, label: String?) {
