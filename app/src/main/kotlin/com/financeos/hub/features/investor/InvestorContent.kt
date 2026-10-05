@@ -591,7 +591,7 @@ private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, onClick: (B
         else -> return
     }
     Row(
-        // Нажатие — удалить (у примера id нет, нажимать нечего). Нажатие между огранкой и отступом.
+        // Нажатие — карточка правки (у примера id нет, нажимать нечего). Нажатие между огранкой и отступом.
         modifier = Modifier.fillMaxWidth()
             .fosCardSurface(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall)
             .clickable(enabled = e.id != null) { onClick(e) }

@@ -52,6 +52,25 @@ class BrokerEventRepository @Inject constructor(
         dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
     }
 
+    /**
+     * Правка записи (#51). Ручная — переписывается ЦЕЛИКОМ под тем же префиксом группы: у актива
+     * деньги и покупка меняются вместе, и удаление потом снова уберёт их вдвоём. Пуш — строка
+     * перезаписывается под тем же id и с тем же исходным текстом: по тексту ловится повторная
+     * доставка, и без него тот же пуш, пришедший снова, записался бы второй раз.
+     */
+    suspend fun replace(id: String, events: List<BrokerEvent>, now: Long = System.currentTimeMillis()) {
+        if (events.isEmpty()) return
+        if (id.startsWith(MANUAL_PREFIX)) {
+            val group = id.substringBeforeLast('_')
+            dao.deleteByPrefix(group + "_")
+            dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
+            return
+        }
+        val row = dao.getAll().firstOrNull { it.id == id } ?: return
+        // Пуш — это одно событие; правка не может превратить его в два.
+        dao.upsert(BrokerEventMapper.toEntity(events.first(), id, row.rawText, row.createdAt))
+    }
+
     /** Завести счёт (или вернуть удалённый): одна строка на счёт, «завёл» и «удалил» её перезаписывают. */
     suspend fun saveAccount(broker: String, contract: String, label: String?, now: Long = System.currentTimeMillis()) =
         dao.upsert(BrokerEventMapper.toEntity(

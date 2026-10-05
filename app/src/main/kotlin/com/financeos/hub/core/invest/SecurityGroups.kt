@@ -34,8 +34,12 @@ object SecurityGroups {
         "AKQU", "AKSP", "SBRI", "SBPS", "SBDS", "SBSP", "SBMB", "SBRS", "BCSB", "BCSG", "BCSR",
     )
 
-    /** Валютные инструменты биржи: «USD000UTSTOM», «CNYRUB_TOM», «EUR_RUB__TOM» и голые коды. */
-    private val CURRENCY = Regex("""^(?:USD|EUR|CNY|HKD|GBP|CHF|JPY|KZT|TRY|AED|BYN|AMD|KGS)(?:000UTS|000000|RUB|_RUB)[_A-Z]*TO[MD]$""")
+    /**
+     * Валютные инструменты биржи: «USD000UTSTOM», «CNYRUB_TOM», «EUR_RUB__TOM», голые коды и
+     * «USD000SMALL» / «CNY000SMALL» — так БКС называет остаток валюты на счёте (центы и фэни, которые
+     * лотом не купишь).
+     */
+    private val CURRENCY = Regex("""^(?:USD|EUR|CNY|HKD|GBP|CHF|JPY|KZT|TRY|AED|BYN|AMD|KGS)(?:(?:000UTS|000000|RUB|_RUB)[_A-Z]*TO[MD]|000SMALL)$""")
     private val CURRENCY_CODES = setOf("USD", "EUR", "CNY", "HKD", "GBP", "CHF", "JPY", "KZT", "TRY", "AED", "BYN", "AMD", "KGS")
 
     /** ОФЗ «SU26238RMFS4» и облигации с ISIN «RU000A105C93». */
@@ -61,6 +65,18 @@ object SecurityGroups {
             SHARES.matches(t)                         -> SecurityGroup.SHARES
             else                                      -> SecurityGroup.OTHER
         }
+    }
+
+    /**
+     * Валюта, которую ОБОЗНАЧАЕТ тикер: «USD000SMALL» → «USD», «CNYRUB_TOM» → «CNY», «USD» → «USD».
+     * `null` — тикер не валютный. Нужна ручному вводу: валюта на счёте — это деньги в своей валюте
+     * (дробная сумма, «0,41 $»), а не бумага в штуках.
+     */
+    fun cashCurrency(ticker: String): String? {
+        val t = ticker.trim().uppercase()
+        if (t in CURRENCY_CODES) return t
+        if (!CURRENCY.matches(t)) return null
+        return t.take(3)
     }
 
     /** Название валюты денег на счёте, как в приложении брокера. */

@@ -27,7 +27,7 @@ fun InvestHistorySheet(portfolio: Portfolio.Result, onEventClick: (com.financeos
         title     = "История",
         empty     = "Пополнений, выводов и переводов между счетами пока не было.",
         // Подсказка — только когда есть что нажимать: строки примера не нажимаются.
-        hint      = if (portfolio.movements.any { it.id != null }) "Нажмите на операцию, чтобы удалить её." else null,
+        hint      = if (portfolio.movements.any { it.id != null }) "Нажмите на операцию, чтобы исправить или удалить её." else null,
         count     = feed.size,
         onDismiss = onDismiss,
     ) { index -> val (_, e) = feed[index]; FeedRow(e, portfolio, onEventClick) }
@@ -41,7 +41,7 @@ fun InvestOrdersSheet(portfolio: Portfolio.Result, onEventClick: (com.financeos.
     InvestListSheet(
         title     = "Заявки и сделки",
         empty     = "Заявок пока не было.",
-        hint      = if (portfolio.history.any { it.id != null }) "Нажмите на исполненную или отменённую сделку, чтобы удалить её." else null,
+        hint      = if (portfolio.history.any { it.id != null }) "Нажмите на исполненную или отменённую сделку, чтобы исправить или удалить её." else null,
         count     = orders.size,
         onDismiss = onDismiss,
     ) { index -> OrderRow(orders[index], onEventClick) }

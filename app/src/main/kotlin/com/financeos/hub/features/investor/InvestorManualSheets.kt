@@ -39,6 +39,7 @@ import com.financeos.hub.core.invest.BrokerEvent
 import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.invest.ManualEntry
 import com.financeos.hub.core.invest.Portfolio
+import com.financeos.hub.core.invest.SecurityGroups
 import com.financeos.hub.features.transactions.NoFutureDates
 import com.financeos.hub.ui.components.FosFormSheet
 import com.financeos.hub.ui.theme.AmountVisualTransformation
@@ -94,56 +95,76 @@ private fun MenuRow(title: String, sub: String, onClick: () -> Unit) {
     }
 }
 
-/** Операция: пополнение / вывод / перевод / покупка / продажа. */
+/**
+ * Операция: пополнение / вывод / перевод / покупка / продажа. С [initial] — карточка ПРАВКИ (#51):
+ * поля заполнены записью, сохранение переписывает её, а не добавляет новую, и внизу есть «Удалить».
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BrokerOperationSheet(
     contracts: List<Portfolio.Contract>,
     onSave   : (List<BrokerEvent>) -> Unit,
     onDismiss: () -> Unit,
+    initial  : ManualEntry.Draft? = null,
+    /** Правится сделка из пуша: количество в ней — лоты брокера, а не штуки. */
+    pushedLots: Boolean = false,
+    onDelete : (() -> Unit)? = null,
 ) {
-    var kind      by remember { mutableStateOf(ManualEntry.Kind.DEPOSIT) }
-    var amount    by remember { mutableStateOf("") }
-    var ticker    by remember { mutableStateOf("") }
-    var quantity  by remember { mutableStateOf("") }
-    var price     by remember { mutableStateOf("") }
-    var from      by remember { mutableStateOf(contracts.firstOrNull()?.contract) }
-    var to        by remember { mutableStateOf<String?>(null) }
-    var date      by remember { mutableStateOf(LocalDate.now()) }
+    val start = remember(initial) { initial?.let { FormValues(it) } ?: FormValues.EMPTY }
+    var kind      by remember(initial) { mutableStateOf(initial?.kind ?: ManualEntry.Kind.DEPOSIT) }
+    var amount    by remember(initial) { mutableStateOf(start.amount) }
+    var ticker    by remember(initial) { mutableStateOf(start.ticker) }
+    var quantity  by remember(initial) { mutableStateOf(start.quantity) }
+    var price     by remember(initial) { mutableStateOf(start.price) }
+    var currency  by remember(initial) { mutableStateOf(initial?.currency ?: "RUB") }
+    var from      by remember(initial) { mutableStateOf(if (initial != null) initial.contract else contracts.firstOrNull()?.contract) }
+    var to        by remember(initial) { mutableStateOf(initial?.toContract) }
+    var date      by remember(initial) { mutableStateOf(initial?.let { dayOf(it.timestamp) } ?: LocalDate.now()) }
 
     val trade = kind == ManualEntry.Kind.BUY || kind == ManualEntry.Kind.SELL
     val broker = contracts.firstOrNull { it.contract == from }?.broker ?: contracts.firstOrNull()?.broker ?: BrokerPushParser.BKS
+    val sym = FosFormatter.currencySymbol(currency)
     val events = ManualEntry.operation(
         kind          = kind,
         broker        = broker,
-        timestamp     = timestampOf(date),
+        timestamp     = initial?.let { ManualEntry.editedTimestamp(it.timestamp, date) } ?: timestampOf(date),
         amountKopecks = FosFormatter.parseAmountInput(amount),
         ticker        = ticker,
         quantity      = quantity.toLongOrNull(),
         priceMicros   = ManualEntry.parsePrice(price),
         contract      = from,
         toContract    = to,
+        currency      = currency,
     )
+    val changed = initial == null ||
+        kind != initial.kind || currency != initial.currency || from != initial.contract || to != initial.toContract ||
+        date != dayOf(initial.timestamp) || FormValues(amount, ticker, quantity, price) != start
 
     FosFormSheet(
         onDismiss  = onDismiss,
-        hasChanges = { amount.isNotBlank() || ticker.isNotBlank() || quantity.isNotBlank() || price.isNotBlank() },
+        hasChanges = {
+            if (initial == null) amount.isNotBlank() || ticker.isNotBlank() || quantity.isNotBlank() || price.isNotBlank()
+            else changed
+        },
     ) {
-        Text("Операция у брокера", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+        Text(if (initial == null) "Операция у брокера" else "Операция", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             ManualEntry.Kind.values().forEach { k -> InvestChip(k.title, k == kind) { kind = k } }
         }
+        CurrencyChips(currency) { currency = it }
         if (trade) {
             InvestField(ticker, { ticker = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '_' || c == '.' }.take(16) },
                 "Тикер (SBER, LQDT…)", KeyboardType.Ascii)
-            InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) }, "Количество, шт.", KeyboardType.Number)
-            InvestField(price, { price = ManualEntry.sanitizePrice(it) }, "Цена одной бумаги, ₽", KeyboardType.Decimal)
+            InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) },
+                if (pushedLots) "Количество, лотов" else "Количество, шт.", KeyboardType.Number)
+            InvestField(price, { price = ManualEntry.sanitizePrice(it) }, "Цена одной бумаги, $sym", KeyboardType.Decimal)
             val total = events?.filterIsInstance<com.financeos.hub.core.invest.BrokerOrder>()?.firstOrNull()?.let {
                 com.financeos.hub.core.invest.microsToKopecks(it.priceMicros * it.lots)
             }
-            total?.let { Text("Сумма сделки: ${FosFormatter.amount(it, "₽")}", style = FosType.MicroNum, color = FosColors.TextSecondary) }
+            total?.let { Text("Сумма сделки: ${FosFormatter.amount(it, sym)}", style = FosType.MicroNum, color = FosColors.TextSecondary) }
         } else {
-            MoneyField(amount, { amount = it }, "Сумма, ₽")
+            // Дробная сумма законна в любой валюте: 0,41 $, 41,60 ¥ (#51).
+            MoneyField(amount, { amount = it }, "Сумма, $sym")
         }
         if (contracts.isNotEmpty()) {
             ContractChips(if (kind == ManualEntry.Kind.TRANSFER) "Со счёта" else "Счёт", contracts, from, allowNone = kind != ManualEntry.Kind.TRANSFER) {
@@ -158,61 +179,129 @@ fun BrokerOperationSheet(
             Text("Для перевода между счетами сначала добавьте счета: «Добавить → Счёт».", style = FosType.Micro, color = FosColors.TextMuted)
         }
         DateChip(date) { date = it }
-        SaveButton(enabled = events != null) {
+        SaveButton(enabled = events != null && changed) {
             events?.let(onSave)
             onDismiss()
         }
+        onDelete?.let { DeleteButton("Удалить операцию", it) }
     }
 }
 
-/** Актив, купленный раньше: тикер, количество, цена покупки, по желанию — текущая цена. */
+/**
+ * Актив, купленный раньше: тикер, количество, цена покупки, по желанию — текущая цена. Валютный
+ * тикер («USD000SMALL», «CNY000SMALL») — это деньги в своей валюте: вместо штук и цены — сумма (#51).
+ * С [initial] — карточка правки записи «Актив» целиком.
+ */
 @Composable
 fun BrokerAssetSheet(
     contracts: List<Portfolio.Contract>,
     onSave   : (List<BrokerEvent>) -> Unit,
     onDismiss: () -> Unit,
+    initial  : ManualEntry.Draft? = null,
+    onDelete : (() -> Unit)? = null,
 ) {
-    var ticker   by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("") }
-    var price    by remember { mutableStateOf("") }
-    var current  by remember { mutableStateOf("") }
-    var contract by remember { mutableStateOf(contracts.firstOrNull()?.contract) }
-    var date     by remember { mutableStateOf(LocalDate.now()) }
+    val start = remember(initial) { initial?.let { FormValues(it) } ?: FormValues.EMPTY }
+    val startCurrent = remember(initial) { initial?.currentPriceMicros?.let(ManualEntry::priceInput) ?: "" }
+    var ticker   by remember(initial) { mutableStateOf(start.ticker) }
+    var quantity by remember(initial) { mutableStateOf(start.quantity) }
+    var price    by remember(initial) { mutableStateOf(start.price) }
+    var current  by remember(initial) { mutableStateOf(startCurrent) }
+    var amount   by remember(initial) { mutableStateOf("") }
+    var currency by remember(initial) { mutableStateOf(initial?.currency ?: "RUB") }
+    var contract by remember(initial) { mutableStateOf(if (initial != null) initial.contract else contracts.firstOrNull()?.contract) }
+    var date     by remember(initial) { mutableStateOf(initial?.let { dayOf(it.timestamp) } ?: LocalDate.now()) }
 
     val broker = contracts.firstOrNull { it.contract == contract }?.broker ?: contracts.firstOrNull()?.broker ?: BrokerPushParser.BKS
-    val ts = timestampOf(date)
-    val base = ManualEntry.asset(broker, ts, ticker, quantity.toLongOrNull() ?: 0L, ManualEntry.parsePrice(price) ?: 0L, contract)
-    // Текущая цена — отдельной отметкой «сейчас», после покупки.
-    val events = base?.let { list ->
-        val now = maxOf(System.currentTimeMillis(), ts + 1)
-        val mark = ManualEntry.parsePrice(current)?.let {
-            com.financeos.hub.core.invest.BrokerPriceMark(broker, now, ticker.trim().uppercase(), it)
+    val ts = initial?.let { ManualEntry.editedTimestamp(it.timestamp, date) } ?: timestampOf(date)
+    val cashCurrency = SecurityGroups.cashCurrency(ticker)
+    val events = if (cashCurrency != null) {
+        ManualEntry.currencyCash(broker, ts, ticker, FosFormatter.parseAmountInput(amount), contract)
+    } else {
+        val base = ManualEntry.asset(broker, ts, ticker, quantity.toLongOrNull() ?: 0L, ManualEntry.parsePrice(price) ?: 0L, contract, currency)
+        // Текущая цена — отдельной отметкой «сейчас», после покупки.
+        base?.let { list ->
+            val now = maxOf(System.currentTimeMillis(), ts + 1)
+            val mark = ManualEntry.parsePrice(current)?.let {
+                com.financeos.hub.core.invest.BrokerPriceMark(broker, now, ticker.trim().uppercase(), it, currency)
+            }
+            list + listOfNotNull(mark)
         }
-        list + listOfNotNull(mark)
     }
+    val changed = initial == null ||
+        currency != initial.currency || contract != initial.contract || date != dayOf(initial.timestamp) ||
+        FormValues("", ticker, quantity, price) != start || current != startCurrent || amount.isNotBlank()
+    val sym = FosFormatter.currencySymbol(cashCurrency ?: currency)
 
     FosFormSheet(
         onDismiss  = onDismiss,
-        hasChanges = { ticker.isNotBlank() || quantity.isNotBlank() || price.isNotBlank() || current.isNotBlank() },
+        hasChanges = {
+            if (initial == null) ticker.isNotBlank() || quantity.isNotBlank() || price.isNotBlank() ||
+                current.isNotBlank() || amount.isNotBlank()
+            else changed
+        },
     ) {
-        Text("Актив в портфеле", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
+        Text(if (initial == null) "Актив в портфеле" else "Актив", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
         Text(
             "Для бумаги, купленной раньше или без пуша. Деньги на её покупку заводятся вместе с ней — " +
-                "свободные деньги не уйдут в минус. Удаляется тоже вместе.",
+                "свободные деньги не уйдут в минус. Удаляется тоже вместе. Валюту на счёте " +
+                "(USD000SMALL, CNY000SMALL) вводите суммой.",
             style = FosType.Micro,
             color = FosColors.TextSecondary,
         )
         InvestField(ticker, { ticker = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '_' || c == '.' }.take(16) },
-            "Тикер (SBER, LQDT…)", KeyboardType.Ascii)
-        InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) }, "Количество, шт.", KeyboardType.Number)
-        InvestField(price, { price = ManualEntry.sanitizePrice(it) }, "Средняя цена покупки, ₽", KeyboardType.Decimal)
-        InvestField(current, { current = ManualEntry.sanitizePrice(it) }, "Текущая цена, ₽ (необязательно)", KeyboardType.Decimal)
+            "Тикер (SBER, LQDT, USD000SMALL…)", KeyboardType.Ascii)
+        if (cashCurrency != null) {
+            Text(
+                "${SecurityGroups.currencyName(cashCurrency)} — это деньги на счёте, а не бумага: " +
+                    "запишется пополнением в этой валюте.",
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+            )
+            MoneyField(amount, { amount = it }, "Сумма, $sym")
+        } else {
+            CurrencyChips(currency) { currency = it }
+            InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) }, "Количество, шт.", KeyboardType.Number)
+            InvestField(price, { price = ManualEntry.sanitizePrice(it) }, "Средняя цена покупки, $sym", KeyboardType.Decimal)
+            InvestField(current, { current = ManualEntry.sanitizePrice(it) }, "Текущая цена, $sym (необязательно)", KeyboardType.Decimal)
+        }
         if (contracts.isNotEmpty()) ContractChips("Счёт", contracts, contract, allowNone = true) { contract = it }
         DateChip(date, label = "Дата покупки") { date = it }
-        SaveButton(enabled = events != null) {
+        SaveButton(enabled = events != null && changed) {
             events?.let(onSave)
             onDismiss()
         }
+        onDelete?.let { DeleteButton("Удалить актив", it) }
+    }
+}
+
+/** Поля формы строками — так их держат поля ввода (инвариант #7); для сравнения «изменилось ли». */
+private data class FormValues(val amount: String, val ticker: String, val quantity: String, val price: String) {
+    constructor(d: ManualEntry.Draft) : this(
+        amount   = d.amountKopecks?.let(FosFormatter::plainAmountInput) ?: "",
+        ticker   = d.ticker,
+        quantity = d.quantity?.toString() ?: "",
+        price    = d.priceMicros?.let(ManualEntry::priceInput) ?: "",
+    )
+    companion object { val EMPTY = FormValues("", "", "", "") }
+}
+
+private fun dayOf(ts: Long): LocalDate = Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate()
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CurrencyChips(selected: String, onSelect: (String) -> Unit) {
+    Text("Валюта", style = FosType.SectionCap, color = FosColors.TextMuted)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ManualEntry.CURRENCIES.forEach { c ->
+            InvestChip("${FosFormatter.currencySymbol(c)} $c", c == selected) { onSelect(c) }
+        }
+    }
+}
+
+@Composable
+private fun DeleteButton(label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = FosType.Label, color = FosColors.Negative)
     }
 }
 

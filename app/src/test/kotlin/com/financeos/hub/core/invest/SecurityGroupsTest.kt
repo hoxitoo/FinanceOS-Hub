@@ -48,4 +48,17 @@ class SecurityGroupsTest {
         assertEquals(r.summaries.single().cashKopecks, currency.valueByCurrency["RUB"])
         assertEquals(998_886L, r.groups.last().valueByCurrency["RUB"])
     }
+
+    @Test
+    fun `currency balances under SMALL tickers are cash in their own currency (#51)`() {
+        assertEquals(SecurityGroup.CURRENCY, SecurityGroups.of("USD000SMALL"))
+        assertEquals(SecurityGroup.CURRENCY, SecurityGroups.of("CNY000SMALL"))
+        assertEquals("USD", SecurityGroups.cashCurrency("usd000small"))
+        assertEquals("CNY", SecurityGroups.cashCurrency("CNY000SMALL"))
+        assertEquals("CNY", SecurityGroups.cashCurrency("CNYRUB_TOM"))
+        assertEquals("USD", SecurityGroups.cashCurrency("USD"))
+        listOf("SBER", "LQDT", "SU26238RMFS4", "3800_HK", "USD000SMALLX").forEach {
+            assertEquals(it, null, SecurityGroups.cashCurrency(it))
+        }
+    }
 }
