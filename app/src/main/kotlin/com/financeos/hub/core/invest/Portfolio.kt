@@ -14,6 +14,10 @@ package com.financeos.hub.core.invest
  * - **Размер лота пуш не сообщает.** По умолчанию лот = 1 бумага (так у LQDT: 4760 лотов × 2.0985 =
  *   9 988,86 ₽ при пополнении на 10 000 ₽). Для бумаг, где это не так, вызывающий передаёт
  *   [lotSizes]; без них стоимость будет занижена во столько раз, сколько бумаг в лоте.
+ * - **Цена, которую брокер не прислал** (рыночная заявка, #52), берётся последней известной по бумаге
+ *   — своей сделки или указанной вручную — и помечается оценкой ([Result.estimates]). Если по бумаге
+ *   не известно ничего, сделка в портфель НЕ идёт и лежит в [Result.unpriced]: выдуманная цена
+ *   молча врала бы и в бумагах, и в деньгах, а пропуск экран называет.
  * - **Комиссия не учитывается** — её в пушах нет. Остаток денег на счёте поэтому приблизителен.
  * - **Валюты не складываются**, как и в кошельке: итоги — по валюте.
  * - **Перевод между счетами брокера итог не меняет** — деньги остались у того же брокера.
@@ -114,6 +118,10 @@ object Portfolio {
         val alerts      : List<MarginAlerts.State> = emptyList(),
         /** Результат за 24 часа / месяц / всё время — по валютам. */
         val periods     : Map<ResultPeriod, List<PeriodResult>> = emptyMap(),
+        /** Исполненные сделки без цены, посчитанные по последней известной цене: сделка → цена. */
+        val estimates   : Map<BrokerOrder, Long> = emptyMap(),
+        /** Исполненные сделки без цены, оценить которые не по чему: в портфель они не вошли. */
+        val unpriced    : List<BrokerOrder> = emptyList(),
     ) {
         val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
             history.isEmpty() && movements.isEmpty() && alerts.isEmpty() && contracts.isEmpty()
@@ -196,6 +204,11 @@ object Portfolio {
         // Счета брокера: номер → название. Название — из последнего пуша, где оно было.
         val known = linkedMapOf<Pair<String, String>, Contract>()
         val hidden = mutableSetOf<Pair<String, String>>()
+        // Последняя известная цена бумаги — переживает продажу всех бумаг (у проданной acc обнуляется
+        // только количество, но держим отдельно, чтобы не зависеть от этого).
+        val lastPrice = mutableMapOf<Triple<String, String, String>, Long>()
+        val estimates = linkedMapOf<BrokerOrder, Long>()
+        val unpriced  = mutableListOf<BrokerOrder>()
         fun see(broker: String, contract: String?, label: String?) {
             val key = contractKey(contract) ?: return
             val prev = known[broker to key]
@@ -225,18 +238,29 @@ object Portfolio {
                 }
             }
             // Цена, указанная вручную: двигает только «текущую цену» уже купленной бумаги.
-            is BrokerPriceMark -> holdings[Triple(e.broker, e.ticker, e.currency)]?.let { it.last = e.priceMicros }
+            is BrokerPriceMark -> holdings[Triple(e.broker, e.ticker, e.currency)]?.let {
+                it.last = e.priceMicros
+                lastPrice[Triple(e.broker, e.ticker, e.currency)] = e.priceMicros
+            }
             is BrokerOrder -> {
                 see(e.broker, e.contract, null)
                 if (e.status != OrderStatus.FILLED) continue
+                val holdKey = Triple(e.broker, e.ticker, e.currency)
+                // Цены нет — последняя известная по бумаге; нет и её — сделка не считается (#52).
+                val price = if (e.priceKnown) e.priceMicros else {
+                    val known = holdings[holdKey]?.last?.takeIf { it > 0L } ?: lastPrice[holdKey]
+                    if (known == null) { unpriced += e; continue }
+                    estimates[e] = known
+                    known
+                }
                 val qty    = e.lots * (lotSizes[e.ticker] ?: 1L)
-                val amount = microsToKopecks(e.priceMicros * qty)
-                val acc    = holdings.getOrPut(Triple(e.broker, e.ticker, e.currency)) { Acc() }
+                val amount = microsToKopecks(price * qty)
+                val acc    = holdings.getOrPut(holdKey) { Acc() }
                 val cashKey = e.broker to e.currency
                 when (e.side) {
                     OrderSide.BUY -> {
                         val newQty = acc.qty + qty
-                        acc.avg = if (newQty == 0L) 0L else (acc.avg * acc.qty + e.priceMicros * qty) / newQty
+                        acc.avg = if (newQty == 0L) 0L else (acc.avg * acc.qty + price * qty) / newQty
                         acc.qty = newQty
                         cash[cashKey] = (cash[cashKey] ?: 0L) - amount
                     }
@@ -246,7 +270,8 @@ object Portfolio {
                         cash[cashKey] = (cash[cashKey] ?: 0L) + amount
                     }
                 }
-                acc.last = e.priceMicros
+                acc.last = price
+                lastPrice[holdKey] = price
             }
         }
 
@@ -293,6 +318,8 @@ object Portfolio {
             contracts = contracts,
             movements = movements,
             alerts    = MarginAlerts.evaluate(sorted),
+            estimates = estimates,
+            unpriced  = unpriced.sortedByDescending { it.timestamp },
         )
     }
 }

@@ -86,4 +86,27 @@ class PortfolioTest {
     fun `nothing in, nothing out`() {
         assertTrue(Portfolio.compute(emptyList()).isEmpty)
     }
+
+    @Test
+    fun `a market buy without a price is counted at the last known price and marked (#52)`() {
+        val market = order(OrderStatus.FILLED, BrokerOrder.UNKNOWN_PRICE, 2000, lots = 20)
+        val p = Portfolio.compute(realDay + market, now = at(2001))
+        val lqdt = p.positions.single()
+        assertEquals(4780L, lqdt.quantity)
+        assertEquals(2_098_500L, p.estimates[market])
+        assertTrue(p.unpriced.isEmpty())
+        // Деньги ушли по той же цене: 20 × 2,0985 = 41,97 ₽.
+        val cashBefore = Portfolio.compute(realDay, now = at(2001)).accounts.single().cashKopecks
+        assertEquals(cashBefore - 41_97L, p.accounts.single().cashKopecks)
+    }
+
+    @Test
+    fun `a market buy of a security with no known price stays out of the portfolio`() {
+        val market = BrokerOrder(BrokerPushParser.BKS, at(5), "SBER", OrderSide.BUY, 1, BrokerOrder.UNKNOWN_PRICE, OrderStatus.FILLED)
+        val p = Portfolio.compute(listOf(market), now = at(6))
+        assertTrue(p.positions.isEmpty())
+        assertEquals(listOf(market), p.unpriced)
+        // В ленте сделок она есть — её видно и можно поправить.
+        assertEquals(listOf(market), p.history)
+    }
 }

@@ -140,7 +140,7 @@ private enum class OpsFilter(val title: String) { ALL("Все"), MONEY("День
 
 /**
  * Лента всего у брокера: пополнения, выводы, переводы, прошлые предупреждения, заявки и сделки.
- * Фильтр по виду и по счёту; нажатие на строку — удалить; «+ Добавить» — ручной ввод (#49).
+ * Фильтр по виду и по счёту; нажатие на строку — карточка правки (там же удаление, #51); «+ Добавить» — ручной ввод (#49).
  * Сделки без счёта (пуш его не пишет) видны только при «Все счета».
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -187,13 +187,13 @@ fun InvestOpsScreen(vm: InvestorViewModel = hiltViewModel()) {
             )
         } else {
             item(key = "hint") {
-                Text("Нажмите на операцию, чтобы удалить её.", style = FosType.Micro, color = FosColors.TextMuted)
+                Text("Нажмите на операцию, чтобы исправить или удалить её.", style = FosType.Micro, color = FosColors.TextMuted)
             }
             // Ключ — id события: индекс сдвигался бы с каждым новым пушем сверху (#4).
             itemsIndexed(rows, key = { i, (ts, e) -> rowKey(e) ?: "row_${i}_$ts" }) { _, (_, e) ->
                 when (e) {
-                    is BrokerOrder -> OrderRow(e) { manual.deleting = it }
-                    else           -> FeedRow(e, portfolio) { manual.deleting = it }
+                    is BrokerOrder -> OrderRow(e, portfolio.estimates[e]) { manual.editing = it }
+                    else           -> FeedRow(e, portfolio) { manual.editing = it }
                 }
             }
         }

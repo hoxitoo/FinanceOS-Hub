@@ -1,11 +1,14 @@
 package com.financeos.hub.data.repositories
 
+import androidx.room.withTransaction
+import com.financeos.hub.core.database.FosDatabase
 import com.financeos.hub.core.database.daos.BrokerEventDao
 import com.financeos.hub.core.invest.BrokerEvent
 import com.financeos.hub.core.invest.BrokerEventMapper
 import com.financeos.hub.core.invest.BrokerAccountMark
 import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.invest.MANUAL_PREFIX
+import com.financeos.hub.core.invest.OrderStatus
 import com.financeos.hub.core.invest.contractKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,6 +22,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class BrokerEventRepository @Inject constructor(
+    private val db : FosDatabase,
     private val dao: BrokerEventDao,
 ) {
     fun observeAll(): Flow<List<BrokerEvent>> =
@@ -52,6 +56,29 @@ class BrokerEventRepository @Inject constructor(
         dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
     }
 
+    /**
+     * Правка записи (#51). Ручная — переписывается ЦЕЛИКОМ под тем же префиксом группы: у актива
+     * деньги и покупка меняются вместе, и удаление потом снова уберёт их вдвоём. Пуш — строка
+     * перезаписывается под тем же id и с тем же исходным текстом: по тексту ловится повторная
+     * доставка, и без него тот же пуш, пришедший снова, записался бы второй раз.
+     */
+    suspend fun replace(id: String, events: List<BrokerEvent>, now: Long = System.currentTimeMillis()) {
+        if (events.isEmpty()) return
+        if (id.startsWith(MANUAL_PREFIX)) {
+            val group = id.substringBeforeLast('_')
+            // Одной транзакцией: иначе экран на миг увидел бы запись удалённой, а сбой посередине
+            // потерял бы её совсем.
+            db.withTransaction {
+                dao.deleteByPrefix(group + "_")
+                dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
+            }
+            return
+        }
+        val row = dao.getAll().firstOrNull { it.id == id } ?: return
+        // Пуш — это одно событие; правка не может превратить его в два.
+        dao.upsert(BrokerEventMapper.toEntity(events.first(), id, row.rawText, row.createdAt))
+    }
+
     /** Завести счёт (или вернуть удалённый): одна строка на счёт, «завёл» и «удалил» её перезаписывают. */
     suspend fun saveAccount(broker: String, contract: String, label: String?, now: Long = System.currentTimeMillis()) =
         dao.upsert(BrokerEventMapper.toEntity(
@@ -76,13 +103,18 @@ class BrokerEventRepository @Inject constructor(
         // Заявка из пушей — это цепочка «активна → исполнена/отменена». Удалить только последний
         // статус значило бы воскресить «активна»: на экране появилась бы заявка, которой нет.
         if (row.kind == BrokerEventMapper.ORDER) {
-            dao.getAll()
-                .filter {
-                    it.kind == BrokerEventMapper.ORDER && !it.id.startsWith(MANUAL_PREFIX) &&
-                        it.broker == row.broker && it.ticker == row.ticker && it.side == row.side &&
-                        it.lots == row.lots && it.timestamp <= row.timestamp
-                }
+            // Цепочка — это строка и «активна» ПЕРЕД ней, но не дальше прошлой завершённой заявки того
+            // же вида: две покупки по 20 лотов LQDT за минуту (рыночная и лимитная, #52) — это две
+            // заявки, и удаление второй не должно уносить первую.
+            val same = dao.getAll().filter {
+                it.kind == BrokerEventMapper.ORDER && !it.id.startsWith(MANUAL_PREFIX) &&
+                    it.broker == row.broker && it.ticker == row.ticker && it.side == row.side &&
+                    it.lots == row.lots && it.timestamp <= row.timestamp && it.id != row.id
+            }
+            val prevDone = same.filter { it.status != OrderStatus.ACTIVE.name }.maxOfOrNull { it.timestamp }
+            same.filter { it.status == OrderStatus.ACTIVE.name && (prevDone == null || it.timestamp > prevDone) }
                 .forEach { dao.delete(it.id) }
+            dao.delete(row.id)
         } else {
             dao.delete(id)
         }

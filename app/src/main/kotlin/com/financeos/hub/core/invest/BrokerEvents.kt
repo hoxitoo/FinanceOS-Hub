@@ -95,7 +95,10 @@ data class BrokerOrder(
     val side       : OrderSide,
     /** Количество ЛОТОВ — так их пишет брокер. Сколько бумаг в лоте, пуш не сообщает. */
     val lots       : Long,
-    /** Цена ОДНОЙ бумаги в миллионных долях валюты (2.0985 → 2 098 500). */
+    /**
+     * Цена ОДНОЙ бумаги в миллионных долях валюты (2.0985 → 2 098 500). [UNKNOWN_PRICE] — цену брокер
+     * не прислал (рыночная заявка, #52).
+     */
     val priceMicros: Long,
     val status     : OrderStatus,
     /** «Лимитная» / «Рыночная» — как написал брокер; для подписи. */
@@ -104,7 +107,14 @@ data class BrokerOrder(
     /** Счёт сделки. Пуш его не пишет (только ручной ввод знает), поэтому чаще всего `null`. */
     val contract   : String? = null,
     override val id: String? = null,
-) : BrokerEvent
+) : BrokerEvent {
+    val priceKnown: Boolean get() = priceMicros > 0L
+
+    companion object {
+        /** Цена не пришла: «Рыночная заявка на покупку 20 лотов LQDT» — без «по …». */
+        const val UNKNOWN_PRICE = 0L
+    }
+}
 
 /**
  * Счёт у брокера, заведённый или скрытый ЧЕЛОВЕКОМ (инвариант #49): пуши могут не прийти вовсе, а

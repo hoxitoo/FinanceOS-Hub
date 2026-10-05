@@ -1,23 +1,28 @@
 package com.financeos.hub.features.investor
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.financeos.hub.core.invest.BrokerEvent
+import com.financeos.hub.core.invest.BrokerOrder
+import com.financeos.hub.core.invest.ManualEntry
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.core.invest.isManual
 
 /**
- * Что из ручного ввода сейчас открыто на экране вкладки инвестора (#49, #50): лист «Добавить»,
- * подтверждение удаления операции, лист бумаги. Одно состояние на экран — вкладки «Операции» и
- * «Счета» открывают те же листы, что и «Портфель», и ведут себя одинаково.
+ * Что из ручного ввода сейчас открыто на экране инвестора (#49, #50, #51): лист «Добавить»,
+ * карточка правки операции, подтверждение удаления, лист бумаги. Одно состояние на экран —
+ * «Портфель», «Операции» и «Счета» открывают одни и те же листы и ведут себя одинаково.
  */
 @Stable
 class InvestManualState {
     var add      by mutableStateOf<InvestAdd?>(null)
+    /** Нажатая операция: открывается карточка правки, удаление — внутри неё (#51). */
+    var editing  by mutableStateOf<BrokerEvent?>(null)
     var deleting by mutableStateOf<BrokerEvent?>(null)
     var position by mutableStateOf<Portfolio.Position?>(null)
 }
@@ -50,6 +55,31 @@ fun InvestManualOverlays(state: InvestManualState, vm: InvestorViewModel, portfo
             onDelete  = { vm.deleteAsset(p.broker, p.ticker) },
             onDismiss = { state.position = null },
         )
+    }
+    state.editing?.let { e ->
+        // Запись целиком: у актива — пополнение, покупка и цена; у пуша — он сам.
+        val record = remember(e) { vm.recordOf(e) }
+        val draft  = remember(e) { ManualEntry.draftOf(e, record) }
+        val delete = { state.editing = null; state.deleting = e }
+        when {
+            // Править нечего (не операция) — остаётся удаление. Состояние меняется вне композиции.
+            draft == null -> LaunchedEffect(e) { state.editing = null; state.deleting = e }
+            draft.asset -> BrokerAssetSheet(
+                contracts = portfolio.contracts,
+                onSave    = { vm.replaceEvents(e.id, it) },
+                onDismiss = { state.editing = null },
+                initial   = draft,
+                onDelete  = delete,
+            )
+            else -> BrokerOperationSheet(
+                contracts  = portfolio.contracts,
+                onSave     = { vm.replaceEvents(e.id, ManualEntry.keepPushed(e, it)) },
+                onDismiss  = { state.editing = null },
+                initial    = draft,
+                pushedOrder = e is BrokerOrder && !e.isManual,
+                onDelete   = delete,
+            )
+        }
     }
     state.deleting?.let { e ->
         ConfirmDelete(

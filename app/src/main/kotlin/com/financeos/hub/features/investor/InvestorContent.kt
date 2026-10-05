@@ -591,7 +591,7 @@ private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, onClick: (B
         else -> return
     }
     Row(
-        // Нажатие — удалить (у примера id нет, нажимать нечего). Нажатие между огранкой и отступом.
+        // Нажатие — карточка правки (у примера id нет, нажимать нечего). Нажатие между огранкой и отступом.
         modifier = Modifier.fillMaxWidth()
             .fosCardSurface(FosCardStyle.Plain, FosTone.Neutral, FosDimens.RadiusCardSmall)
             .clickable(enabled = e.id != null) { onClick(e) }
@@ -648,7 +648,12 @@ private fun PositionRow(p: Portfolio.Position, onClick: () -> Unit) {
 }
 
 @Composable
-internal fun OrderRow(o: BrokerOrder, onClick: ((BrokerOrder) -> Unit)? = null) {
+internal fun OrderRow(
+    o: BrokerOrder,
+    /** Цена, по которой посчитана сделка без цены (#52); `null` — цены нет и оценить не по чему. */
+    estimateMicros: Long? = null,
+    onClick: ((BrokerOrder) -> Unit)? = null,
+) {
     val sym = FosFormatter.currencySymbol(o.currency)
     val (label, color) = when (o.status) {
         OrderStatus.ACTIVE    -> "Активна"   to FosColors.Invest
@@ -669,12 +674,26 @@ internal fun OrderRow(o: BrokerOrder, onClick: ((BrokerOrder) -> Unit)? = null) 
                 style = FosType.BodySemi,
                 color = if (o.status == OrderStatus.CANCELLED) FosColors.TextMuted else FosColors.TextPrimary,
             )
+            // Рыночная заявка приходит без цены (#52): честно «≈ по последней» или «цена не пришла».
+            val priceText = when {
+                o.priceKnown           -> "по ${price(o.priceMicros)} $sym"
+                estimateMicros != null -> "≈ по ${price(estimateMicros)} $sym"
+                else                   -> "цена не пришла"
+            }
             Text(
-                "${grouped(o.lots)} ${if (o.isManual) "шт." else "лот."} по ${price(o.priceMicros)} $sym · ${FosFormatter.dayLabel(o.timestamp)}" +
+                "${grouped(o.lots)} ${if (o.isManual) "шт." else "лот."} $priceText · ${FosFormatter.dayLabel(o.timestamp)}" +
                     if (o.isManual) " · вручную" else "",
                 style = FosType.MicroNum,
                 color = FosColors.TextSecondary,
             )
+            if (!o.priceKnown && o.status == OrderStatus.FILLED) {
+                Text(
+                    if (estimateMicros != null) "цена не пришла — посчитано по последней; нажмите, чтобы указать"
+                    else "цена не пришла — в портфель не вошла; нажмите, чтобы указать",
+                    style = FosType.Micro,
+                    color = FosColors.Warning,
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         Text(
