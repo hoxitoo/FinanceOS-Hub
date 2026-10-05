@@ -44,7 +44,7 @@ fun InvestOrdersSheet(portfolio: Portfolio.Result, onEventClick: (com.financeos.
         hint      = if (portfolio.history.any { it.id != null }) "Нажмите на исполненную или отменённую сделку, чтобы исправить или удалить её." else null,
         count     = orders.size,
         onDismiss = onDismiss,
-    ) { index -> OrderRow(orders[index], onEventClick) }
+    ) { index -> OrderRow(orders[index], portfolio.estimates[orders[index]], onEventClick) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

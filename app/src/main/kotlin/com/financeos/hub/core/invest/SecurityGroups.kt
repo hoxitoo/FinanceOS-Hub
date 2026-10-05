@@ -68,16 +68,19 @@ object SecurityGroups {
     }
 
     /**
-     * Валюта, которую ОБОЗНАЧАЕТ тикер: «USD000SMALL» → «USD», «CNYRUB_TOM» → «CNY», «USD» → «USD».
+     * Валюта, которую ОБОЗНАЧАЕТ тикер остатка: «USD000SMALL» → «USD», «USD» → «USD».
      * `null` — тикер не валютный. Нужна ручному вводу: валюта на счёте — это деньги в своей валюте
      * (дробная сумма, «0,41 $»), а не бумага в штуках.
      */
     fun cashCurrency(ticker: String): String? {
         val t = ticker.trim().uppercase()
         if (t in CURRENCY_CODES) return t
-        if (!CURRENCY.matches(t)) return null
-        return t.take(3)
+        // Только остаток («…000SMALL»). «USD000UTSTOM» — инструмент, купленный лотами за рубли: это
+        // позиция с ценой в рублях, а не доллары на счёте.
+        return if (SMALL.matches(t)) t.take(3) else null
     }
+
+    private val SMALL = Regex("""^[A-Z]{3}000SMALL$""")
 
     /** Название валюты денег на счёте, как в приложении брокера. */
     fun currencyName(code: String): String = when (code.uppercase()) {

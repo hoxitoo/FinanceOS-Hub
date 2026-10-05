@@ -192,7 +192,7 @@ fun InvestOpsScreen(vm: InvestorViewModel = hiltViewModel()) {
             // Ключ — id события: индекс сдвигался бы с каждым новым пушем сверху (#4).
             itemsIndexed(rows, key = { i, (ts, e) -> rowKey(e) ?: "row_${i}_$ts" }) { _, (_, e) ->
                 when (e) {
-                    is BrokerOrder -> OrderRow(e) { manual.editing = it }
+                    is BrokerOrder -> OrderRow(e, portfolio.estimates[e]) { manual.editing = it }
                     else           -> FeedRow(e, portfolio) { manual.editing = it }
                 }
             }

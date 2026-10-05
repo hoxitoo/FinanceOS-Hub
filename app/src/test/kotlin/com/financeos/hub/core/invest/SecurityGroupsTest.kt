@@ -55,9 +55,8 @@ class SecurityGroupsTest {
         assertEquals(SecurityGroup.CURRENCY, SecurityGroups.of("CNY000SMALL"))
         assertEquals("USD", SecurityGroups.cashCurrency("usd000small"))
         assertEquals("CNY", SecurityGroups.cashCurrency("CNY000SMALL"))
-        assertEquals("CNY", SecurityGroups.cashCurrency("CNYRUB_TOM"))
         assertEquals("USD", SecurityGroups.cashCurrency("USD"))
-        listOf("SBER", "LQDT", "SU26238RMFS4", "3800_HK", "USD000SMALLX").forEach {
+        listOf("SBER", "LQDT", "SU26238RMFS4", "3800_HK", "USD000SMALLX", "USD000UTSTOM", "CNYRUB_TOM").forEach {
             assertEquals(it, null, SecurityGroups.cashCurrency(it))
         }
     }

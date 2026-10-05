@@ -106,8 +106,11 @@ fun BrokerOperationSheet(
     onSave   : (List<BrokerEvent>) -> Unit,
     onDismiss: () -> Unit,
     initial  : ManualEntry.Draft? = null,
-    /** Правится сделка из пуша: количество в ней — лоты брокера, а не штуки. */
-    pushedLots: Boolean = false,
+    /**
+     * Правится сделка из ПУША: у неё меняются только цена, счёт и валюта. Бумага, сторона, лоты и
+     * время связывают её с прежними пушами той же заявки (см. [ManualEntry.keepPushed]).
+     */
+    pushedOrder: Boolean = false,
     onDelete : (() -> Unit)? = null,
 ) {
     val start = remember(initial) { initial?.let { FormValues(it) } ?: FormValues.EMPTY }
@@ -148,15 +151,32 @@ fun BrokerOperationSheet(
         },
     ) {
         Text(if (initial == null) "Операция у брокера" else "Операция", style = FosType.ScreenTitle, color = FosColors.TextPrimary)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            ManualEntry.Kind.values().forEach { k -> InvestChip(k.title, k == kind) { kind = k } }
+        if (pushedOrder) {
+            // Сделка из пуша: что купили и сколько — факт брокера; правится цена (рыночная заявка
+            // приходит без неё, #52), счёт и валюта.
+            Text(
+                "${kind.title} · $ticker · $quantity лот. · ${FosFormatter.dayLabel(initial?.timestamp ?: 0L)}",
+                style = FosType.BodySemi,
+                color = FosColors.TextPrimary,
+            )
+            Text(
+                "Пришло пушем: бумага, количество и время — как у брокера. Цену исполнения возьмите в " +
+                    "приложении брокера, если она не пришла.",
+                style = FosType.Micro,
+                color = FosColors.TextSecondary,
+            )
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ManualEntry.Kind.values().forEach { k -> InvestChip(k.title, k == kind) { kind = k } }
+            }
         }
         CurrencyChips(currency) { currency = it }
         if (trade) {
-            InvestField(ticker, { ticker = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '_' || c == '.' }.take(16) },
-                "Тикер (SBER, LQDT…)", KeyboardType.Ascii)
-            InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) },
-                if (pushedLots) "Количество, лотов" else "Количество, шт.", KeyboardType.Number)
+            if (!pushedOrder) {
+                InvestField(ticker, { ticker = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '_' || c == '.' }.take(16) },
+                    "Тикер (SBER, LQDT…)", KeyboardType.Ascii)
+                InvestField(quantity, { quantity = it.filter(Char::isDigit).take(12) }, "Количество, шт.", KeyboardType.Number)
+            }
             InvestField(price, { price = ManualEntry.sanitizePrice(it) }, "Цена одной бумаги, $sym", KeyboardType.Decimal)
             val total = events?.filterIsInstance<com.financeos.hub.core.invest.BrokerOrder>()?.firstOrNull()?.let {
                 com.financeos.hub.core.invest.microsToKopecks(it.priceMicros * it.lots)
@@ -178,7 +198,7 @@ fun BrokerOperationSheet(
         } else if (kind == ManualEntry.Kind.TRANSFER) {
             Text("Для перевода между счетами сначала добавьте счета: «Добавить → Счёт».", style = FosType.Micro, color = FosColors.TextMuted)
         }
-        DateChip(date) { date = it }
+        if (!pushedOrder) DateChip(date) { date = it }
         SaveButton(enabled = events != null && changed) {
             events?.let(onSave)
             onDismiss()
@@ -220,7 +240,10 @@ fun BrokerAssetSheet(
         val base = ManualEntry.asset(broker, ts, ticker, quantity.toLongOrNull() ?: 0L, ManualEntry.parsePrice(price) ?: 0L, contract, currency)
         // Текущая цена — отдельной отметкой «сейчас», после покупки.
         base?.let { list ->
-            val now = maxOf(System.currentTimeMillis(), ts + 1)
+            // Неизменённая цена сохраняет СВОЁ время: «сейчас» перебило бы цену, указанную позже, и
+            // записало бы старую разницу в результат «за 24 часа».
+            val keptAt = initial?.currentPriceAt?.takeIf { current == startCurrent }
+            val now = maxOf(keptAt ?: System.currentTimeMillis(), ts + 1)
             val mark = ManualEntry.parsePrice(current)?.let {
                 com.financeos.hub.core.invest.BrokerPriceMark(broker, now, ticker.trim().uppercase(), it, currency)
             }

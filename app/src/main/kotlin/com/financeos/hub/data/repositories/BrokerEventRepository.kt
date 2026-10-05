@@ -1,11 +1,14 @@
 package com.financeos.hub.data.repositories
 
+import androidx.room.withTransaction
+import com.financeos.hub.core.database.FosDatabase
 import com.financeos.hub.core.database.daos.BrokerEventDao
 import com.financeos.hub.core.invest.BrokerEvent
 import com.financeos.hub.core.invest.BrokerEventMapper
 import com.financeos.hub.core.invest.BrokerAccountMark
 import com.financeos.hub.core.invest.BrokerPushParser
 import com.financeos.hub.core.invest.MANUAL_PREFIX
+import com.financeos.hub.core.invest.OrderStatus
 import com.financeos.hub.core.invest.contractKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,6 +22,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class BrokerEventRepository @Inject constructor(
+    private val db : FosDatabase,
     private val dao: BrokerEventDao,
 ) {
     fun observeAll(): Flow<List<BrokerEvent>> =
@@ -62,8 +66,12 @@ class BrokerEventRepository @Inject constructor(
         if (events.isEmpty()) return
         if (id.startsWith(MANUAL_PREFIX)) {
             val group = id.substringBeforeLast('_')
-            dao.deleteByPrefix(group + "_")
-            dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
+            // Одной транзакцией: иначе экран на миг увидел бы запись удалённой, а сбой посередине
+            // потерял бы её совсем.
+            db.withTransaction {
+                dao.deleteByPrefix(group + "_")
+                dao.insertAll(events.mapIndexed { i, e -> BrokerEventMapper.toEntity(e, "${group}_$i", "", now) })
+            }
             return
         }
         val row = dao.getAll().firstOrNull { it.id == id } ?: return
@@ -95,13 +103,18 @@ class BrokerEventRepository @Inject constructor(
         // Заявка из пушей — это цепочка «активна → исполнена/отменена». Удалить только последний
         // статус значило бы воскресить «активна»: на экране появилась бы заявка, которой нет.
         if (row.kind == BrokerEventMapper.ORDER) {
-            dao.getAll()
-                .filter {
-                    it.kind == BrokerEventMapper.ORDER && !it.id.startsWith(MANUAL_PREFIX) &&
-                        it.broker == row.broker && it.ticker == row.ticker && it.side == row.side &&
-                        it.lots == row.lots && it.timestamp <= row.timestamp
-                }
+            // Цепочка — это строка и «активна» ПЕРЕД ней, но не дальше прошлой завершённой заявки того
+            // же вида: две покупки по 20 лотов LQDT за минуту (рыночная и лимитная, #52) — это две
+            // заявки, и удаление второй не должно уносить первую.
+            val same = dao.getAll().filter {
+                it.kind == BrokerEventMapper.ORDER && !it.id.startsWith(MANUAL_PREFIX) &&
+                    it.broker == row.broker && it.ticker == row.ticker && it.side == row.side &&
+                    it.lots == row.lots && it.timestamp <= row.timestamp && it.id != row.id
+            }
+            val prevDone = same.filter { it.status != OrderStatus.ACTIVE.name }.maxOfOrNull { it.timestamp }
+            same.filter { it.status == OrderStatus.ACTIVE.name && (prevDone == null || it.timestamp > prevDone) }
                 .forEach { dao.delete(it.id) }
+            dao.delete(row.id)
         } else {
             dao.delete(id)
         }

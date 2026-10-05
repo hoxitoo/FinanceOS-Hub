@@ -100,6 +100,8 @@ object ManualEntry {
         val quantity          : Long?,
         val priceMicros       : Long?,
         val currentPriceMicros: Long?,
+        /** Когда указана текущая цена: неизменённая цена сохраняется со СВОИМ временем, не «сейчас». */
+        val currentPriceAt    : Long?,
         val contract          : String?,
         val toContract        : String?,
         val currency          : String,
@@ -117,7 +119,8 @@ object ManualEntry {
             val mark = group.filterIsInstance<BrokerPriceMark>().lastOrNull()
             return Draft(
                 kind = Kind.BUY, asset = true, amountKopecks = null, ticker = buy.ticker, quantity = buy.lots,
-                priceMicros = buy.priceMicros, currentPriceMicros = mark?.priceMicros, contract = buy.contract,
+                priceMicros = buy.priceMicros, currentPriceMicros = mark?.priceMicros,
+                currentPriceAt = mark?.timestamp, contract = buy.contract,
                 toContract = null, currency = buy.currency, timestamp = buy.timestamp,
             )
         }
@@ -125,18 +128,21 @@ object ManualEntry {
             is BrokerCashMove -> Draft(
                 kind = if (tapped.amountKopecks >= 0) Kind.DEPOSIT else Kind.WITHDRAW, asset = false,
                 amountKopecks = kotlin.math.abs(tapped.amountKopecks), ticker = "", quantity = null,
-                priceMicros = null, currentPriceMicros = null, contract = tapped.contract, toContract = null,
-                currency = tapped.currency, timestamp = tapped.timestamp,
+                priceMicros = null, currentPriceMicros = null, currentPriceAt = null, contract = tapped.contract,
+                toContract = null, currency = tapped.currency, timestamp = tapped.timestamp,
             )
             is BrokerInternalTransfer -> Draft(
                 kind = Kind.TRANSFER, asset = false, amountKopecks = tapped.amountKopecks, ticker = "",
-                quantity = null, priceMicros = null, currentPriceMicros = null, contract = tapped.fromContract,
+                quantity = null, priceMicros = null, currentPriceMicros = null, currentPriceAt = null,
+                contract = tapped.fromContract,
                 toContract = tapped.toContract, currency = tapped.currency, timestamp = tapped.timestamp,
             )
             is BrokerOrder -> Draft(
                 kind = if (tapped.side == OrderSide.SELL) Kind.SELL else Kind.BUY, asset = false,
                 amountKopecks = null, ticker = tapped.ticker, quantity = tapped.lots,
-                priceMicros = tapped.priceMicros, currentPriceMicros = null, contract = tapped.contract,
+                // Цена, которую брокер не прислал (#52), — пустое поле, а не «0».
+                priceMicros = tapped.priceMicros.takeIf { it > 0L }, currentPriceMicros = null,
+                currentPriceAt = null, contract = tapped.contract,
                 toContract = null, currency = tapped.currency, timestamp = tapped.timestamp,
             )
             else -> null
@@ -148,19 +154,42 @@ object ManualEntry {
      * время до миллисекунды. «Сейчас» вместо него переставило бы операцию в истории и сдвинуло бы
      * результат «за 24 часа», а у пуша — разорвало бы его с цепочкой заявки.
      */
-    fun editedTimestamp(original: Long, day: java.time.LocalDate, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long {
+    fun editedTimestamp(
+        original: Long,
+        day     : java.time.LocalDate,
+        zone    : java.time.ZoneId = java.time.ZoneId.systemDefault(),
+        now     : Long = System.currentTimeMillis(),
+    ): Long {
         val at = java.time.Instant.ofEpochMilli(original).atZone(zone)
-        return if (at.toLocalDate() == day) original
-        else day.atTime(at.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
+        if (at.toLocalDate() == day) return original
+        // Вчерашние 23:00, перенесённые на сегодня, не должны оказаться в будущем.
+        return minOf(day.atTime(at.toLocalTime()).atZone(zone).toInstant().toEpochMilli(), now)
     }
 
     /**
-     * Правленая сделка из ПУША сохраняет статус и подпись брокера: правка цены отменённой заявки не
-     * должна превращать её в исполненную, а лоты пуша — в «шт., вручную».
+     * Что правка ПУША обязана сохранить.
+     * - Заявка: статус, подпись брокера, бумагу, сторону, лоты и время. По ним заявка связана со своими
+     *   прежними пушами («активна → исполнена»): смени их — и «активна» стала бы последним словом
+     *   заявки и ожила бы на экране («Заявки · 1»), а удаление перестало бы её находить. Править у
+     *   пуша можно цену (рыночная приходит без неё, #52), счёт и валюту.
+     * - Перевод между счетами: названия счетов («Облигации») — их пишет только брокер, а форма их не
+     *   знает; при тех же счетах они остаются.
      */
-    fun keepPushedOrder(original: BrokerEvent, edited: List<BrokerEvent>): List<BrokerEvent> {
-        if (original !is BrokerOrder || original.isManual) return edited
-        return edited.map { if (it is BrokerOrder) it.copy(status = original.status, kind = original.kind) else it }
+    fun keepPushed(original: BrokerEvent, edited: List<BrokerEvent>): List<BrokerEvent> {
+        if (original.isManual || original.id == null) return edited
+        return edited.map { e ->
+            when {
+                original is BrokerOrder && e is BrokerOrder -> e.copy(
+                    status = original.status, kind = original.kind, ticker = original.ticker,
+                    side = original.side, lots = original.lots, timestamp = original.timestamp,
+                )
+                original is BrokerInternalTransfer && e is BrokerInternalTransfer -> e.copy(
+                    fromLabel = if (contractKey(e.fromContract) == contractKey(original.fromContract)) original.fromLabel else null,
+                    toLabel   = if (contractKey(e.toContract) == contractKey(original.toContract)) original.toLabel else null,
+                )
+                else -> e
+            }
+        }
     }
 
     /** Цена в поле ввода: 2 098 500 → «2,0985» — сырая строка, без разбивки (инвариант #7). */

@@ -73,10 +73,10 @@ fun InvestManualOverlays(state: InvestManualState, vm: InvestorViewModel, portfo
             )
             else -> BrokerOperationSheet(
                 contracts  = portfolio.contracts,
-                onSave     = { vm.replaceEvents(e.id, ManualEntry.keepPushedOrder(e, it)) },
+                onSave     = { vm.replaceEvents(e.id, ManualEntry.keepPushed(e, it)) },
                 onDismiss  = { state.editing = null },
                 initial    = draft,
-                pushedLots = e is BrokerOrder && !e.isManual,
+                pushedOrder = e is BrokerOrder && !e.isManual,
                 onDelete   = delete,
             )
         }
