@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.features.investor.BrokerAccountSheet
+import com.financeos.hub.features.investor.BrokerWalletTile
 import com.financeos.hub.features.investor.InvestAdd
 import com.financeos.hub.features.investor.InvestManualOverlays
 import com.financeos.hub.features.investor.rememberInvestManualState
@@ -120,6 +121,7 @@ fun DashboardScreen(
     val investPortfolio  by investorVm.portfolio.collectAsState()
     val investAlert      by investorVm.hasOpenAlert.collectAsState()
     val investContract   by investorVm.selectedContract.collectAsState()
+    val investLinks      by investorVm.links.collectAsState()
     var showBrokerAccounts by remember { mutableStateOf(false) }
     var showInvestHistory  by remember { mutableStateOf(false) }
     var showInvestOrders   by remember { mutableStateOf(false) }
@@ -213,6 +215,9 @@ fun DashboardScreen(
                     // У примера id нет — открывать бумагу на правку незачем.
                     onPositionClick  = { if (!investPortfolio.isEmpty) investManual.position = it },
                     onDismissAlert   = { investorVm.dismissAlert(it) },
+                    links            = investLinks,
+                    onRecordLeg      = { investorVm.recordDeposit(it) },
+                    onDismissLeg     = { investorVm.dismissLeg(it) },
                     onShowSample     = { showInvestSample = true },
                     onHideSample     = { showInvestSample = false; investorVm.selectContract(null) },
                     onResetBroker    = { investorVm.resetBrokerPackage() },
@@ -249,6 +254,15 @@ fun DashboardScreen(
         // добавляется только на его экране. Пустое состояние плитка показывает сама.
         if (!calendar.isLoading) {
             item { FreeMoneyTile(free = calendar.free, onClick = onCalendarClick) }
+        }
+
+        // Деньги у брокера (#53): перевод брокеру уводит их из итога кошелька, и без плитки они
+        // просто исчезали. Только итог, в «Всего» не входит. Условие — снаружи item (#23); это не
+        // единственный вход в режим инвестора (переключатель в шапке), поэтому прятать законно (#21).
+        if (!investPortfolio.isEmpty && investPortfolio.summaries.isNotEmpty()) {
+            item(key = "broker_tile") {
+                BrokerWalletTile(investPortfolio.summaries, onClick = { investorVm.setInvestorMode(true) })
+            }
         }
 
         // Accounts section — grouped by bank
@@ -346,7 +360,12 @@ fun DashboardScreen(
     }
 
     if (showInvestHistory) {
-        InvestHistorySheet(shownPortfolio, onEventClick = { showInvestHistory = false; investManual.editing = it }, onDismiss = { showInvestHistory = false })
+        InvestHistorySheet(
+            shownPortfolio,
+            onEventClick = { showInvestHistory = false; investManual.editing = it },
+            onDismiss    = { showInvestHistory = false },
+            links        = investLinks,
+        )
     }
     if (showInvestOrders) {
         InvestOrdersSheet(shownPortfolio, onEventClick = { showInvestOrders = false; investManual.editing = it }, onDismiss = { showInvestOrders = false })

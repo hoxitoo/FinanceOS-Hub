@@ -21,7 +21,12 @@ import com.financeos.hub.ui.theme.FosType
 /** «История» — движения денег у брокера и прошлые предупреждения, новые сверху. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InvestHistorySheet(portfolio: Portfolio.Result, onEventClick: (com.financeos.hub.core.invest.BrokerEvent) -> Unit, onDismiss: () -> Unit) {
+fun InvestHistorySheet(
+    portfolio: Portfolio.Result,
+    onEventClick: (com.financeos.hub.core.invest.BrokerEvent) -> Unit,
+    onDismiss: () -> Unit,
+    links: com.financeos.hub.core.invest.DepositLinks.Result = com.financeos.hub.core.invest.DepositLinks.EMPTY,
+) {
     val feed = historyFeed(portfolio, null)
     InvestListSheet(
         title     = "История",
@@ -30,7 +35,7 @@ fun InvestHistorySheet(portfolio: Portfolio.Result, onEventClick: (com.financeos
         hint      = if (portfolio.movements.any { it.id != null }) "Нажмите на операцию, чтобы исправить или удалить её." else null,
         count     = feed.size,
         onDismiss = onDismiss,
-    ) { index -> val (_, e) = feed[index]; FeedRow(e, portfolio, onEventClick) }
+    ) { index -> val (_, e) = feed[index]; FeedRow(e, portfolio, links.sourceOf, onEventClick = onEventClick) }
 }
 
 /** «Заявки» — активные сверху, затем исполненные и отменённые. */
