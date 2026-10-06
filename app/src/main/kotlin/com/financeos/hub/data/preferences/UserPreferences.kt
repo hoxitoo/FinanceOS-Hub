@@ -99,6 +99,12 @@ class UserPreferences @Inject constructor(
          * их больше не показывает; новая незнакомая карта показывается снова.
          */
         val DISMISSED_UNKNOWN_MASKS      = stringSetPreferencesKey("dismissed_unknown_masks")
+
+        /**
+         * Переводы кошелька брокеру, о которых человек сказал «это не пополнение» (#53): в режиме
+         * инвестора они больше не предлагаются к записи. Хранятся id строк операций.
+         */
+        val DISMISSED_BROKER_LEGS        = stringSetPreferencesKey("dismissed_broker_legs")
     }
 
     val onboardingComplete: Flow<Boolean> = prefs
@@ -276,5 +282,12 @@ class UserPreferences @Inject constructor(
 
     suspend fun dismissUnknownMasks(masks: Collection<String>) {
         context.dataStore.edit { it[DISMISSED_UNKNOWN_MASKS] = (it[DISMISSED_UNKNOWN_MASKS] ?: emptySet()) + masks }
+    }
+
+    val dismissedBrokerLegs: Flow<Set<String>> = prefs
+        .map { it[DISMISSED_BROKER_LEGS] ?: emptySet() }
+
+    suspend fun dismissBrokerLeg(txId: String) {
+        context.dataStore.edit { it[DISMISSED_BROKER_LEGS] = (it[DISMISSED_BROKER_LEGS] ?: emptySet()) + txId }
     }
 }

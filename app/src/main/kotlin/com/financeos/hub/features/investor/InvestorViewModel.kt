@@ -3,16 +3,20 @@ package com.financeos.hub.features.investor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.financeos.hub.core.invest.BrokerPushParser
+import com.financeos.hub.core.invest.DepositLinks
 import com.financeos.hub.core.invest.Portfolio
 import com.financeos.hub.core.invest.isManual
 import com.financeos.hub.data.preferences.UserPreferences
+import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.BrokerEventRepository
+import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -31,6 +35,8 @@ class InvestorViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val brokerEvents: BrokerEventRepository,
     private val selection: InvestSelection,
+    private val transactions: TransactionRepository,
+    private val accounts: AccountRepository,
 ) : ViewModel() {
 
     /** Свои события брокера как есть — лист правки собирает по ним запись целиком (#51). */
@@ -42,6 +48,40 @@ class InvestorViewModel @Inject constructor(
         .map { Portfolio.compute(it) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Portfolio.EMPTY)
+
+    /**
+     * Склейка пополнений (#53): переводы кошелька брокеру ↔ зачисления у брокера. Кошелёк отдаёт сюда
+     * только СВОИ переводы с категорией «Инвестиции» — сам он о брокере не узнаёт ничего, кроме итога.
+     */
+    val links: StateFlow<DepositLinks.Result> = combine(
+        transactions.observeAll(), accounts.observeAll(), events, prefs.dismissedBrokerLegs, hourly,
+    ) { txs, accs, evs, dismissed, now ->
+        DepositLinks.link(txs.mapNotNull { DepositLinks.legOf(it, accs) }, evs, dismissed, now)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DepositLinks.EMPTY)
+
+    /**
+     * Часы раз в час: перевод, которому брокер так и не ответил, становится предложением по
+     * прошествии времени, а не по чужому изменению данных.
+     */
+    private val hourly get() = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            kotlinx.coroutines.delay(3_600_000L)
+        }
+    }
+
+    /** «Записать пополнение» по переводу кошелька, о котором брокер не прислал пуша. */
+    fun recordDeposit(leg: DepositLinks.WalletLeg) {
+        val event = DepositLinks.depositFor(leg, portfolio.value.contracts)
+        viewModelScope.launch { brokerEvents.addManual(listOf(event)) }
+    }
+
+    /** «Это не пополнение» — больше не предлагать. */
+    fun dismissLeg(leg: DepositLinks.WalletLeg) {
+        viewModelScope.launch { prefs.dismissBrokerLeg(leg.txId) }
+    }
 
     /**
      * Есть ли предупреждение брокера, требующее действия. Нужно и КОШЕЛЬКУ — точка на «Инвестор» в
