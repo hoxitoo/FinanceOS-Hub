@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import com.financeos.hub.core.invest.BrokerOrder
 import com.financeos.hub.core.invest.MarginAlerts
 import com.financeos.hub.core.invest.SecurityGroups
 import com.financeos.hub.core.invest.isManual
+import com.financeos.hub.core.invest.DepositLinks
 import com.financeos.hub.core.invest.contractKey
 import com.financeos.hub.core.invest.OrderSide
 import com.financeos.hub.core.invest.OrderStatus
@@ -74,6 +76,10 @@ fun LazyListScope.investorItems(
     onShowSample    : () -> Unit,
     onHideSample    : () -> Unit,
     onResetBroker   : () -> Unit,
+    /** Склейка с кошельком (#53): откуда пришли пополнения и переводы без зачисления. */
+    links           : DepositLinks.Result = DepositLinks.EMPTY,
+    onRecordLeg     : (DepositLinks.WalletLeg) -> Unit = {},
+    onDismissLeg    : (DepositLinks.WalletLeg) -> Unit = {},
 ) {
     if (portfolio.isEmpty) {
         item(key = "invest_empty") { InvestorEmpty(brokerPackage, onShowSample, onResetBroker, onAdd) }
@@ -89,6 +95,14 @@ fun LazyListScope.investorItems(
     val openAlerts = portfolio.openAlerts
     items(openAlerts, key = { "alert_${it.alert.timestamp}_${it.alert.contract}" }) { st ->
         MarginAlertCard(st, portfolio.titleOf(st.alert.contract), onDismiss = { onDismissAlert(st.alert.id) })
+    }
+
+    // Переводы из кошелька, брокер о которых не написал (#53). Только к своим данным: у примера
+    // кошелька нет.
+    if (!isSample) {
+        items(links.unmatched, key = { "leg_${it.txId}" }) { leg ->
+            UnmatchedLegCard(leg, onRecord = { onRecordLeg(leg) }, onDismiss = { onDismissLeg(leg) })
+        }
     }
 
     item(key = "invest_hero") {
@@ -109,7 +123,9 @@ fun LazyListScope.investorItems(
         val feed = historyFeed(portfolio, contract.key)
         if (feed.isNotEmpty()) {
             item(key = "invest_moves_h") { FosSectionHeader("Движения денег", tone = FosTone.Invest) }
-            itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) -> FeedRow(e, portfolio, onEventClick) }
+            itemsIndexed(feed, key = { i, (ts, _) -> "mv_${i}_$ts" }) { _, (_, e) ->
+                FeedRow(e, portfolio, links.sourceOf, onEventClick = onEventClick)
+            }
         }
     }
 
@@ -157,10 +173,16 @@ internal fun historyFeed(portfolio: Portfolio.Result, contractKey: String?): Lis
 }
 
 @Composable
-internal fun FeedRow(e: Any, portfolio: Portfolio.Result, onEventClick: (BrokerEvent) -> Unit) {
+internal fun FeedRow(
+    e: Any,
+    portfolio: Portfolio.Result,
+    /** Откуда пришли пополнения — склейка с кошельком (#53). */
+    sources: Map<BrokerCashMove, DepositLinks.WalletLeg> = emptyMap(),
+    onEventClick: (BrokerEvent) -> Unit,
+) {
     when (e) {
         is MarginAlerts.State -> PastAlertRow(e, portfolio.titleOf(e.alert.contract))
-        is BrokerEvent        -> MovementRow(e, portfolio, onEventClick)
+        is BrokerEvent        -> MovementRow(e, portfolio, (e as? BrokerCashMove)?.let { sources[it] }?.source, onEventClick)
     }
 }
 
@@ -495,6 +517,55 @@ internal fun outgoingFrom(e: BrokerEvent, key: String): Long = when (e) {
 }
 
 /**
+ * Перевод из кошелька брокеру, о котором брокер не прислал пуша (#53). Предложение, а не запись:
+ * молча дописанное пополнение посчиталось бы дважды, если пуш всё-таки придёт.
+ */
+@Composable
+private fun UnmatchedLegCard(leg: DepositLinks.WalletLeg, onRecord: () -> Unit, onDismiss: () -> Unit) {
+    val sym = FosFormatter.currencySymbol(leg.currency)
+    val out = leg.amountKopecks < 0
+    Column(
+        modifier = Modifier.fillMaxWidth().fosCard(FosCardStyle.Outline, FosTone.Invest),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            if (out) "Перевод брокеру без зачисления" else "Деньги от брокера без вывода",
+            style = FosType.BodySemi,
+            color = FosColors.TextPrimary,
+        )
+        Text(
+            (if (out) "${leg.source ?: "Кошелёк"} → ${leg.broker}" else "${leg.broker} → ${leg.source ?: "кошелёк"}") +
+                " · ${FosFormatter.amount(kotlin.math.abs(leg.amountKopecks), sym)} · ${FosFormatter.dayLabel(leg.timestamp)}",
+            style = FosType.MicroNum,
+            color = FosColors.TextSecondary,
+        )
+        Text(
+            if (out) "Брокер не прислал пуш о зачислении. Если деньги дошли — запишите пополнение."
+            else "Брокер не прислал пуш о выводе. Если деньги ушли со счёта у брокера — запишите вывод.",
+            style = FosType.Micro,
+            color = FosColors.TextSecondary,
+        )
+        // Нажали — кнопки уходят сразу, не дожидаясь пересчёта склейки: второе касание записало бы
+        // второе пополнение, которому пары уже нет, и деньги посчитались бы дважды.
+        var done by remember(leg.txId) { mutableStateOf(false) }
+        if (!done) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                if (out) "Записать пополнение" else "Записать вывод",
+                style    = FosType.Label,
+                color    = FosColors.Invest,
+                modifier = Modifier.clickable { done = true; onRecord() }.padding(vertical = 8.dp),
+            )
+            Text(
+                if (out) "Это не пополнение" else "Это не вывод",
+                style    = FosType.Label,
+                color    = FosColors.TextSecondary,
+                modifier = Modifier.clickable { done = true; onDismiss() }.padding(vertical = 8.dp),
+            )
+        }
+    }
+}
+
+/**
  * Требование брокера пополнить счёт. Янтарный, не красный: красный в приложении — трата и
  * перерасход (правило #2), а это предупреждение о риске.
  */
@@ -568,7 +639,7 @@ private fun PastAlertRow(st: MarginAlerts.State, title: String) {
 
 /** Пополнение, вывод или перевод между счетами. Перевод — нейтральный «↔», как в кошельке. */
 @Composable
-private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, onClick: (BrokerEvent) -> Unit) {
+private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, source: String?, onClick: (BrokerEvent) -> Unit) {
     val (title, sub, amount, color) = when (e) {
         is BrokerInternalTransfer -> {
             val sym = FosFormatter.currencySymbol(e.currency)
@@ -581,9 +652,15 @@ private fun MovementRow(e: BrokerEvent, portfolio: Portfolio.Result, onClick: (B
         }
         is BrokerCashMove -> {
             val sym = FosFormatter.currencySymbol(e.currency)
+            // Склеено с переводом кошелька (#53) — видно, откуда пришли деньги или куда ушли.
+            val where = e.contract?.let { "счёт ${portfolio.shortOf(it)}" } ?: e.broker
             Quad(
                 if (e.amountKopecks >= 0) "Пополнение" else "Вывод",
-                e.contract?.let { "счёт ${portfolio.shortOf(it)}" } ?: e.broker,
+                when {
+                    source == null          -> where
+                    e.amountKopecks >= 0    -> "$where · из $source"
+                    else                    -> "$where · на $source"
+                },
                 FosFormatter.signedAmount(e.amountKopecks, sym),
                 FosColors.TextPrimary,
             )

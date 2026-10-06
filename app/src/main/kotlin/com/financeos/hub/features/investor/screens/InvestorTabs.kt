@@ -147,6 +147,7 @@ private enum class OpsFilter(val title: String) { ALL("Все"), MONEY("День
 @Composable
 fun InvestOpsScreen(vm: InvestorViewModel = hiltViewModel()) {
     val portfolio by vm.portfolio.collectAsState()
+    val links     by vm.links.collectAsState()
     val manual = rememberInvestManualState()
     var filter  by rememberSaveable { mutableStateOf(OpsFilter.ALL) }
     var account by rememberSaveable { mutableStateOf<String?>(null) }
@@ -193,7 +194,7 @@ fun InvestOpsScreen(vm: InvestorViewModel = hiltViewModel()) {
             itemsIndexed(rows, key = { i, (ts, e) -> rowKey(e) ?: "row_${i}_$ts" }) { _, (_, e) ->
                 when (e) {
                     is BrokerOrder -> OrderRow(e, portfolio.estimates[e]) { manual.editing = it }
-                    else           -> FeedRow(e, portfolio) { manual.editing = it }
+                    else           -> FeedRow(e, portfolio, links.sourceOf) { manual.editing = it }
                 }
             }
         }
