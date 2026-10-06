@@ -51,9 +51,21 @@ class DepositLinksTest {
     fun `a transfer the broker never confirmed is offered, not recorded`() {
         val tracked = deposit(bksAt)
         val lost = leg("tx9", alfaAt + 3 * day, kopecks = -500_000L)
-        val r = DepositLinks.link(listOf(lost), listOf(tracked), now = alfaAt + 5 * day)
+        // Пока пуш ещё может склеиться (окно — трое суток), запись не предлагается: иначе записанное
+        // пополнение заняло бы пару, а пришедший следом пуш посчитался бы вторым.
+        assertTrue(DepositLinks.link(listOf(lost), listOf(tracked), now = alfaAt + 5 * day).unmatched.isEmpty())
+        val r = DepositLinks.link(listOf(lost), listOf(tracked), now = alfaAt + 7 * day)
         assertEquals(listOf(lost), r.unmatched)
         assertTrue(r.sourceOf.isEmpty())
+    }
+
+    @Test
+    fun `an asset entered by hand with an old date does not widen what is offered`() {
+        // Ручной актив «куплен в прошлом году» — портфель от этого не вёлся с прошлого года.
+        val oldManual = BrokerCashMove(BKS, alfaAt - 365 * day, null, 50_000_00L, "RUB", id = "manual_a_0")
+        val tracked = deposit(bksAt)
+        val beforeTracking = leg("y", alfaAt - 100 * day, kopecks = -7L)
+        assertTrue(DepositLinks.link(listOf(beforeTracking), listOf(oldManual, tracked), now = later).unmatched.isEmpty())
     }
 
     @Test

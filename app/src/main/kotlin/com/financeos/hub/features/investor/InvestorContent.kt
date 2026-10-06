@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -544,18 +545,21 @@ private fun UnmatchedLegCard(leg: DepositLinks.WalletLeg, onRecord: () -> Unit, 
             style = FosType.Micro,
             color = FosColors.TextSecondary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Нажали — кнопки уходят сразу, не дожидаясь пересчёта склейки: второе касание записало бы
+        // второе пополнение, которому пары уже нет, и деньги посчитались бы дважды.
+        var done by remember(leg.txId) { mutableStateOf(false) }
+        if (!done) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
                 if (out) "Записать пополнение" else "Записать вывод",
                 style    = FosType.Label,
                 color    = FosColors.Invest,
-                modifier = Modifier.clickable(onClick = onRecord).padding(vertical = 8.dp),
+                modifier = Modifier.clickable { done = true; onRecord() }.padding(vertical = 8.dp),
             )
             Text(
                 if (out) "Это не пополнение" else "Это не вывод",
                 style    = FosType.Label,
                 color    = FosColors.TextSecondary,
-                modifier = Modifier.clickable(onClick = onDismiss).padding(vertical = 8.dp),
+                modifier = Modifier.clickable { done = true; onDismiss() }.padding(vertical = 8.dp),
             )
         }
     }

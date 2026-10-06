@@ -54,12 +54,23 @@ class InvestorViewModel @Inject constructor(
      * только СВОИ переводы с категорией «Инвестиции» — сам он о брокере не узнаёт ничего, кроме итога.
      */
     val links: StateFlow<DepositLinks.Result> = combine(
-        transactions.observeAll(), accounts.observeAll(), events, prefs.dismissedBrokerLegs,
-    ) { txs, accs, evs, dismissed ->
-        DepositLinks.link(txs.mapNotNull { DepositLinks.legOf(it, accs) }, evs, dismissed)
+        transactions.observeAll(), accounts.observeAll(), events, prefs.dismissedBrokerLegs, hourly,
+    ) { txs, accs, evs, dismissed, now ->
+        DepositLinks.link(txs.mapNotNull { DepositLinks.legOf(it, accs) }, evs, dismissed, now)
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DepositLinks.EMPTY)
+
+    /**
+     * Часы раз в час: перевод, которому брокер так и не ответил, становится предложением по
+     * прошествии времени, а не по чужому изменению данных.
+     */
+    private val hourly get() = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            kotlinx.coroutines.delay(3_600_000L)
+        }
+    }
 
     /** «Записать пополнение» по переводу кошелька, о котором брокер не прислал пуша. */
     fun recordDeposit(leg: DepositLinks.WalletLeg) {
