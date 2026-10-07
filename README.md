@@ -91,7 +91,7 @@ Offline-first Android finance app that reads bank SMS messages and automatically
 2. **Transactions** — сгруппированный по дням список; одна строка фильтров — 🔍 (поиск раскрывается по нажатию), «Тип операции» (Все / Расходы / Доходы / Переводы) и «Дата» (один день или период); swipe-left-to-reveal delete, detail/edit sheet with source diagnostics, «↑ Экспорт» (CSV: дата, тип — расход / доход / перевод исходящий или входящий, сумма, валюта, получатель, категория), «↓ Импорт» (PDF)
 3. **Analytics** — period chips + 4 tabs:
    - **Обзор** — multi-colour score donut with a per-pillar legend, expense pyramid, what-if simulator, archetype card
-   - **Категории** — interactive 3D pie (tap to explode), ТОП-3 траты, full category list; tap any category for a month-vs-month drill-down of its operations
+   - **Категории** — interactive 3D pie (tap to explode), ТОП-3 траты, full category list; tap any category to see its operations for the SELECTED period (month, 6 months, year, all time) compared with the same stretch before it
    - **Тренды** — daily spending curve, «Когда ты тратишь» as two tappable donuts (weekday / 4-hour bucket), «Усталость бюджета» bar chart, «Месяц к месяцу» diverging bars with `было → стало`, «Импульсивность» with the actual flagged purchases. Every section has a «?» badge explaining the heuristic in plain language
    - **Инсайты** — alerts, anomalies, narratives
 4. **Budget** — envelope cards with dynamic progress bars, subscriptions button
