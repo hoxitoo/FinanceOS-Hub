@@ -86,68 +86,60 @@ class AnalyticsViewModel @Inject constructor(
     private val _period = kotlinx.coroutines.flow.MutableStateFlow(AnalyticsPeriod.MONTH)
     fun setPeriod(period: AnalyticsPeriod) { _period.value = period }
 
-    /** Expenses of one category, split into the current and the previous calendar month. */
+    /**
+     * Расходы одной категории за ВЫБРАННЫЙ период и за такой же отрезок перед ним (#54). Тот же
+     * период, что у строки, по которой нажали: иначе в строке «за год», а внутри — месяц.
+     */
     data class CategoryOps(
+        val period   : AnalyticsPeriod         = AnalyticsPeriod.MONTH,
         val current  : List<TransactionEntity> = emptyList(),
-        val previous : List<TransactionEntity> = emptyList(),
+        /** Операции отрезка перед периодом; `null` — сравнивать не с чем («Всё время»). */
+        val previous : List<TransactionEntity>? = emptyList(),
     ) {
-        val currentTotal : Long get() = current.sumOf  { kotlin.math.abs(it.amountKopecks) }
-        val previousTotal: Long get() = previous.sumOf { kotlin.math.abs(it.amountKopecks) }
+        val currentTotal : Long  get() = current.sumOf { kotlin.math.abs(it.amountKopecks) }
+        val previousTotal: Long? get() = previous?.sumOf { kotlin.math.abs(it.amountKopecks) }
     }
 
-    /**
-     * Operations of [categoryId] for this month and last month. Deliberately IGNORES the period
-     * chips: the drill-down answers "что я тут накупил и как это против прошлого месяца", which is
-     * a fixed month-vs-month question.
-     */
     // One shared flow per category. Without this cache every open of a drill-down created another
     // stateIn coroutine in viewModelScope that never completes, leaking one per open.
     private val categoryOpsCache = mutableMapOf<String, kotlinx.coroutines.flow.StateFlow<CategoryOps>>()
 
     fun categoryOperations(categoryId: String) = categoryOpsCache.getOrPut(categoryId) {
-        txRepo.observeAll()
-            .map { all ->
-                val month = YearMonth.now()
-                val (cf, ct) = monthBounds(month)
-                val (pf, pt) = monthBounds(month.minusMonths(1))
-                fun pick(from: Long, to: Long) = all.filter {
-                    // "cat_other" is the synthetic bucket the pie uses for uncategorised expenses,
-                    // whose category_id is actually NULL — matching on the string alone made the
-                    // «Другое» drill-down (often the biggest slice) always come up empty.
-                    val matches = if (categoryId == UNCATEGORISED) {
-                        it.categoryId == null || it.categoryId == UNCATEGORISED
-                    } else {
-                        it.categoryId == categoryId
-                    }
-                    matches && it.type == TransactionType.EXPENSE && it.timestamp in from..to
-                }.sortedByDescending { it.timestamp }
-                CategoryOps(current = pick(cf, ct), previous = pick(pf, pt))
-            }
+        combine(txRepo.observeAll(), _period) { all, period ->
+            val month = YearMonth.now()
+            fun pick(w: AnalyticsWindows.Window) = all.filter {
+                // "cat_other" is the synthetic bucket the pie uses for uncategorised expenses,
+                // whose category_id is actually NULL — matching on the string alone made the
+                // «Другое» drill-down (often the biggest slice) always come up empty.
+                val matches = if (categoryId == UNCATEGORISED) {
+                    it.categoryId == null || it.categoryId == UNCATEGORISED
+                } else {
+                    it.categoryId == categoryId
+                }
+                matches && it.type == TransactionType.EXPENSE && it.timestamp in bounds(w)
+            }.sortedByDescending { it.timestamp }
+            CategoryOps(
+                period   = period,
+                current  = pick(AnalyticsWindows.current(period, month)),
+                previous = AnalyticsWindows.previous(period, month)?.let(::pick),
+            )
+        }
+            .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CategoryOps())
     }
 
     private companion object { const val UNCATEGORISED = "cat_other" }
 
-    private fun monthBounds(m: YearMonth): Pair<Long, Long> {
-        val from = m.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val to   = m.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
-        return from to to
+    private fun bounds(w: AnalyticsWindows.Window): LongRange {
+        val from = w.from?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0L
+        val to   = w.to.atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
+        return from..to
     }
 
     // Window for the selected period, recomputed on each emission (so crossing a month boundary
-    // never keeps showing a stale window). MONTH = current calendar month; the longer periods end
-    // at the current month's end and reach back the corresponding number of whole months.
-    private fun periodWindow(period: AnalyticsPeriod): Pair<Long, Long> {
-        val month = YearMonth.now()
-        val to    = month.atEndOfMonth().atTime(23, 59, 59).atZone(zone).toInstant().toEpochMilli()
-        val from  = when (period) {
-            AnalyticsPeriod.MONTH     -> month.atDay(1)
-            AnalyticsPeriod.HALF_YEAR -> month.minusMonths(5).atDay(1)
-            AnalyticsPeriod.YEAR      -> month.minusMonths(11).atDay(1)
-            AnalyticsPeriod.ALL       -> null
-        }?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0L
-        return from to to
-    }
+    // never keeps showing a stale window). One function with the category drill-down (#54).
+    private fun periodWindow(period: AnalyticsPeriod): Pair<Long, Long> =
+        bounds(AnalyticsWindows.current(period, YearMonth.now())).let { it.first to it.last }
 
     /**
      * The analytics screen recomputes whenever the underlying transactions or categories

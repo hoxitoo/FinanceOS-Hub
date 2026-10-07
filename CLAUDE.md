@@ -1482,6 +1482,20 @@ rowid). Дубликат паттерна с новым id встанет поз
 - Склейка — в `InvestorViewModel.links`: кошелёк отдаёт ей только СВОИ переводы с «Инвестициями».
   У пополнения в ленте инвестора — «из Альфа-Банк •• 1139».
 
+### 54. Карточка категории считает ТОТ ЖЕ период, что строка, по которой нажали
+Строка «Покупки · 64 672 ₽» при чипе «Год», а внутри карточки — «Этот месяц 0 ₽ / Прошлый месяц
+7 775 ₽» и пять сентябрьских операций; у «Развлечений» — 12 800 ₽ в строке и «0 ₽ / 0 ₽» внутри.
+`categoryOperations` намеренно игнорировал чипы («сравнение месяц к месяцу — фиксированный вопрос»), и
+это было ошибкой: человек нажимает на ЦИФРУ и ждёт увидеть, из чего она сложилась.
+
+- Окно — одна функция (`AnalyticsWindows.current`) и для диаграммы, и для карточки; список операций
+  карточки обязан сходиться с суммой строки.
+- Сравнение — с таким же отрезком ПЕРЕД окном (`previous`): месяц с прошлым месяцем, полгода с
+  прошлым полугодием, год с прошлым годом; у «Всего времени» сравнения нет.
+- Список прежнего отрезка — только у месяца; у полугода и года сравнение дано суммой.
+- Сравнение «месяц к месяцу» по категориям по-прежнему есть на «Трендах» (#41) — для этого карточка
+  не нужна.
+
 ## Planned — Account Types & Card UI (NOT implemented)
 Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 1. ~~Bank registry refactor~~ — **сделано**, `core/bank/BankRegistry`, инвариант #42.
@@ -1502,7 +1516,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (51 файл, 580 случаев) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (52 файла, 583 случая) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`

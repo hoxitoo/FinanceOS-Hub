@@ -25,7 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.financeos.hub.core.database.entities.TransactionEntity
+import com.financeos.hub.features.analytics.AnalyticsPeriod
 import com.financeos.hub.features.analytics.AnalyticsViewModel
+import com.financeos.hub.features.analytics.AnalyticsWindows
 import com.financeos.hub.ui.theme.FosColors
 import com.financeos.hub.ui.theme.FosDimens
 import com.financeos.hub.ui.theme.FosFormatter
@@ -33,8 +35,9 @@ import com.financeos.hub.ui.theme.FosType
 import kotlin.math.abs
 
 /**
- * Drill-down for one category: every operation of the CURRENT and the PREVIOUS month, with a
- * month-over-month headline so the two are actually comparable rather than two loose lists.
+ * Карточка категории: её операции за ВЫБРАННЫЙ период (тот же, что у строки, по которой нажали) и
+ * сравнение с таким же отрезком перед ним (#54). Раньше она всегда показывала «этот месяц / прошлый
+ * месяц»: в строке «Покупки · 64 672 ₽ за год», а внутри — пять операций сентября.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +52,7 @@ fun CategoryOpsSheet(
     // straight from the composable body would spawn a collector on every recomposition.
     val opsFlow = remember(categoryId) { vm.categoryOperations(categoryId) }
     val ops by opsFlow.collectAsState()
+    val (nowLabel, prevLabel) = AnalyticsWindows.labels(ops.period)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -65,37 +69,41 @@ fun CategoryOpsSheet(
             Spacer(Modifier.height(6.dp))
 
             // Headline comparison
-            val diff      = ops.currentTotal - ops.previousTotal
-            val spentMore = diff > 0
+            val prevTotal = ops.previousTotal
             Row(
                 modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("Этот месяц", style = FosType.Micro, color = FosColors.TextMuted)
+                    Text(nowLabel, style = FosType.Micro, color = FosColors.TextMuted)
                     Text(
                         FosFormatter.compact(ops.currentTotal),
                         style = FosType.BodySemi,
                         color = FosColors.TextPrimary,
                     )
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Прошлый месяц", style = FosType.Micro, color = FosColors.TextMuted)
-                    Text(
-                        FosFormatter.compact(ops.previousTotal),
-                        style = FosType.BodySemi,
-                        color = FosColors.TextSecondary,
-                    )
+                if (prevLabel != null && prevTotal != null) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(prevLabel, style = FosType.Micro, color = FosColors.TextMuted)
+                        Text(
+                            FosFormatter.compact(prevTotal),
+                            style = FosType.BodySemi,
+                            color = FosColors.TextSecondary,
+                        )
+                    }
                 }
             }
-            if (ops.previousTotal > 0 || ops.currentTotal > 0) {
+            if (prevTotal != null && (prevTotal > 0 || ops.currentTotal > 0)) {
+                val diff      = ops.currentTotal - prevTotal
+                val spentMore = diff > 0
+                val versus    = AnalyticsWindows.versus(ops.period)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     when {
-                        diff == 0L -> "Столько же, сколько в прошлом месяце"
-                        spentMore  -> "На ${FosFormatter.compact(diff)} больше, чем в прошлом месяце"
-                        else       -> "На ${FosFormatter.compact(abs(diff))} меньше, чем в прошлом месяце"
+                        diff == 0L -> "Столько же, сколько $versus"
+                        spentMore  -> "На ${FosFormatter.compact(diff)} больше, чем $versus"
+                        else       -> "На ${FosFormatter.compact(abs(diff))} меньше, чем $versus"
                     },
                     style = FosType.Micro,
                     color = when {
@@ -110,9 +118,13 @@ fun CategoryOpsSheet(
             HorizontalDivider(color = FosColors.Border)
             Spacer(Modifier.height(10.dp))
 
-            if (ops.current.isEmpty() && ops.previous.isEmpty()) {
+            // Список прежнего отрезка — только у месяца: у года он удвоил бы длинный список, а
+            // сравнение уже дано суммой сверху.
+            val previousList = if (ops.period == AnalyticsPeriod.MONTH) ops.previous.orEmpty() else emptyList()
+            if (ops.current.isEmpty() && previousList.isEmpty()) {
                 Text(
-                    "Нет операций в этой категории за два месяца.",
+                    if (ops.period == AnalyticsPeriod.MONTH) "Нет операций в этой категории за два месяца."
+                    else "Нет операций в этой категории за выбранный период.",
                     style = FosType.Body,
                     color = FosColors.TextMuted,
                 )
@@ -123,16 +135,20 @@ fun CategoryOpsSheet(
                 ) {
                     if (ops.current.isNotEmpty()) {
                         item {
-                            Text("ЭТОТ МЕСЯЦ", style = FosType.SectionCap, color = FosColors.TextMuted)
+                            Text(
+                                "${nowLabel.uppercase()} · ${ops.current.size}",
+                                style = FosType.SectionCap,
+                                color = FosColors.TextMuted,
+                            )
                         }
                         items(ops.current, key = { "c_${it.id}" }) { OpRow(it) }
                     }
-                    if (ops.previous.isNotEmpty()) {
+                    if (previousList.isNotEmpty() && prevLabel != null) {
                         item {
                             Spacer(Modifier.height(6.dp))
-                            Text("ПРОШЛЫЙ МЕСЯЦ", style = FosType.SectionCap, color = FosColors.TextMuted)
+                            Text(prevLabel.uppercase(), style = FosType.SectionCap, color = FosColors.TextMuted)
                         }
-                        items(ops.previous, key = { "p_${it.id}" }) { OpRow(it) }
+                        items(previousList, key = { "p_${it.id}" }) { OpRow(it) }
                     }
                 }
             }
