@@ -69,13 +69,15 @@ class MarketQuotesRepository @Inject constructor(
      * раз в день, решение пользователя). `force` — по кнопке. `true` — снимок получен. Никогда не
      * бросает (кроме отмены): котировки — улучшение, и их сбой не должен ронять приложение.
      */
-    suspend fun refresh(force: Boolean = false, maxAgeMs: Long = 20L * 3_600_000): Boolean = mutex.withLock {
+    suspend fun refresh(force: Boolean = false, maxAgeMs: Long = 20L * 3_600_000): Boolean =
+        // Расчёт портфеля, слияние истории и JSON — не в главном потоке: refresh зовут и из viewModelScope.
+        withContext(Dispatchers.Default) { mutex.withLock {
         try {
             ensureLoaded()
-            if (!prefs.marketQuotesEnabled.first()) return false
+            if (!prefs.marketQuotesEnabled.first()) return@withLock false
             val now = System.currentTimeMillis()
             val last = _cache.value.snapshot?.fetchedAt
-            if (!force && last != null && now - last < maxAgeMs) return false
+            if (!force && last != null && now - last < maxAgeMs) return@withLock false
 
             val events = brokerEvents.observeAll().first()
             // Бумаги, которые есть или были: у проданной цена не нужна, у рыночной заявки без цены (#52)
@@ -84,33 +86,38 @@ class MarketQuotesRepository @Inject constructor(
             val traded = events.filterIsInstance<BrokerOrder>().map { it.ticker }
             val tickers = (held + traded).map { it.uppercase() }.distinct()
                 // Валюта на счёте — деньги, а не бумага (#51): котировка ей не нужна, нужен курс.
-                .filter { SecurityGroups.cashCurrency(it) == null && it.matches(Regex("""[A-Z0-9_.]{1,20}""")) }
+                // В адрес попадает только то, что подходит под [MarketQuotes.TICKER]: без «&», «=», «%» и
+                // пробелов тикер из чужого пуша не может дописать в запрос свой параметр.
+                .filter { SecurityGroups.cashCurrency(it) == null && it.matches(MarketQuotes.TICKER) }
 
             _refreshing.value = true
             val chunks = tickers.chunked(50)
-            val quotes = chunks.flatMap { c -> get(MarketQuotes.sharesUrl(c))?.let(MarketQuotes::parseShares).orEmpty() } +
+            val received = chunks.flatMap { c -> get(MarketQuotes.sharesUrl(c))?.let(MarketQuotes::parseShares).orEmpty() } +
                 chunks.flatMap { c -> get(MarketQuotes.bondsUrl(c))?.let(MarketQuotes::parseBonds).orEmpty() }
             val fx = get(MarketQuotes.cbrUrl())?.let(MarketQuotes::parseCbr).orEmpty() +
                 get(MarketQuotes.fxUrl())?.let(MarketQuotes::parseFx).orEmpty()
+            // Биржа отвечает только о том, что спросили: строка о чужом тикере отбрасывается.
             // Ничего не пришло — сеть недоступна или биржа отвечает не так: старый снимок остаётся.
-            if (quotes.isEmpty() && fx.isEmpty()) return false
+            val asked = tickers.toSet()
+            val fresh = received.filter { it.ticker in asked }
+            if (fresh.isEmpty() && fx.isEmpty()) return@withLock false
             val previous = _cache.value.snapshot
             val snapshot = MarketQuotes.Snapshot(
                 // Бумага, по которой в этот раз ответа нет (упал один из запросов), сохраняет прошлую
                 // котировку: без неё размер лота откатился бы к 1, и «2 лота» стали бы двумя бумагами.
-                quotes    = previous?.quotes.orEmpty() + quotes.associateBy { it.ticker },
+                quotes    = previous?.quotes.orEmpty() + fresh.associateBy { it.ticker },
                 // Курс, которого в этот раз нет, — из прошлого снимка: лучше вчерашний, чем никакого.
                 fxToRub   = previous?.fxToRub.orEmpty() + fx,
                 fetchedAt = now,
             )
             // В историю — только полученное сейчас: перенесённая котировка легла бы точкой «сегодня»
             // со вчерашней ценой, и экран выдал бы её за свежую.
-            val merged = MarketQuotes.merge(_cache.value, snapshot.copy(quotes = quotes.associateBy { it.ticker }))
+            val merged = MarketQuotes.merge(_cache.value, snapshot.copy(quotes = fresh.associateBy { it.ticker }))
                 .copy(snapshot = snapshot)
             withContext(Dispatchers.IO) {
                 val tmp = File(context.filesDir, "moex_quotes.json.tmp")
                 tmp.writeText(MarketQuotes.toJson(merged))
-                tmp.renameTo(file)
+                if (!tmp.renameTo(file)) { file.writeText(tmp.readText()); tmp.delete() }
             }
             _cache.value = merged
             true
@@ -120,25 +127,55 @@ class MarketQuotesRepository @Inject constructor(
         } finally {
             _refreshing.value = false
         }
-    }
+    } }
 
     /** Обновить в фоне — экран открыт, а снимок устарел. */
     fun refreshIfStale() { scope.launch { refresh() } }
 
+    /** Обновить сейчас, не завися от экрана: уход из настроек не обрывает первый запрос. */
+    fun refreshNow() { scope.launch { refresh(force = true) } }
+
+    /**
+     * GET к ISS. Это единственный выход приложения в сеть за данными, и он закрыт со всех сторон:
+     * - только `https://iss.moex.com/` — иной адрес не запрашивается (защита от ошибки в сборке URL);
+     * - без перенаправлений: ответ «иди туда» мог бы увести запрос на чужой или незашифрованный адрес;
+     * - без кэша, cookies и учётных данных; в запросе — только тикеры (см. [refresh]);
+     * - ответ не больше [MAX_BODY]: чужой поток не займёт всю память, а разбор (`MarketQuotes`) не
+     *   доверяет ни одному полю — абсурдные числа и посторонние тикеры отбрасываются.
+     * Незашифрованный трафик запрещён всему приложению (`usesCleartextTraffic="false"`).
+     */
     private suspend fun get(url: String): String? = withContext(Dispatchers.IO) {
+        if (!url.startsWith("https://iss.moex.com/")) return@withContext null
         runCatching {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 20_000
+                instanceFollowRedirects = false
+                useCaches = false
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "FinanceOS-Hub")
             }
             try {
                 if (conn.responseCode !in 200..299) null
-                else conn.inputStream.bufferedReader().use { it.readText() }
+                else conn.inputStream.use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(16 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        if (out.size() > MAX_BODY) return@use null
+                    }
+                    out.toString(Charsets.UTF_8.name())
+                }
             } finally {
                 conn.disconnect()
             }
         }.getOrNull()
+    }
+
+    private companion object {
+        /** Ответ ISS на 50 бумаг — десятки килобайт; 2 МБ — с большим запасом. */
+        const val MAX_BODY = 2 * 1024 * 1024
     }
 }

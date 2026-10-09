@@ -82,6 +82,23 @@ class MarketQuotesTest {
         assertEquals(MarketQuotes.Cache.EMPTY, MarketQuotes.fromJson("not json"))
     }
 
+    @Test
+    fun `hostile answers are rejected field by field`() {
+        // Число-бомба не разворачивается в миллиард цифр, переполнение не становится ценой.
+        assertNull(MarketQuotes.micros("1e999999999"))
+        assertNull(MarketQuotes.micros("99999999999999999999"))
+        assertNull(MarketQuotes.micros(-5))
+        assertEquals(2_101_700L, MarketQuotes.micros("2.1017"))
+        val evil = """
+            {"securities":{"columns":["SECID","BOARDID","LOTSIZE","CURRENCYID","PREVPRICE"],
+              "data":[["X&Y=1","TQBR",1,"SUR",10],["SBER","TQBR",999999999999,"SUR",300]]},
+             "marketdata":{"columns":["SECID","BOARDID","LAST"],"data":[]}}
+        """.trimIndent()
+        val q = MarketQuotes.parseShares(evil)
+        assertEquals(listOf("SBER"), q.map { it.ticker })     // тикер не по формату — отброшен
+        assertEquals(1L, q.single().lotSize)                    // абсурдный лот — 1, а не переполнение
+    }
+
     private fun snapshot(at: Long, price: Long, prev: Long? = null, fx: Map<String, Long> = emptyMap()) =
         MarketQuotes.Snapshot(
             mapOf("LQDT" to MarketQuotes.Quote("LQDT", price, "RUB", 1, SecurityGroup.FUNDS, prev)), fx, at,

@@ -82,7 +82,7 @@ class InvestorViewModel @Inject constructor(
     val quotesRefreshing: StateFlow<Boolean> = quotes.refreshing
 
     /** «Обновить» — по кнопке, не дожидаясь суток. */
-    fun refreshQuotes() { viewModelScope.launch { quotes.refresh(force = true) } }
+    fun refreshQuotes() = quotes.refreshNow()
 
     init {
         // Экран открыт, а снимок старше суток (телефон был без сети, когда приходило время) — обновить.

@@ -226,10 +226,10 @@ object Portfolio {
         market  : MarketQuotes.Cache? = null,
     ): Result {
         val lots = market?.snapshot?.quotes?.mapValues { it.value.lotSize }.orEmpty() + lotSizes
-        val result = computeAt(events, lots, market, now).copy(fxToRub = market?.snapshot?.fxToRub.orEmpty())
+        val result = computeAt(events, lots, market, now, periodStart = false).copy(fxToRub = market?.snapshot?.fxToRub.orEmpty())
         if (result.isEmpty) return result
         val monthAgo = java.time.Instant.ofEpochMilli(now).atZone(zone).minusMonths(1).toInstant().toEpochMilli()
-        fun upTo(t: Long) = computeAt(events.filter { it.timestamp < t }, lots, market, t)
+        fun upTo(t: Long) = computeAt(events.filter { it.timestamp < t }, lots, market, t, periodStart = true)
         return result.copy(periods = mapOf(
             ResultPeriod.DAY   to periodResults(upTo(now - 24 * 3_600_000L), result),
             ResultPeriod.MONTH to periodResults(upTo(monthAgo), result),
@@ -242,6 +242,8 @@ object Portfolio {
         lotSizes: Map<String, Long>,
         market  : MarketQuotes.Cache? = null,
         at      : Long = Long.MAX_VALUE,
+        /** Начало периода: если оно старше всей истории котировок — самая ранняя её точка. */
+        periodStart: Boolean = false,
     ): Result {
         val sorted = events.sortedBy { it.timestamp }
 
@@ -338,7 +340,7 @@ object Portfolio {
             // которое старше всей истории котировок, — самая ранняя точка: иначе начало стояло бы на
             // цене своей сделки, конец — на рыночной, и весь их разрыв попал бы в результат «за месяц».
             val point = (market?.priceAt(ticker, at)
-                ?: market?.history?.get(ticker)?.firstOrNull()?.takeIf { at != Long.MAX_VALUE })
+                ?: market?.history?.get(ticker)?.firstOrNull()?.takeIf { periodStart })
                 ?.takeIf { it.at > a.lastAt && (quote == null || quote.currency == k.third) }
             if (point != null) marketAt = maxOf(marketAt ?: 0L, point.at)
             Position(

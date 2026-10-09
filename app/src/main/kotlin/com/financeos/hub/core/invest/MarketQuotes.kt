@@ -106,16 +106,30 @@ object MarketQuotes {
         }
     }
 
-    /** Число из ISS → миллионные доли; ноль и отрицательное — «нет цены». */
+    /**
+     * Число из ISS → миллионные доли; ноль, отрицательное и абсурдное — «нет цены». Ответ сети —
+     * чужие данные: «1e999999999» без потолка разворачивался бы в миллиард цифр (зависание), а
+     * `toLong` молча обрезал бы переполнение в мусорную цену. Потолок — [MAX_UNITS] за штуку.
+     */
     internal fun micros(v: Any?): Long? {
         val d = when (v) {
-            is Number -> BigDecimal(v.toString())
+            is Number -> v.toString().toBigDecimalOrNull()
             is String -> v.toBigDecimalOrNull()
             else      -> null
         } ?: return null
-        if (d.signum() <= 0) return null
-        return d.movePointRight(6).setScale(0, RoundingMode.HALF_UP).toLong()
+        if (d.signum() <= 0 || d > MAX_UNITS) return null
+        return runCatching { d.movePointRight(6).setScale(0, RoundingMode.HALF_UP).longValueExact() }.getOrNull()
     }
+
+    /** Сто миллионов за штуку или за единицу валюты — больше на бирже не бывает. */
+    private val MAX_UNITS = BigDecimal(100_000_000)
+
+    /** Размер лота из ответа: 1…[MAX_LOT], иначе 1. Лот умножает количество, и мусор в нём — переполнение. */
+    private const val MAX_LOT = 1_000_000L
+    private fun lotOf(v: Any?): Long = (v as? Number)?.toLong()?.takeIf { it in 1..MAX_LOT } ?: 1L
+
+    /** Тикер из ответа: только то, что могло быть в запросе ([TICKER]), иначе строка отбрасывается. */
+    val TICKER = Regex("""[A-Z0-9_.]{1,20}""")
 
     private fun currencyOf(raw: Any?): String = when (val c = raw?.toString()?.uppercase()) {
         null, "", "SUR", "RUR", "RUB" -> "RUB"
@@ -128,7 +142,7 @@ object MarketQuotes {
         val sec = rows(root, "securities")
         val md  = rows(root, "marketdata")
         sec.groupBy { it["SECID"]?.toString() ?: "" }.mapNotNull { (secid, boards) ->
-            if (secid.isEmpty()) return@mapNotNull null
+            if (!secid.uppercase().matches(TICKER)) return@mapNotNull null
             boards.sortedBy { b -> SHARE_BOARDS.indexOf(b["BOARDID"]).let { if (it < 0) 99 else it } }
                 .firstNotNullOfOrNull { b ->
                     val board = b["BOARDID"]?.toString()
@@ -139,7 +153,7 @@ object MarketQuotes {
                     Quote(
                         ticker = secid.uppercase(), priceMicros = price,
                         currency = currencyOf(b["CURRENCYID"]),
-                        lotSize = (b["LOTSIZE"] as? Number)?.toLong()?.takeIf { it > 0 } ?: 1L,
+                        lotSize = lotOf(b["LOTSIZE"]),
                         group = when {
                             board in FUND_BOARDS -> SecurityGroup.FUNDS
                             board == "TQBR" || board == "TQBS" -> SecurityGroup.SHARES
@@ -160,23 +174,26 @@ object MarketQuotes {
         val sec = rows(root, "securities")
         val md  = rows(root, "marketdata")
         sec.groupBy { it["SECID"]?.toString() ?: "" }.mapNotNull { (secid, boards) ->
-            if (secid.isEmpty()) return@mapNotNull null
+            if (!secid.uppercase().matches(TICKER)) return@mapNotNull null
             boards.sortedBy { b -> BOND_BOARDS.indexOf(b["BOARDID"]).let { if (it < 0) 99 else it } }
                 .firstNotNullOfOrNull { b ->
                     val board = b["BOARDID"]?.toString()
                     val m = md.firstOrNull { it["SECID"] == secid && it["BOARDID"] == board }
                     val face = micros(b["FACEVALUE"]) ?: return@firstNotNullOfOrNull null
                     val accrued = micros(b["ACCRUEDINT"]) ?: 0L
-                    fun perBond(pct: Long?) = pct?.let {
-                        BigDecimal(face).multiply(BigDecimal(it)).divide(BigDecimal(100_000_000L), 0, RoundingMode.HALF_UP)
-                            .toLong() + accrued
+                    // Цена одной облигации; абсурдная (переполнение, больше потолка) — «нет цены».
+                    fun perBond(pct: Long?): Long? = pct?.let {
+                        runCatching {
+                            BigDecimal(face).multiply(BigDecimal(it)).divide(BigDecimal(100_000_000L), 0, RoundingMode.HALF_UP)
+                                .add(BigDecimal(accrued)).longValueExact()
+                        }.getOrNull()?.takeIf { p -> p <= MAX_UNITS.toLong() * 1_000_000 }
                     }
                     val pct = micros(m?.get("LAST")) ?: micros(m?.get("MARKETPRICE")) ?: micros(b["PREVPRICE"])
                         ?: return@firstNotNullOfOrNull null
                     Quote(
-                        ticker = secid.uppercase(), priceMicros = perBond(pct)!!,
+                        ticker = secid.uppercase(), priceMicros = perBond(pct) ?: return@firstNotNullOfOrNull null,
                         currency = currencyOf(b["FACEUNIT"] ?: b["CURRENCYID"]),
-                        lotSize = (b["LOTSIZE"] as? Number)?.toLong()?.takeIf { it > 0 } ?: 1L,
+                        lotSize = lotOf(b["LOTSIZE"]),
                         group = SecurityGroup.BONDS,
                         prevPriceMicros = perBond(micros(b["PREVPRICE"])),
                     )

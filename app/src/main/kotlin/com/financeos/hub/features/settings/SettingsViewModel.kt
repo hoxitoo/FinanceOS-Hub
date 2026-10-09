@@ -169,7 +169,7 @@ class SettingsViewModel @Inject constructor(
     /** Включили — сразу за ценами, не дожидаясь суточного расписания. */
     fun setMarketQuotesEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setMarketQuotesEnabled(enabled)
-        if (enabled) marketQuotes.refresh(force = true)
+        if (enabled) marketQuotes.refreshNow()
     }
 
     fun setUpdateNotifyEnabled(enabled: Boolean) = viewModelScope.launch {
