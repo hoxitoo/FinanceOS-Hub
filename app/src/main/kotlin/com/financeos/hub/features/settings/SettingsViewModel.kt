@@ -68,6 +68,7 @@ class SettingsViewModel @Inject constructor(
     private val smsReader    : SmsReader,
     private val backupManager: BackupManager,
     private val updateChecker: UpdateChecker,
+    private val marketQuotes : com.financeos.hub.data.repositories.MarketQuotesRepository,
 ) : ViewModel() {
 
     val state = combine(
@@ -158,6 +159,17 @@ class SettingsViewModel @Inject constructor(
 
     fun setCatModeEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setCatModeEnabled(enabled)
+    }
+
+    /** Котировки Мосбиржи (#55) — отдельно от общего состояния: оно собрано из пяти потоков максимум. */
+    val marketQuotesEnabled = prefs.marketQuotesEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val marketQuotesAt = marketQuotes.cache
+
+    /** Включили — сразу за ценами, не дожидаясь суточного расписания. */
+    fun setMarketQuotesEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setMarketQuotesEnabled(enabled)
+        if (enabled) marketQuotes.refreshNow()
     }
 
     fun setUpdateNotifyEnabled(enabled: Boolean) = viewModelScope.launch {

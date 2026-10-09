@@ -169,6 +169,8 @@ dependencies {
 
     // Tests
     testImplementation(libs.junit)
+    // org.json в android.jar — заглушка («Stub!»); разбор ответов Мосбиржи (#55) проверяется настоящей.
+    testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
