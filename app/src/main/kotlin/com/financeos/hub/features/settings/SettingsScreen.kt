@@ -68,6 +68,8 @@ fun SettingsScreen(
     val smsImport by viewModel.smsImport.collectAsState()
     val backup    by viewModel.backup.collectAsState()
     val update    by viewModel.update.collectAsState()
+    val quotesOn  by viewModel.marketQuotesEnabled.collectAsState()
+    val quotes    by viewModel.marketQuotesAt.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -759,6 +761,19 @@ fun SettingsScreen(
                 sublabel = "Приложение само проверит GitHub и пришлёт push, когда выйдет обновление",
                 checked  = state.updateNotifyEnabled,
                 onToggle = viewModel::setUpdateNotifyEnabled,
+            )
+        }
+
+        // ── Инвестиции: котировки Мосбиржи (#55) ─────────────────────────────────
+        SettingsSection(title = "ИНВЕСТИЦИИ") {
+            ToggleRow(
+                label    = "Котировки Мосбиржи",
+                sublabel = "Раз в сутки приложение спрашивает у Мосбиржи цены ваших бумаг и курсы " +
+                    "валют — портфель считается по рынку, а итог показывается в рублях. Уходят только " +
+                    "тикеры, без сумм и счетов. Цены биржа отдаёт с задержкой 15 минут." +
+                    (quotes.snapshot?.fetchedAt?.let { "\nПоследнее обновление: ${com.financeos.hub.ui.theme.FosFormatter.dayLabel(it)}" } ?: ""),
+                checked  = quotesOn,
+                onToggle = viewModel::setMarketQuotesEnabled,
             )
         }
 

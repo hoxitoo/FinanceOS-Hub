@@ -261,7 +261,11 @@ fun DashboardScreen(
         // единственный вход в режим инвестора (переключатель в шапке), поэтому прятать законно (#21).
         if (!investPortfolio.isEmpty && investPortfolio.summaries.isNotEmpty()) {
             item(key = "broker_tile") {
-                BrokerWalletTile(investPortfolio.summaries, onClick = { investorVm.setInvestorMode(true) })
+                BrokerWalletTile(
+                    investPortfolio.summaries,
+                    onClick  = { investorVm.setInvestorMode(true) },
+                    rubTotal = investPortfolio.totalRubKopecks,
+                )
             }
         }
 

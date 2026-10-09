@@ -299,20 +299,34 @@ private fun PortfolioHero(
         else Text("ПОРТФЕЛЬ", style = FosType.SectionCap, color = FosColors.Invest)
         // Период пилюли — как у БКС. Хук без условий и до ветвлений (инвариант #4).
         var period by rememberSaveable { mutableStateOf(Portfolio.ResultPeriod.ALL) }
-        // Валюты не складываются — по строке на каждую, как «Состояние» кошелька.
-        portfolio.summaries.forEach { s ->
-            val sym = FosFormatter.currencySymbol(s.currency)
-            Text(FosFormatter.amount(s.totalKopecks, sym), style = FosType.HeroAmount, color = FosColors.TextPrimary)
-            val r = portfolio.periods[period]?.firstOrNull { it.currency == s.currency }
-            ResultPill(r?.pnlKopecks ?: 0L, r?.percent, sym, period.label)
+        // Итог в рублях, как у БКС (#55): валюта переведена по биржевому курсу. Курса нет — по строке
+        // на валюту: складывать без курса нельзя (#40).
+        val rubTotal = portfolio.totalRubKopecks
+        if (rubTotal != null) {
+            Text(FosFormatter.amount(rubTotal, "₽"), style = FosType.HeroAmount, color = FosColors.TextPrimary)
+            val r = portfolio.periodRub(period)
+            ResultPill(r?.pnlKopecks ?: 0L, r?.percent, "₽", period.label)
+        } else {
+            portfolio.summaries.forEach { s ->
+                val sym = FosFormatter.currencySymbol(s.currency)
+                Text(FosFormatter.amount(s.totalKopecks, sym), style = FosType.HeroAmount, color = FosColors.TextPrimary)
+                val r = portfolio.periods[period]?.firstOrNull { it.currency == s.currency }
+                ResultPill(r?.pnlKopecks ?: 0L, r?.percent, sym, period.label)
+            }
         }
         PeriodChips(period) { period = it }
+        val market = portfolio.marketAt
         Text(
-            if (period == Portfolio.ResultPeriod.ALL) "по цене ваших сделок, без комиссий"
-            // Без котировок стоимость меняется только на своих сделках — иначе ноль выглядел бы ошибкой.
-            else "по цене ваших сделок, без комиссий; без сделок за период — ноль",
+            when {
+                // Биржевые цены — с их временем: снимок раз в сутки, и «сейчас» было бы неправдой.
+                market != null -> "по ценам Мосбиржи на ${FosFormatter.dayLabel(market)} ${timeOf(market)}, без комиссий"
+                period == Portfolio.ResultPeriod.ALL -> "по цене ваших сделок, без комиссий"
+                // Без котировок стоимость меняется только на своих сделках — иначе ноль выглядел бы ошибкой.
+                else -> "по цене ваших сделок, без комиссий; без сделок за период — ноль"
+            },
             style = FosType.Micro,
             color = FosColors.TextMuted,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),

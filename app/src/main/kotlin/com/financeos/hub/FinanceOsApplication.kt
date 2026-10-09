@@ -9,6 +9,7 @@ import com.financeos.hub.core.notifications.ListenerHealth
 import com.financeos.hub.core.notifications.ListenerWatchdogWorker
 import com.financeos.hub.core.notifications.NotificationHelper
 import com.financeos.hub.core.update.UpdateCheckWorker
+import com.financeos.hub.core.invest.MarketQuotesWorker
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -26,6 +27,8 @@ class FinanceOsApplication : Application(), Configuration.Provider {
         notificationHelper.createChannels()
         AnalyticsWorker.schedule(this)
         UpdateCheckWorker.schedule(this)
+        // Котировки Мосбиржи (#55): раз в сутки; при выключенном переключателе в сеть не ходит.
+        MarketQuotesWorker.schedule(this)
         // Служба чтения банковских пушей отваливается молча — при обновлении APK, перезагрузке и
         // от диспетчера питания. Компонент включаем на старте (выключенный система не привяжет
         // никогда), а сторож раз в час просит привязку обратно.
