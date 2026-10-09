@@ -9,6 +9,7 @@ import com.financeos.hub.core.invest.isManual
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.BrokerEventRepository
+import com.financeos.hub.data.repositories.MarketQuotesRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ class InvestorViewModel @Inject constructor(
     private val selection: InvestSelection,
     private val transactions: TransactionRepository,
     private val accounts: AccountRepository,
+    private val quotes: MarketQuotesRepository,
 ) : ViewModel() {
 
     /** Свои события брокера как есть — лист правки собирает по ним запись целиком (#51). */
@@ -44,8 +46,10 @@ class InvestorViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Портфель из своих событий. Считается вне главного потока: история растёт с каждым пушем. */
-    val portfolio: StateFlow<Portfolio.Result> = events
-        .map { Portfolio.compute(it) }
+    val portfolio: StateFlow<Portfolio.Result> = combine(events, quotes.cache, prefs.marketQuotesEnabled) { evs, cache, on ->
+        // Котировки — только когда включены (#55): выключил — снова цены своих сделок.
+        Portfolio.compute(evs, market = cache.takeIf { on })
+    }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Portfolio.EMPTY)
 
@@ -70,6 +74,19 @@ class InvestorViewModel @Inject constructor(
             emit(System.currentTimeMillis())
             kotlinx.coroutines.delay(3_600_000L)
         }
+    }
+
+    /** Котировки Мосбиржи включены (#55) и идёт ли обновление — для подписи и кнопки на экране. */
+    val quotesEnabled: StateFlow<Boolean> = prefs.marketQuotesEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val quotesRefreshing: StateFlow<Boolean> = quotes.refreshing
+
+    /** «Обновить» — по кнопке, не дожидаясь суток. */
+    fun refreshQuotes() = quotes.refreshNow()
+
+    init {
+        // Экран открыт, а снимок старше суток (телефон был без сети, когда приходило время) — обновить.
+        quotes.refreshIfStale()
     }
 
     /** «Записать пополнение» по переводу кошелька, о котором брокер не прислал пуша. */

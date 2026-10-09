@@ -25,6 +25,7 @@
         android:theme="@style/Theme.FinanceOSHub"
         android:supportsRtl="false"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:dataExtractionRules="@xml/data_extraction_rules">
 
         <activity

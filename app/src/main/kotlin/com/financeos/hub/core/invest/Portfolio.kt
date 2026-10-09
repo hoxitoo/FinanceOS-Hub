@@ -34,8 +34,12 @@ object Portfolio {
         val quantity        : Long,
         /** Средняя цена одной бумаги, миллионные доли валюты. */
         val avgPriceMicros  : Long,
-        /** Цена последней своей сделки, миллионные доли. */
+        /** Текущая цена одной бумаги: биржевая (#55), иначе последней своей сделки, миллионные доли. */
         val lastPriceMicros : Long,
+        /** Когда получена биржевая цена; `null` — цена своя (сделка или указанная вручную). */
+        val marketAt        : Long? = null,
+        /** Группа по режиму торгов биржи; `null` — по форме тикера (#48). */
+        val groupOverride   : SecurityGroup? = null,
     ) {
         /** Сколько вложено в оставшиеся бумаги, копейки. */
         val costKopecks : Long get() = microsToKopecks(avgPriceMicros * quantity)
@@ -44,7 +48,7 @@ object Portfolio {
         val pnlKopecks  : Long get() = valueKopecks - costKopecks
         /** Результат в процентах от вложенного; `null`, если вложено ноль. */
         val pnlPercent  : Double? get() = if (costKopecks == 0L) null else pnlKopecks * 100.0 / costKopecks
-        val group       : SecurityGroup get() = SecurityGroups.of(ticker)
+        val group       : SecurityGroup get() = groupOverride ?: SecurityGroups.of(ticker)
     }
 
     /**
@@ -122,7 +126,29 @@ object Portfolio {
         val estimates   : Map<BrokerOrder, Long> = emptyMap(),
         /** Исполненные сделки без цены, оценить которые не по чему: в портфель они не вошли. */
         val unpriced    : List<BrokerOrder> = emptyList(),
+        /** Когда получены биржевые цены, если хоть одна бумага оценена по ним (#55). */
+        val marketAt    : Long? = null,
+        /** Курсы к рублю (миллионные доли за единицу) — для итога в рублях, как у брокера. */
+        val fxToRub     : Map<String, Long> = emptyMap(),
     ) {
+        /**
+         * Всё у брокера в РУБЛЯХ, как в приложении БКС: валюта переведена по биржевому курсу.
+         * `null`, если курса хоть одной валюты нет — складывать без курса нельзя (#40).
+         */
+        val totalRubKopecks: Long? get() = if (summaries.isEmpty()) null else summaries.fold(0L as Long?) { acc, s ->
+            acc?.let { a -> toRub(s.totalKopecks, s.currency, fxToRub)?.let { a + it } }
+        }
+
+        /** Результат периода в рублях — по тем же курсам; `null`, если курса нет. */
+        fun periodRub(period: ResultPeriod): PeriodResult? {
+            val rs = periods[period] ?: return null
+            var pnl = 0L; var base = 0L
+            for (r in rs) {
+                pnl  += toRub(r.pnlKopecks, r.currency, fxToRub) ?: return null
+                base += toRub(r.baseKopecks, r.currency, fxToRub) ?: return null
+            }
+            return PeriodResult("RUB", pnl, if (base <= 0L) null else pnl * 100.0 / base, base)
+        }
         val isEmpty: Boolean get() = accounts.isEmpty() && positions.isEmpty() && activeOrders.isEmpty() &&
             history.isEmpty() && movements.isEmpty() && alerts.isEmpty() && contracts.isEmpty()
         val openAlerts: List<MarginAlerts.State> get() = alerts.filter { it.isOpen }
@@ -153,7 +179,17 @@ object Portfolio {
         val pnlKopecks: Long,
         /** В процентах от того, что было на счёте в начале периода плюс заведённое за период. */
         val percent   : Double?,
+        /** От чего считан процент: было в начале + заведённое. */
+        val baseKopecks: Long = 0L,
     )
+
+    /** Сумма в валюте → рубли по курсу; рубль — как есть, без курса — `null`. */
+    fun toRub(kopecks: Long, currency: String, fx: Map<String, Long>): Long? =
+        if (currency == "RUB") kopecks
+        else fx[currency]?.let {
+            java.math.BigDecimal(kopecks).multiply(java.math.BigDecimal(it))
+                .divide(java.math.BigDecimal(1_000_000L), 0, java.math.RoundingMode.HALF_UP).toLong()
+        }
 
     /**
      * Результат за период — как считает брокер: на сколько изменилось всё, что лежит у брокера,
@@ -173,20 +209,27 @@ object Portfolio {
             val inflow    = depNow - depThen
             val pnl       = (totalNow - totalThen) - inflow
             val base      = totalThen + inflow
-            PeriodResult(cur, pnl, if (base <= 0L) null else pnl * 100.0 / base)
+            PeriodResult(cur, pnl, if (base <= 0L) null else pnl * 100.0 / base, base)
         }
     }
 
+    /**
+     * [market] — котировки Мосбиржи (#55): цена бумаги на каждый момент берётся из их истории, если она
+     * новее своей сделки; размер лота — из котировки (только для пушей: ручной ввод уже в штуках).
+     * Без котировок всё считается, как раньше, — по ценам своих сделок.
+     */
     fun compute(
         events  : List<BrokerEvent>,
         lotSizes: Map<String, Long> = emptyMap(),
         now     : Long = System.currentTimeMillis(),
         zone    : java.time.ZoneId = java.time.ZoneId.systemDefault(),
+        market  : MarketQuotes.Cache? = null,
     ): Result {
-        val result = computeAt(events, lotSizes)
+        val lots = market?.snapshot?.quotes?.mapValues { it.value.lotSize }.orEmpty() + lotSizes
+        val result = computeAt(events, lots, market, now, periodStart = false).copy(fxToRub = market?.snapshot?.fxToRub.orEmpty())
         if (result.isEmpty) return result
         val monthAgo = java.time.Instant.ofEpochMilli(now).atZone(zone).minusMonths(1).toInstant().toEpochMilli()
-        fun upTo(t: Long) = computeAt(events.filter { it.timestamp < t }, lotSizes)
+        fun upTo(t: Long) = computeAt(events.filter { it.timestamp < t }, lots, market, t, periodStart = true)
         return result.copy(periods = mapOf(
             ResultPeriod.DAY   to periodResults(upTo(now - 24 * 3_600_000L), result),
             ResultPeriod.MONTH to periodResults(upTo(monthAgo), result),
@@ -194,10 +237,18 @@ object Portfolio {
         ))
     }
 
-    private fun computeAt(events: List<BrokerEvent>, lotSizes: Map<String, Long>): Result {
+    private fun computeAt(
+        events  : List<BrokerEvent>,
+        lotSizes: Map<String, Long>,
+        market  : MarketQuotes.Cache? = null,
+        at      : Long = Long.MAX_VALUE,
+        /** Начало периода: если оно старше всей истории котировок — самая ранняя её точка. */
+        periodStart: Boolean = false,
+    ): Result {
         val sorted = events.sortedBy { it.timestamp }
 
-        data class Acc(var qty: Long = 0, var avg: Long = 0, var last: Long = 0)
+        // lastAt — когда цена стала известна: своя сделка или указанная цена новее биржевой — побеждает она.
+        data class Acc(var qty: Long = 0, var avg: Long = 0, var last: Long = 0, var lastAt: Long = 0)
         val holdings = linkedMapOf<Triple<String, String, String>, Acc>()        // broker, ticker, currency
         val cash     = linkedMapOf<Pair<String, String>, Long>()                  // broker, currency
         val deposits = linkedMapOf<Pair<String, String>, Long>()
@@ -240,6 +291,7 @@ object Portfolio {
             // Цена, указанная вручную: двигает только «текущую цену» уже купленной бумаги.
             is BrokerPriceMark -> holdings[Triple(e.broker, e.ticker, e.currency)]?.let {
                 it.last = e.priceMicros
+                it.lastAt = e.timestamp
                 lastPrice[Triple(e.broker, e.ticker, e.currency)] = e.priceMicros
             }
             is BrokerOrder -> {
@@ -248,12 +300,16 @@ object Portfolio {
                 val holdKey = Triple(e.broker, e.ticker, e.currency)
                 // Цены нет — последняя известная по бумаге; нет и её — сделка не считается (#52).
                 val price = if (e.priceKnown) e.priceMicros else {
-                    val known = holdings[holdKey]?.last?.takeIf { it > 0L } ?: lastPrice[holdKey]
+                    // Биржевая цена на момент сделки (#55) точнее последней своей.
+                    val known = market?.priceAt(e.ticker.uppercase(), e.timestamp)?.priceMicros
+                        ?.takeIf { market?.snapshot?.quotes?.get(e.ticker.uppercase())?.currency.let { c -> c == null || c == e.currency } }
+                        ?: holdings[holdKey]?.last?.takeIf { it > 0L } ?: lastPrice[holdKey]
                     if (known == null) { unpriced += e; continue }
                     estimates[e] = known
                     known
                 }
-                val qty    = e.lots * (lotSizes[e.ticker] ?: 1L)
+                // Лоты — у пуша; ручной ввод уже в штуках (#49), умножать его на лот нельзя.
+                val qty    = if (e.isManual) e.lots else e.lots * (lotSizes[e.ticker.uppercase()] ?: lotSizes[e.ticker] ?: 1L)
                 val amount = microsToKopecks(price * qty)
                 val acc    = holdings.getOrPut(holdKey) { Acc() }
                 val cashKey = e.broker to e.currency
@@ -271,12 +327,26 @@ object Portfolio {
                     }
                 }
                 acc.last = price
+                acc.lastAt = e.timestamp
                 lastPrice[holdKey] = price
             }
         }
 
+        var marketAt: Long? = null
         val positions = holdings.filter { it.value.qty > 0L }.map { (k, a) ->
-            Position(k.first, k.second, k.third, a.qty, a.avg, a.last)
+            val ticker = k.second.uppercase()
+            val quote = market?.snapshot?.quotes?.get(ticker)
+            // Биржевая цена — только в валюте бумаги и только если она новее своей. Для начала периода,
+            // которое старше всей истории котировок, — самая ранняя точка: иначе начало стояло бы на
+            // цене своей сделки, конец — на рыночной, и весь их разрыв попал бы в результат «за месяц».
+            val point = (market?.priceAt(ticker, at)
+                ?: market?.history?.get(ticker)?.firstOrNull()?.takeIf { periodStart })
+                ?.takeIf { it.at > a.lastAt && (quote == null || quote.currency == k.third) }
+            if (point != null) marketAt = maxOf(marketAt ?: 0L, point.at)
+            Position(
+                k.first, k.second, k.third, a.qty, a.avg, point?.priceMicros ?: a.last,
+                marketAt = point?.at, groupOverride = quote?.group,
+            )
         }.sortedByDescending { it.valueKopecks }
 
         val contracts = known.filterKeys { it !in hidden }.values.toList()
@@ -320,6 +390,7 @@ object Portfolio {
             alerts    = MarginAlerts.evaluate(sorted),
             estimates = estimates,
             unpriced  = unpriced.sortedByDescending { it.timestamp },
+            marketAt  = marketAt,
         )
     }
 }

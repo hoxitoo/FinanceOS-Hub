@@ -105,6 +105,12 @@ class UserPreferences @Inject constructor(
          * инвестора они больше не предлагаются к записи. Хранятся id строк операций.
          */
         val DISMISSED_BROKER_LEGS        = stringSetPreferencesKey("dismissed_broker_legs")
+
+        /**
+         * Котировки Мосбиржи (#55). Выключено по умолчанию: это первый выход приложения в сеть за
+         * данными, а не за обновлением, и включает его человек.
+         */
+        val MARKET_QUOTES_ENABLED        = booleanPreferencesKey("market_quotes_enabled")
     }
 
     val onboardingComplete: Flow<Boolean> = prefs
@@ -289,5 +295,12 @@ class UserPreferences @Inject constructor(
 
     suspend fun dismissBrokerLeg(txId: String) {
         context.dataStore.edit { it[DISMISSED_BROKER_LEGS] = (it[DISMISSED_BROKER_LEGS] ?: emptySet()) + txId }
+    }
+
+    val marketQuotesEnabled: Flow<Boolean> = prefs
+        .map { it[MARKET_QUOTES_ENABLED] ?: false }
+
+    suspend fun setMarketQuotesEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[MARKET_QUOTES_ENABLED] = enabled }
     }
 }
