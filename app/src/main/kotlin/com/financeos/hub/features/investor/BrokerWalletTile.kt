@@ -28,7 +28,12 @@ import com.financeos.hub.ui.theme.fosCardSurface
  * выдать оценку за деньги. Нажатие открывает режим инвестора.
  */
 @Composable
-fun BrokerWalletTile(summaries: List<Portfolio.Summary>, onClick: () -> Unit, rubTotal: Long? = null) {
+fun BrokerWalletTile(
+    summaries: List<Portfolio.Summary>,
+    onClick  : () -> Unit,
+    rubTotal : Long? = null,
+    byMarket : Boolean = false,
+) {
     Row(
         // Нажатие — между огранкой и отступом (FosSurface): иначе поле вокруг текста мёртвое.
         modifier = Modifier
@@ -41,7 +46,8 @@ fun BrokerWalletTile(summaries: List<Portfolio.Summary>, onClick: () -> Unit, ru
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("У брокера", style = FosType.BodySemi, color = FosColors.TextPrimary)
             Text(
-                "не входит в «Всего»",
+                if (byMarket) "по ценам Мосбиржи · не входит в «Всего»"
+                else "по цене ваших сделок · не входит в «Всего»",
                 style = FosType.Micro,
                 color = FosColors.TextMuted,
             )

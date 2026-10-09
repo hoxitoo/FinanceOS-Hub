@@ -57,9 +57,22 @@ class MarketQuotesTest {
               "data":[["USD000UTSTOM","CETS",81.5,81.4,null],["CNYRUB_TOM","CETS",null,null,null]]}}
         """.trimIndent()
         val r = MarketQuotes.parseFx(fx)
-        assertEquals(81_500_000L, r["USD"])
+        // Доллар биржей больше не торгуется (июнь 2024): его курс — от ЦБ, а не устаревший биржевой.
+        assertNull(r["USD"])
         assertEquals(11_310_000L, r["CNY"])
         assertNull(r["EUR"])
+    }
+
+    @Test
+    fun `dollar and euro come from the central bank rates`() {
+        val cbr = """
+            {"cbrf":{"columns":["CBRF_USD_LAST","CBRF_USD_TRADEDATE","CBRF_EUR_LAST","CBRF_EUR_TRADEDATE"],
+              "data":[[81.1234,"2026-10-09",94.5,"2026-10-09"]]}}
+        """.trimIndent()
+        val r = MarketQuotes.parseCbr(cbr)
+        assertEquals(81_123_400L, r["USD"])
+        assertEquals(94_500_000L, r["EUR"])
+        assertTrue(MarketQuotes.parseCbr("{}").isEmpty())
     }
 
     @Test

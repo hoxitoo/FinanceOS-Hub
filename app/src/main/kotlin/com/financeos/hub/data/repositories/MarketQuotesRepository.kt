@@ -48,58 +48,75 @@ class MarketQuotesRepository @Inject constructor(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
+    /** Загружен ли кэш с диска. Загрузка — под тем же замком, что и обновление: иначе обновление
+     *  слило бы новый снимок с ещё пустой историей, а поздняя загрузка затёрла бы результат. */
+    private var loaded = false
+
+    private suspend fun ensureLoaded() {
+        if (loaded) return
+        _cache.value = withContext(Dispatchers.IO) {
+            MarketQuotes.fromJson(runCatching { file.readText() }.getOrNull())
+        }
+        loaded = true
+    }
+
     init {
-        scope.launch { _cache.value = MarketQuotes.fromJson(runCatching { file.readText() }.getOrNull()) }
+        scope.launch { runCatching { mutex.withLock { ensureLoaded() } } }
     }
 
     /**
      * Обновить, если включено и снимок старше [maxAgeMs] (по умолчанию — почти сутки: обновление
-     * раз в день, решение пользователя). `force` — по кнопке «Обновить». `true` — снимок получен.
+     * раз в день, решение пользователя). `force` — по кнопке. `true` — снимок получен. Никогда не
+     * бросает (кроме отмены): котировки — улучшение, и их сбой не должен ронять приложение.
      */
     suspend fun refresh(force: Boolean = false, maxAgeMs: Long = 20L * 3_600_000): Boolean = mutex.withLock {
-        if (!prefs.marketQuotesEnabled.first()) return false
-        val now = System.currentTimeMillis()
-        val last = _cache.value.snapshot?.fetchedAt ?: runCatching {
-            MarketQuotes.fromJson(file.readText()).snapshot?.fetchedAt
-        }.getOrNull()
-        if (!force && last != null && now - last < maxAgeMs) return false
-
-        val events = brokerEvents.observeAll().first()
-        // Бумаги, которые есть или были: у проданной цена не нужна, у рыночной заявки без цены (#52)
-        // нужна история на момент сделки.
-        val held = Portfolio.compute(events).positions.map { it.ticker }
-        val traded = events.filterIsInstance<BrokerOrder>().map { it.ticker }
-        val tickers = (held + traded).map { it.uppercase() }.distinct()
-            // Валюта на счёте — деньги, а не бумага (#51): котировка ей не нужна, нужен курс.
-            .filter { SecurityGroups.cashCurrency(it) == null && it.matches(Regex("""[A-Z0-9_.]{1,20}""")) }
-
-        _refreshing.value = true
         try {
-            val quotes = if (tickers.isEmpty()) emptyList() else {
-                val chunks = tickers.chunked(50)
-                chunks.flatMap { c -> get(MarketQuotes.sharesUrl(c))?.let(MarketQuotes::parseShares).orEmpty() } +
-                    chunks.flatMap { c -> get(MarketQuotes.bondsUrl(c))?.let(MarketQuotes::parseBonds).orEmpty() }
-            }
-            val fx = get(MarketQuotes.fxUrl())?.let(MarketQuotes::parseFx).orEmpty()
+            ensureLoaded()
+            if (!prefs.marketQuotesEnabled.first()) return false
+            val now = System.currentTimeMillis()
+            val last = _cache.value.snapshot?.fetchedAt
+            if (!force && last != null && now - last < maxAgeMs) return false
+
+            val events = brokerEvents.observeAll().first()
+            // Бумаги, которые есть или были: у проданной цена не нужна, у рыночной заявки без цены (#52)
+            // нужна история на момент сделки.
+            val held = Portfolio.compute(events).positions.map { it.ticker }
+            val traded = events.filterIsInstance<BrokerOrder>().map { it.ticker }
+            val tickers = (held + traded).map { it.uppercase() }.distinct()
+                // Валюта на счёте — деньги, а не бумага (#51): котировка ей не нужна, нужен курс.
+                .filter { SecurityGroups.cashCurrency(it) == null && it.matches(Regex("""[A-Z0-9_.]{1,20}""")) }
+
+            _refreshing.value = true
+            val chunks = tickers.chunked(50)
+            val quotes = chunks.flatMap { c -> get(MarketQuotes.sharesUrl(c))?.let(MarketQuotes::parseShares).orEmpty() } +
+                chunks.flatMap { c -> get(MarketQuotes.bondsUrl(c))?.let(MarketQuotes::parseBonds).orEmpty() }
+            val fx = get(MarketQuotes.cbrUrl())?.let(MarketQuotes::parseCbr).orEmpty() +
+                get(MarketQuotes.fxUrl())?.let(MarketQuotes::parseFx).orEmpty()
             // Ничего не пришло — сеть недоступна или биржа отвечает не так: старый снимок остаётся.
             if (quotes.isEmpty() && fx.isEmpty()) return false
+            val previous = _cache.value.snapshot
             val snapshot = MarketQuotes.Snapshot(
-                quotes    = quotes.associateBy { it.ticker },
-                // Курс, которого в этот раз нет, берётся из прошлого снимка — лучше вчерашний, чем никакого.
-                fxToRub   = _cache.value.snapshot?.fxToRub.orEmpty() + fx,
+                // Бумага, по которой в этот раз ответа нет (упал один из запросов), сохраняет прошлую
+                // котировку: без неё размер лота откатился бы к 1, и «2 лота» стали бы двумя бумагами.
+                quotes    = previous?.quotes.orEmpty() + quotes.associateBy { it.ticker },
+                // Курс, которого в этот раз нет, — из прошлого снимка: лучше вчерашний, чем никакого.
+                fxToRub   = previous?.fxToRub.orEmpty() + fx,
                 fetchedAt = now,
             )
-            val merged = MarketQuotes.merge(_cache.value, snapshot)
+            // В историю — только полученное сейчас: перенесённая котировка легла бы точкой «сегодня»
+            // со вчерашней ценой, и экран выдал бы её за свежую.
+            val merged = MarketQuotes.merge(_cache.value, snapshot.copy(quotes = quotes.associateBy { it.ticker }))
+                .copy(snapshot = snapshot)
             withContext(Dispatchers.IO) {
                 val tmp = File(context.filesDir, "moex_quotes.json.tmp")
                 tmp.writeText(MarketQuotes.toJson(merged))
                 tmp.renameTo(file)
             }
             _cache.value = merged
-            return true
+            true
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            return false
+            false
         } finally {
             _refreshing.value = false
         }

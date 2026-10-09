@@ -135,7 +135,7 @@ object Portfolio {
          * Всё у брокера в РУБЛЯХ, как в приложении БКС: валюта переведена по биржевому курсу.
          * `null`, если курса хоть одной валюты нет — складывать без курса нельзя (#40).
          */
-        val totalRubKopecks: Long? get() = summaries.fold(0L as Long?) { acc, s ->
+        val totalRubKopecks: Long? get() = if (summaries.isEmpty()) null else summaries.fold(0L as Long?) { acc, s ->
             acc?.let { a -> toRub(s.totalKopecks, s.currency, fxToRub)?.let { a + it } }
         }
 
@@ -299,15 +299,15 @@ object Portfolio {
                 // Цены нет — последняя известная по бумаге; нет и её — сделка не считается (#52).
                 val price = if (e.priceKnown) e.priceMicros else {
                     // Биржевая цена на момент сделки (#55) точнее последней своей.
-                    val known = market?.priceAt(e.ticker, e.timestamp)?.priceMicros
-                        ?.takeIf { market?.snapshot?.quotes?.get(e.ticker)?.currency.let { c -> c == null || c == e.currency } }
+                    val known = market?.priceAt(e.ticker.uppercase(), e.timestamp)?.priceMicros
+                        ?.takeIf { market?.snapshot?.quotes?.get(e.ticker.uppercase())?.currency.let { c -> c == null || c == e.currency } }
                         ?: holdings[holdKey]?.last?.takeIf { it > 0L } ?: lastPrice[holdKey]
                     if (known == null) { unpriced += e; continue }
                     estimates[e] = known
                     known
                 }
                 // Лоты — у пуша; ручной ввод уже в штуках (#49), умножать его на лот нельзя.
-                val qty    = if (e.isManual) e.lots else e.lots * (lotSizes[e.ticker] ?: 1L)
+                val qty    = if (e.isManual) e.lots else e.lots * (lotSizes[e.ticker.uppercase()] ?: lotSizes[e.ticker] ?: 1L)
                 val amount = microsToKopecks(price * qty)
                 val acc    = holdings.getOrPut(holdKey) { Acc() }
                 val cashKey = e.broker to e.currency
@@ -332,9 +332,13 @@ object Portfolio {
 
         var marketAt: Long? = null
         val positions = holdings.filter { it.value.qty > 0L }.map { (k, a) ->
-            val quote = market?.snapshot?.quotes?.get(k.second)
-            // Биржевая цена — только в валюте бумаги и только если она новее своей.
-            val point = market?.priceAt(k.second, at)
+            val ticker = k.second.uppercase()
+            val quote = market?.snapshot?.quotes?.get(ticker)
+            // Биржевая цена — только в валюте бумаги и только если она новее своей. Для начала периода,
+            // которое старше всей истории котировок, — самая ранняя точка: иначе начало стояло бы на
+            // цене своей сделки, конец — на рыночной, и весь их разрыв попал бы в результат «за месяц».
+            val point = (market?.priceAt(ticker, at)
+                ?: market?.history?.get(ticker)?.firstOrNull()?.takeIf { at != Long.MAX_VALUE })
                 ?.takeIf { it.at > a.lastAt && (quote == null || quote.currency == k.third) }
             if (point != null) marketAt = maxOf(marketAt ?: 0L, point.at)
             Position(

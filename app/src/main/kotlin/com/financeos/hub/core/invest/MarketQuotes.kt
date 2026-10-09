@@ -59,11 +59,13 @@ object MarketQuotes {
     private val BOND_BOARDS  = listOf("TQOB", "TQCB", "TQIR", "TQOD", "TQOE", "TQOY")
     private val FUND_BOARDS  = setOf("TQTF", "TQTD", "TQTE", "TQIF", "TQPI")
 
-    /** Валютные инструменты биржи → валюта. Курс — рублей за единицу. */
+    /**
+     * Валютные инструменты биржи → валюта. Курс — рублей за единицу. Доллара и евро здесь НЕТ:
+     * биржевые торги ими остановлены в июне 2024, и `USD000UTSTOM` отдавал бы курс двухлетней
+     * давности. Их курс — официальный ЦБ, который ISS публикует отдельно ([cbrUrl]).
+     */
     val FX_TICKERS = mapOf(
-        "USD000UTSTOM" to "USD",
         "CNYRUB_TOM"   to "CNY",
-        "EUR_RUB__TOM" to "EUR",
         "HKDRUB_TOM"   to "HKD",
     )
 
@@ -86,6 +88,9 @@ object MarketQuotes {
             "&securities=${FX_TICKERS.keys.joinToString(",")}" +
             "&securities.columns=SECID,BOARDID,PREVPRICE,PREVWAPRICE" +
             "&marketdata.columns=SECID,BOARDID,LAST,WAPRICE,MARKETPRICE"
+
+    /** Официальные курсы ЦБ (доллар, евро), которые ISS публикует в статистике валютного рынка. */
+    fun cbrUrl(): String = "$ISS/statistics/engines/currency/markets/selt/rates.json?iss.meta=off"
 
     // ── Разбор ISS ──────────────────────────────────────────────────────────────
 
@@ -191,6 +196,15 @@ object MarketQuotes {
                 ?: s.firstNotNullOfOrNull { micros(it["PREVWAPRICE"]) ?: micros(it["PREVPRICE"]) }
             rate?.let { cur to it }
         }.toMap()
+    }.getOrDefault(emptyMap())
+
+    /** Ответ со статистикой курсов → доллар и евро по курсу ЦБ (блок «cbrf»). */
+    fun parseCbr(json: String): Map<String, Long> = runCatching {
+        val row = rows(JSONObject(json), "cbrf").firstOrNull() ?: return emptyMap()
+        listOfNotNull(
+            micros(row["CBRF_USD_LAST"])?.let { "USD" to it },
+            micros(row["CBRF_EUR_LAST"])?.let { "EUR" to it },
+        ).toMap()
     }.getOrDefault(emptyMap())
 
     // ── История ─────────────────────────────────────────────────────────────────

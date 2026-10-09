@@ -265,6 +265,7 @@ fun DashboardScreen(
                     investPortfolio.summaries,
                     onClick  = { investorVm.setInvestorMode(true) },
                     rubTotal = investPortfolio.totalRubKopecks,
+                    byMarket = investPortfolio.marketAt != null,
                 )
             }
         }
