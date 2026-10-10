@@ -55,6 +55,14 @@ object SecurityGroups {
      */
     private val SHARES = Regex("""^[A-Z]{4}P?$""")
 
+    /**
+     * Группа, если она известна НАВЕРНЯКА — справочником или формой тикера, без догадки «четыре буквы =
+     * акция». Справочник бьёт режим торгов из котировок (#55): на устройстве LQDT, AKMB и AKMM, фонды из
+     * [FUNDS], после первого же обновления с биржи легли в «Акции». Режим торгов решает только там, где
+     * справочник молчит.
+     */
+    fun known(ticker: String): SecurityGroup? = of(ticker).takeUnless { it == SecurityGroup.SHARES || it == SecurityGroup.OTHER }
+
     fun of(ticker: String): SecurityGroup {
         val t = ticker.trim().uppercase()
         return when {

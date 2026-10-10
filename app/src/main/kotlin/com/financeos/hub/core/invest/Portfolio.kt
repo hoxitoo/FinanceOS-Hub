@@ -48,7 +48,8 @@ object Portfolio {
         val pnlKopecks  : Long get() = valueKopecks - costKopecks
         /** Результат в процентах от вложенного; `null`, если вложено ноль. */
         val pnlPercent  : Double? get() = if (costKopecks == 0L) null else pnlKopecks * 100.0 / costKopecks
-        val group       : SecurityGroup get() = groupOverride ?: SecurityGroups.of(ticker)
+        // Справочник — первым: биржа отнесла фонды к акциям (#55). Режим торгов — там, где справочник молчит.
+        val group       : SecurityGroup get() = SecurityGroups.known(ticker) ?: groupOverride ?: SecurityGroups.of(ticker)
     }
 
     /**
