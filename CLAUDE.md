@@ -1519,7 +1519,11 @@ rowid). Дубликат паттерна с новым id встанет поз
   Цена прошлого закрытия кладётся точкой сутками раньше — «24 часа» работают с первого обновления.
 - **Своя цена новее биржевой — побеждает она** (сделка или «Указать цену» после снимка).
 - **Лот с биржи умножает только ПУШИ** (там «20 лотов»); ручной ввод уже в штуках (#49).
-- **Группа бумаги — по режиму торгов**, справочник #48 остаётся запасным.
+- **Группа бумаги: справочник #48 → режим торгов → догадка «четыре буквы = акция»** (`Position.group`,
+  `SecurityGroups.known`). Первая версия ставила режим торгов ВЫШЕ справочника, и на устройстве LQDT,
+  AKMB и AKMM (фонды из `FUNDS`) после первого обновления с биржи легли в «Акции». Какой режим торгов
+  отдала биржа, из контейнера не проверить (ISS недоступен), поэтому порядок такой: справочник знает
+  наверняка, биржа решает только за него молчащий, догадка — последней.
 - **Итог в рублях** (`Result.totalRubKopecks`, `periodRub`), как у БКС. **Доллар и евро — по курсу ЦБ**
   (`statistics/…/selt/rates.json`, `CBRF_USD_LAST`/`CBRF_EUR_LAST`): биржевые торги ими остановлены в
   июне 2024, и `USD000UTSTOM` отдавал бы курс двухлетней давности. Юань и гонконгский доллар — биржевые
@@ -1576,7 +1580,7 @@ Full spec: `docs/CONTEXT.md` → "Roadmap — Planned Features".
 | Features | `app/src/main/kotlin/com/financeos/hub/features/` |
 | DI Modules | `app/src/main/kotlin/com/financeos/hub/di/` |
 | Служба пушей | `app/src/main/kotlin/com/financeos/hub/core/notifications/` |
-| Тесты | `app/src/test/kotlin/com/financeos/hub/` (53 файла, 593 случая) |
+| Тесты | `app/src/test/kotlin/com/financeos/hub/` (53 файла, 594 случая) |
 
 # Design Reference
 - Technical spec, schema, formulas, screen contracts: `docs/CONTEXT.md`
