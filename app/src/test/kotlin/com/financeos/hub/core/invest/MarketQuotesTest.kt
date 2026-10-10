@@ -140,6 +140,21 @@ class MarketQuotesTest {
     }
 
     @Test
+    fun `a fund from the reference stays a fund whatever board the exchange reports`() {
+        // На устройстве LQDT, AKMB и AKMM после обновления с биржи легли в «Акции».
+        val asShare = MarketQuotes.Quote("LQDT", 2_101_700L, "RUB", 1, SecurityGroup.SHARES, null)
+        val market = MarketQuotes.merge(MarketQuotes.Cache.EMPTY, MarketQuotes.Snapshot(mapOf("LQDT" to asShare), emptyMap(), t0))
+        assertEquals(SecurityGroup.FUNDS, Portfolio.compute(listOf(deposit, buy), now = t0 + 1, market = market)
+            .positions.single().group)
+        // Где справочник молчит (четыре буквы — лишь догадка), решает биржа.
+        val fund = MarketQuotes.Quote("ABCD", 1_000_000L, "RUB", 1, SecurityGroup.FUNDS, null)
+        val m2 = MarketQuotes.merge(MarketQuotes.Cache.EMPTY, MarketQuotes.Snapshot(mapOf("ABCD" to fund), emptyMap(), t0))
+        val abcd = buy.copy(ticker = "ABCD", lots = 1, priceMicros = 1_000_000L, id = "p4")
+        assertEquals(SecurityGroup.FUNDS, Portfolio.compute(listOf(deposit, abcd), now = t0 + 1, market = m2)
+            .positions.single().group)
+    }
+
+    @Test
     fun `lot size multiplies pushed orders but not manual pieces`() {
         val q = MarketQuotes.Quote("SBER", 300_000_000L, "RUB", 10, SecurityGroup.SHARES, null)
         val market = MarketQuotes.Cache(MarketQuotes.Snapshot(mapOf("SBER" to q), emptyMap(), t0 - 10 * day), emptyMap())
