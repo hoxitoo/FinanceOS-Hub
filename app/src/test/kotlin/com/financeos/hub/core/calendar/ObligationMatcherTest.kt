@@ -436,4 +436,23 @@ class ObligationMatcherTest {
         val b = bill(phone, internet).copy(rejectedTxId = "in")
         assertTrue(ObligationMatcher.match(listOf(b), mapOf("bill" to due), listOf(phone, internet), zone).isEmpty())
     }
+
+    @Test
+    fun `one provider billed in two halves on different days still closes`() {
+        val a = tx(-1_000_00L, due.minusDays(1), id = "a").copy(merchant = "Интернет Дом.ру")
+        val b = tx(-1_000_00L, due.plusDays(4), id = "b").copy(merchant = "Интернет Дом.ру")
+        val p = rent(amount = 2_000_00L).copy(id = "i", matchKeys = ObligationMatcher.keyOf(a))
+        assertEquals(setOf("a", "b"), ObligationMatcher.match(listOf(p), mapOf("i" to due), listOf(a, b), zone)
+            .single().transactions.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `an obligation tied to an account does not steal a learned merchant's payment`() {
+        val net = internet.copy(accountId = "acc")
+        val club = rent(amount = 1_500_00L, account = "acc").copy(id = "club")
+        val b = bill(phone, internet)
+        val matches = ObligationMatcher.match(listOf(club, b), mapOf("club" to due, "bill" to due), listOf(phone, net), zone)
+        assertEquals(setOf("ph", "in"), matches.single { it.payment.id == "bill" }.transactions.map { it.id }.toSet())
+        assertTrue(matches.none { it.payment.id == "club" })
+    }
 }

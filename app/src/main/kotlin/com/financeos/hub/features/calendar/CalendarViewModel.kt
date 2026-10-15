@@ -101,6 +101,7 @@ class CalendarViewModel @Inject constructor(
     ) { (planned, dismissed), accounts, txList, goals, reserve ->
         val today = LocalDate.now()
         val now   = System.currentTimeMillis()
+        var dismissedFound = 0
 
         // Подписки считаются той же машинкой, что и на своём экране: другой ответ на одни и те же
         // данные означал бы два разных «следующих списания» в одном приложении.
@@ -121,6 +122,7 @@ class CalendarViewModel @Inject constructor(
         )
             // «Не подписка» (#56): человек сказал, что это не регулярный платёж, — ни события в
             // календаре, ни предложения, ни вычета из «Свободно».
+            .also { found -> dismissedFound = found.count { it.key in dismissed } }
             .filter { it.key !in dismissed }
 
         val credit = accounts
@@ -201,7 +203,8 @@ class CalendarViewModel @Inject constructor(
                 .fromPlanned(planned, today.minusDays(30), today, zone)
                 .filter { it.settled },
             suggestions = subscriptions.filter { it.key !in claimed && !it.isMissed },
-            dismissedCount = dismissed.size,
+            // Только то, что детектор сейчас находит: ключ давно пропавшей «подписки» скрывать нечего.
+            dismissedCount = dismissedFound,
             accounts = accounts,
             planned  = planned,
             today    = today,
@@ -265,7 +268,8 @@ class CalendarViewModel @Inject constructor(
     fun openSettle(payment: PlannedPaymentEntity, dueDate: LocalDate) = viewModelScope.launch {
         val from  = dueDate.minusDays(SETTLE_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
         val until = dueDate.plusDays(SETTLE_DAYS + 1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val taken = state.value.planned.filter { it.id != payment.id }.flatMapTo(HashSet()) { it.matchedTxIdList }
+        // Занятые — включая СВОИ прошлые: операция, закрывшая апрель, не должна закрыть и май.
+        val taken = state.value.planned.flatMapTo(HashSet()) { it.matchedTxIdList }
         val candidates = withContext(Dispatchers.Default) {
             txRepo.observeAll().first()
                 .filter { it.timestamp in from until until && it.id !in taken && ObligationMatcher.couldPay(payment, it) }

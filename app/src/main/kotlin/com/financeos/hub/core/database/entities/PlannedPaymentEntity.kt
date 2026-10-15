@@ -123,6 +123,13 @@ data class PlannedPaymentEntity(
  * откат на него нужен, чтобы уже сопоставленная операция не считалась свободной сразу после
  * обновления.
  */
+val PlannedPaymentEntity.matchedTxIdList: List<String>
+    get() = matchedTxIds
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: listOfNotNull(lastMatchedTxId)
+
 /**
  * Продавцы, по которым обязательство узнаёт свою оплату: из какой подписки оно выросло
  * ([PlannedPaymentEntity.autoSource]) плюс выученные ([PlannedPaymentEntity.matchKeys]).
@@ -133,10 +140,3 @@ val PlannedPaymentEntity.matchKeyList: List<String>
 /** Только выученные ключи — их «Отвязать» может забыть; [PlannedPaymentEntity.autoSource] — нет. */
 val PlannedPaymentEntity.learnedKeyList: List<String>
     get() = matchKeys?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
-
-val PlannedPaymentEntity.matchedTxIdList: List<String>
-    get() = matchedTxIds
-        ?.split(',')
-        ?.map { it.trim() }
-        ?.filter { it.isNotEmpty() }
-        ?: listOfNotNull(lastMatchedTxId)

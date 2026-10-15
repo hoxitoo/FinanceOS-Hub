@@ -61,7 +61,8 @@ class SubscriptionsViewModel @Inject constructor(
             }
 
         // «Не подписка» (#56) — тот же список, что и в календаре: скрытое там не всплывает здесь.
-        val all    = SubscriptionDetector.detect(charges, now).filter { it.key !in dismissed }
+        val found  = SubscriptionDetector.detect(charges, now)
+        val all    = found.filter { it.key !in dismissed }
         val missed = all.filter { it.isMissed }
         val active = all.filter { !it.isMissed }
 
@@ -74,7 +75,7 @@ class SubscriptionsViewModel @Inject constructor(
                 .groupBy { it.currency }
                 .map { (currency, subs) -> MonthlyTotal(currency, subs.sumOf { it.monthlyKopecks }) }
                 .sortedByDescending { it.kopecks },
-            dismissedCount = dismissed.size,
+            dismissedCount = found.count { it.key in dismissed },
             isLoading = false,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SubscriptionsState())

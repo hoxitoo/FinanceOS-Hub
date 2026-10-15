@@ -103,17 +103,23 @@ object ObligationMatcher {
         // честнее, чем позволить более общему обязательству перехватить её.
         val ordered = payments.sortedByDescending { it.accountId != null }
 
+        // Первый проход — по продавцу (#56), у ВСЕХ обязательств, до любых сумм: обязательство,
+        // выросшее из подписки или выученное на ручной отметке, знает, КОМУ оно платится. Иначе
+        // соседнее обязательство «по сумме» (например, со счётом — они идут первыми) забирало бы
+        // узнанную операцию, и выученное оставалось открытым каждый месяц. Части — в любые дни.
+        val done = HashSet<String>()
         for (payment in ordered) {
             val due = dueDates[payment.id] ?: continue
-
-            // Сначала — по продавцу (#56): обязательство, выросшее из подписки или выученное на
-            // ручной отметке, знает, КОМУ оно платится. Части могут прийти в разные дни.
             val keyed = keyedParts(payment, due, transactions.filter { it.id !in used }, zone)
-            if (keyed.isNotEmpty()) {
-                keyed.forEach { used += it.id }
-                out += Match(payment, keyed, due)
-                continue
-            }
+            if (keyed.isEmpty()) continue
+            keyed.forEach { used += it.id }
+            done += payment.id
+            out += Match(payment, keyed, due)
+        }
+
+        for (payment in ordered) {
+            if (payment.id in done) continue
+            val due = dueDates[payment.id] ?: continue
 
             val free = transactions.filter {
                 it.id !in used && it.id != payment.rejectedTxId && fitsApartFromAmount(payment, due, it, zone)
@@ -157,17 +163,33 @@ object ObligationMatcher {
         if (keys.isEmpty() || payment.amountKopecks <= 0L) return emptyList()
         // У недельного платежа окно шире недели захватило бы соседний период.
         val days = if (payment.schedule == PaymentSchedule.WEEKLY) null else KEYED_DAYS
-        val parts = transactions
+        fun distance(tx: TransactionEntity) = abs(ChronoUnit.DAYS.between(due, dateOf(tx, zone)))
+        val candidates = transactions
             .filter { it.id != payment.rejectedTxId }
             .filter { fitsApartFromAmount(payment, due, it, zone, days ?: DAYS_BEFORE, days ?: DAYS_AFTER) }
-            .mapNotNull { tx -> keyOf(tx)?.takeIf { it in keys }?.let { it to tx } }
-            .groupBy({ it.first }, { it.second })
-            .map { (_, txs) -> txs.minBy { abs(ChronoUnit.DAYS.between(due, dateOf(it, zone))) } }
-        if (parts.isEmpty()) return emptyList()
-        val sum = parts.sumOf { abs(it.amountKopecks) }
-        val tolerance = if (parts.size == 1 && keys.size == 1) KEYED_TOLERANCE else AMOUNT_TOLERANCE
-        return if (abs(sum - payment.amountKopecks).toDouble() <= payment.amountKopecks * tolerance) parts
-            else emptyList()
+            .filter { tx -> keyOf(tx) in keys }
+            .sortedBy(::distance)
+        if (candidates.isEmpty()) return emptyList()
+
+        fun fits(parts: List<TransactionEntity>): Boolean {
+            val sum = parts.sumOf { abs(it.amountKopecks) }
+            val tolerance = if (parts.size == 1 && keys.size == 1) KEYED_TOLERANCE else AMOUNT_TOLERANCE
+            return abs(sum - payment.amountKopecks).toDouble() <= payment.amountKopecks * tolerance
+        }
+
+        // По одной операции на продавца — ближайшей к сроку.
+        val parts = candidates.groupBy { keyOf(it) }.values.map { it.first() }.toMutableList()
+        if (fits(parts)) return parts
+        // Не хватает — тот же продавец мог получить счёт по частям (1 000 + 1 000 в разные дни):
+        // добираем ближайшие, пока сумма не сойдётся, но не больше [MAX_PARTS] частей.
+        for (tx in candidates) {
+            if (parts.size >= MAX_PARTS) break
+            if (tx in parts) continue
+            if (parts.sumOf { abs(it.amountKopecks) } >= payment.amountKopecks) break
+            parts += tx
+            if (fits(parts)) return parts
+        }
+        return emptyList()
     }
 
     /**
