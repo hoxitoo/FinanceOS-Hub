@@ -245,6 +245,8 @@ class BackupManager @Inject constructor(
         // свободными операции, которые его же и закрыли, и они ушли бы закрывать соседние.
         putNullable("matchedTxIds", matchedTxIds)
         putNullable("rejectedTxId", rejectedTxId)
+        // Выученные продавцы (#56): без них восстановленное обязательство снова ждало бы «оплачено».
+        putNullable("matchKeys", matchKeys)
         put("isActive", isActive); put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
 
@@ -366,6 +368,7 @@ class BackupManager @Inject constructor(
         matchedThrough = optLongOrNull("matchedThrough"),
         matchedTxIds = optStringOrNull("matchedTxIds"),
         rejectedTxId = optStringOrNull("rejectedTxId"),
+        matchKeys = optStringOrNull("matchKeys"),
         isActive = optBoolean("isActive", true),
         createdAt = optLong("createdAt", System.currentTimeMillis()),
         updatedAt = optLong("updatedAt", System.currentTimeMillis()),

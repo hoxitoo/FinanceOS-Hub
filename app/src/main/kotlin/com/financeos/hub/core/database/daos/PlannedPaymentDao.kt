@@ -40,6 +40,10 @@ interface PlannedPaymentDao {
     @Query("UPDATE planned_payments SET is_active = 0, updated_at = :now WHERE id = :id")
     suspend fun deactivate(id: String, now: Long)
 
+    /** Выученные продавцы (#56) — отдельной правкой, чтобы не переписать строку поверх сборщика (#35). */
+    @Query("UPDATE planned_payments SET match_keys = :keys, updated_at = :now WHERE id = :id")
+    suspend fun setMatchKeys(id: String, keys: String?, now: Long)
+
     @Query("DELETE FROM planned_payments WHERE id = :id")
     suspend fun delete(id: String)
 
