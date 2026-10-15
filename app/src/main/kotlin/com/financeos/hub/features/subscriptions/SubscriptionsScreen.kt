@@ -104,14 +104,34 @@ fun SubscriptionsScreen(
         if (state.missed.isNotEmpty()) {
             item { FosSectionHeader("ПРОПУЩЕНЫ", tone = FosTone.Negative) }
             items(state.missed, key = { it.key }) { sub ->
-                SubscriptionCard(sub) { sub.categoryId?.let(onCategoryClick) }
+                SubscriptionCard(sub, onDismiss = { vm.dismiss(sub.key) }) { sub.categoryId?.let(onCategoryClick) }
             }
         }
 
         if (state.active.isNotEmpty()) {
             item { FosSectionHeader("РЕГУЛЯРНЫЕ СПИСАНИЯ") }
             items(state.active, key = { it.key }) { sub ->
-                SubscriptionCard(sub) { sub.categoryId?.let(onCategoryClick) }
+                SubscriptionCard(sub, onDismiss = { vm.dismiss(sub.key) }) { sub.categoryId?.let(onCategoryClick) }
+            }
+        }
+
+        if (state.dismissedCount > 0) {
+            item(key = "dismissed") {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Скрыто как «не подписка»: ${state.dismissedCount}",
+                        style    = FosType.Micro,
+                        color    = FosColors.TextMuted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = vm::restoreDismissed) {
+                        Text("Вернуть", style = FosType.Micro, color = FosColors.Info)
+                    }
+                }
             }
         }
 
@@ -139,8 +159,9 @@ fun SubscriptionsScreen(
 
 @Composable
 private fun SubscriptionCard(
-    sub    : SubscriptionDetector.Subscription,
-    onClick: () -> Unit,
+    sub      : SubscriptionDetector.Subscription,
+    onDismiss: () -> Unit,
+    onClick  : () -> Unit,
 ) {
     // Пропущенное списание получает красную огранку: это единственная строка на экране, где что-то
     // не так, и её видно в списке одинаковых подписок без чтения подписи.
@@ -206,6 +227,10 @@ private fun SubscriptionCard(
                 )
             } else {
                 Text("в месяц", style = FosType.Micro, color = FosColors.TextMuted)
+            }
+            // Найденный ритм бывает совпадением — пироги по субботам тоже «раз в неделю» (#56).
+            TextButton(onClick = onDismiss, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text("не подписка", style = FosType.Micro, color = FosColors.TextMuted)
             }
         }
     }

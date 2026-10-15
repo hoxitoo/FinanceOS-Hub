@@ -100,6 +100,17 @@ data class PlannedPaymentEntity(
      */
     @ColumnInfo(name = "rejected_tx_id") val rejectedTxId: String? = null,
 
+    /**
+     * Продавцы, которыми человек САМ отметил оплату этого обязательства, через запятую — ключи вида
+     * `SubscriptionDetector.keyOf`.
+     *
+     * Без них сопоставление знало только сумму и дату, и счёт «Телефон, интернет», оплаченный двумя
+     * переводами в разные дни, висел просроченным каждый месяц — кнопку «оплачено» приходилось
+     * нажимать снова и снова. Отметив оплату операциями один раз, человек учит обязательство, кому
+     * оно платится, и дальше оно закрывается само (`ObligationMatcher`, инвариант #56).
+     */
+    @ColumnInfo(name = "match_keys") val matchKeys: String? = null,
+
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
@@ -118,3 +129,14 @@ val PlannedPaymentEntity.matchedTxIdList: List<String>
         ?.map { it.trim() }
         ?.filter { it.isNotEmpty() }
         ?: listOfNotNull(lastMatchedTxId)
+
+/**
+ * Продавцы, по которым обязательство узнаёт свою оплату: из какой подписки оно выросло
+ * ([PlannedPaymentEntity.autoSource]) плюс выученные ([PlannedPaymentEntity.matchKeys]).
+ */
+val PlannedPaymentEntity.matchKeyList: List<String>
+    get() = (listOfNotNull(autoSource) + learnedKeyList).distinct()
+
+/** Только выученные ключи — их «Отвязать» может забыть; [PlannedPaymentEntity.autoSource] — нет. */
+val PlannedPaymentEntity.learnedKeyList: List<String>
+    get() = matchKeys?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
