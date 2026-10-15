@@ -117,6 +117,14 @@ object SubscriptionDetector {
      * Ключ группировки: продавец + валюта. Разные валюты — разные строки даже у одного сервиса:
      * складывать их нельзя, а показывать «19,99» без указания чего именно — врать.
      */
+    /**
+     * Ключ продавца операции — тот же, что у найденной подписки ([Subscription.key]). Нужен
+     * сопоставлению обязательств (#56): обязательство, выросшее из подписки или выученное на оплате,
+     * узнаёт свою операцию по продавцу, а не только по сумме и дате.
+     */
+    fun keyOf(merchant: String?, description: String?, currency: String): String? =
+        MerchantNames.groupKey(merchant ?: description)?.let { "$it|$currency" }
+
     private fun groupKey(charge: Charge): Pair<String, String>? {
         val name = MerchantNames.groupKey(charge.merchant ?: charge.description) ?: return null
         return name to charge.currency

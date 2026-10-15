@@ -43,7 +43,7 @@ import com.financeos.hub.core.database.entities.TransferRouteEntity
         PlannedPaymentEntity::class,
         BrokerEventEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = false,
 )
 @TypeConverters(FosTypeConverters::class)
@@ -583,6 +583,16 @@ abstract class FosDatabase : RoomDatabase() {
                     )
                 """)
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_broker_events_timestamp` ON `broker_events`(`timestamp`)")
+            }
+        }
+
+        /**
+         * `planned_payments.match_keys` — продавцы, которыми человек отметил оплату обязательства
+         * (инвариант #56). Пусто у всех существующих строк: учиться им ещё не на чем.
+         */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `planned_payments` ADD COLUMN `match_keys` TEXT")
             }
         }
 

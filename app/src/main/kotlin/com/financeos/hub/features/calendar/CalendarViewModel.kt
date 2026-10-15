@@ -7,6 +7,7 @@ import com.financeos.hub.core.calendar.CalendarBuilder
 import com.financeos.hub.core.calendar.CalendarEvent
 import com.financeos.hub.core.calendar.EventKind
 import com.financeos.hub.core.calendar.FreeMoney
+import com.financeos.hub.core.calendar.ObligationMatcher
 import com.financeos.hub.core.credit.creditCycle
 import com.financeos.hub.core.credit.duePayment
 import com.financeos.hub.core.credit.repaidSince
@@ -17,7 +18,10 @@ import com.financeos.hub.core.database.entities.AccountKind
 import com.financeos.hub.core.database.entities.PaymentDirection
 import com.financeos.hub.core.database.entities.PaymentSchedule
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
+import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.database.entities.learnedKeyList
+import com.financeos.hub.core.database.entities.matchedTxIdList
 import com.financeos.hub.data.preferences.UserPreferences
 import com.financeos.hub.data.repositories.AccountRepository
 import com.financeos.hub.data.repositories.GoalRepository
@@ -25,11 +29,16 @@ import com.financeos.hub.data.repositories.PlannedPaymentRepository
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -55,6 +64,8 @@ data class CalendarState(
     val settled    : List<CalendarEvent> = emptyList(),
     /** Найденные, но не подтверждённые подписки: «похоже на регулярный платёж». */
     val suggestions: List<SubscriptionDetector.Subscription> = emptyList(),
+    /** Скрыто кнопкой «Не подписка» (#56) — сколько, чтобы было что вернуть. */
+    val dismissedCount: Int = 0,
     /** Свои счета — для формы: к какому счёту привязать обязательство. */
     val accounts   : List<AccountEntity> = emptyList(),
     /** Объявленные обязательства, чтобы открыть строку на редактирование по её sourceId. */
@@ -75,19 +86,19 @@ class CalendarViewModel @Inject constructor(
     private val plannedRepo: PlannedPaymentRepository,
     private val prefs      : UserPreferences,
     accountRepo            : AccountRepository,
-    txRepo                 : TransactionRepository,
+    private val txRepo     : TransactionRepository,
     goalRepo               : GoalRepository,
 ) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
 
     val state = combine(
-        plannedRepo.observeActive(),
+        combine(plannedRepo.observeActive(), prefs.dismissedSubscriptions) { p, d -> p to d },
         accountRepo.observeAll(),
         txRepo.observeAll(),
         goalRepo.observeActive(),
         prefs.freeMoneyReserve,
-    ) { planned, accounts, txList, goals, reserve ->
+    ) { (planned, dismissed), accounts, txList, goals, reserve ->
         val today = LocalDate.now()
         val now   = System.currentTimeMillis()
 
@@ -108,6 +119,9 @@ class CalendarViewModel @Inject constructor(
                 },
             now = now,
         )
+            // «Не подписка» (#56): человек сказал, что это не регулярный платёж, — ни события в
+            // календаре, ни предложения, ни вычета из «Свободно».
+            .filter { it.key !in dismissed }
 
         val credit = accounts
             .filter { it.kind == AccountKind.CREDIT && it.isActive }
@@ -187,6 +201,7 @@ class CalendarViewModel @Inject constructor(
                 .fromPlanned(planned, today.minusDays(30), today, zone)
                 .filter { it.settled },
             suggestions = subscriptions.filter { it.key !in claimed && !it.isMissed },
+            dismissedCount = dismissed.size,
             accounts = accounts,
             planned  = planned,
             today    = today,
@@ -214,27 +229,84 @@ class CalendarViewModel @Inject constructor(
 
     fun setReserve(kopecks: Long) = viewModelScope.launch { prefs.setFreeMoneyReserve(kopecks) }
 
-    /** Отвязать найденную операцию: обязательство снова считается незакрытым. */
-    fun unmatch(id: String) = viewModelScope.launch { plannedRepo.unmatch(id) }
+    /**
+     * Отвязать найденную операцию: обязательство снова считается незакрытым. Продавцы отвязанных
+     * операций забываются (#56): иначе ошибочно выученный продавец закрывал бы обязательство
+     * следующей же его операцией, и «Отвязать» пришлось бы жать каждый месяц.
+     */
+    fun unmatch(id: String) = viewModelScope.launch {
+        val payment = plannedRepo.getById(id)
+        if (payment != null) {
+            val dropped = payment.matchedTxIdList
+                .mapNotNull { txRepo.getById(it)?.let(ObligationMatcher::keyOf) }
+                .toSet()
+            if (dropped.isNotEmpty() && payment.learnedKeyList.any { it in dropped }) {
+                plannedRepo.setMatchKeys(id, payment.learnedKeyList - dropped)
+            }
+        }
+        plannedRepo.unmatch(id)
+    }
+
+    /** Что открыто в листе «Чем оплачено» — обязательство, его дата и операции-кандидаты. */
+    data class SettleRequest(
+        val payment   : PlannedPaymentEntity,
+        val dueDate   : LocalDate,
+        val candidates: List<TransactionEntity>,
+    )
+
+    private val _settle = MutableStateFlow<SettleRequest?>(null)
+    val settleRequest: StateFlow<SettleRequest?> = _settle.asStateFlow()
 
     /**
-     * Отметить период оплаченным вручную — без конкретной операции.
-     *
-     * Сопоставление намеренно осторожно и при сомнении оставляет обязательство открытым. Это
-     * правильная сторона ошибки, но у неё обязан быть выход: платёж наличными, перевод с чужой
-     * карты, счёт, разбитый непохожим образом, — приложение их не увидит никогда, и без этой
-     * кнопки обязательство висело бы просроченным вечно, занижая «Свободно».
-     *
-     * Закрывается РОВНО эта дата (`matched_through`), а не обязательство целиком: следующий период
-     * откроется как обычно. Ошиблись — «Отвязать» на той же строке возвращает всё назад.
+     * Открыть лист «Чем оплачено» (#56): операции рядом со сроком, которые МОГЛИ быть оплатой
+     * (направление, валюта, счёт), кроме уже занятых другими обязательствами. Человек выбирает сам —
+     * эвристика здесь не решает, она только сужает список.
      */
-    fun settle(payment: PlannedPaymentEntity, dueDate: LocalDate) = viewModelScope.launch {
+    fun openSettle(payment: PlannedPaymentEntity, dueDate: LocalDate) = viewModelScope.launch {
+        val from  = dueDate.minusDays(SETTLE_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+        val until = dueDate.plusDays(SETTLE_DAYS + 1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val taken = state.value.planned.filter { it.id != payment.id }.flatMapTo(HashSet()) { it.matchedTxIdList }
+        val candidates = withContext(Dispatchers.Default) {
+            txRepo.observeAll().first()
+                .filter { it.timestamp in from until until && it.id !in taken && ObligationMatcher.couldPay(payment, it) }
+                // Ближе к сроку — выше: оплата почти всегда рядом с ним.
+                .sortedBy { abs(it.timestamp - dueDate.atStartOfDay(zone).toInstant().toEpochMilli()) }
+                .take(40)
+        }
+        _settle.value = SettleRequest(payment, dueDate, candidates)
+    }
+
+    fun closeSettle() { _settle.value = null }
+
+    /**
+     * Закрыть период выбранными операциями и ЗАПОМНИТЬ их продавцов (#56): со следующего периода
+     * обязательство закроется само, без кнопки.
+     *
+     * Пустой выбор — «оплачено без операции»: наличные, перевод с чужой карты, счёт, разбитый
+     * непохожим образом. Сопоставление намеренно осторожно, и без этого выхода такой платёж висел бы
+     * просроченным вечно. Закрывается РОВНО эта дата (`matched_through`), а не обязательство целиком;
+     * ошиблись — «Отвязать» возвращает всё назад.
+     */
+    fun settleWith(request: SettleRequest, chosen: List<TransactionEntity>) = viewModelScope.launch {
+        _settle.value = null
+        val (payment, dueDate) = request.payment to request.dueDate
+        val ordered = chosen.sortedByDescending { abs(it.amountKopecks) }.map { it.id }
         plannedRepo.markMatched(
             id                 = payment.id,
-            txIds              = emptyList(),
+            txIds              = ordered,
             throughEpochMillis = dueDate.atStartOfDay(zone).toInstant().toEpochMilli(),
         )
+        val keys = chosen.mapNotNull(ObligationMatcher::keyOf)
+        if (keys.isNotEmpty()) {
+            val fresh = plannedRepo.getById(payment.id) ?: payment
+            plannedRepo.setMatchKeys(payment.id, fresh.learnedKeyList + keys)
+        }
     }
+
+    /** «Не подписка»: найденный ритм — совпадение, а не регулярный платёж (#56). */
+    fun dismissSubscription(key: String) = viewModelScope.launch { prefs.dismissSubscription(key) }
+
+    fun restoreDismissed() = viewModelScope.launch { prefs.restoreDismissedSubscriptions() }
 
     /**
      * Подтвердить найденную подписку — превратить догадку в обязательство.
@@ -276,5 +348,7 @@ class CalendarViewModel @Inject constructor(
         const val PROBE_DAYS = 90L
         /** Насколько далеко назад ищем непогашенные просроченные обязательства. */
         const val OVERDUE_LOOKBACK = 60L
+        /** Насколько вокруг срока искать операции для листа «Чем оплачено». */
+        const val SETTLE_DAYS = 15L
     }
 }

@@ -7,7 +7,9 @@ import com.financeos.hub.core.database.entities.TransactionType
 import com.financeos.hub.data.repositories.TransactionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.map
+import com.financeos.hub.data.preferences.UserPreferences
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.stateIn
 import java.time.ZoneId
 import javax.inject.Inject
@@ -23,17 +25,20 @@ data class SubscriptionsState(
     val missed    : List<SubscriptionDetector.Subscription> = emptyList(),
     /** По одному итогу на валюту, крупнейший первым. */
     val totals    : List<MonthlyTotal> = emptyList(),
+    /** Скрыто кнопкой «Не подписка» (#56). */
+    val dismissedCount: Int = 0,
     val isLoading : Boolean = true,
 )
 
 @HiltViewModel
 class SubscriptionsViewModel @Inject constructor(
     private val txRepo: TransactionRepository,
+    private val prefs : UserPreferences,
 ) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
 
-    val state = txRepo.observeAll().map { txList ->
+    val state = combine(txRepo.observeAll(), prefs.dismissedSubscriptions) { txList, dismissed ->
         val now  = System.currentTimeMillis()
         // Больше двух лет. Ритм подтверждается ТРЕМЯ списаниями, поэтому годовой подписке нужно
         // окно в два с лишним года — на 400 днях она была недостижима в принципе, и ветка Yearly
@@ -55,7 +60,8 @@ class SubscriptionsViewModel @Inject constructor(
                 )
             }
 
-        val all    = SubscriptionDetector.detect(charges, now)
+        // «Не подписка» (#56) — тот же список, что и в календаре: скрытое там не всплывает здесь.
+        val all    = SubscriptionDetector.detect(charges, now).filter { it.key !in dismissed }
         val missed = all.filter { it.isMissed }
         val active = all.filter { !it.isMissed }
 
@@ -68,9 +74,14 @@ class SubscriptionsViewModel @Inject constructor(
                 .groupBy { it.currency }
                 .map { (currency, subs) -> MonthlyTotal(currency, subs.sumOf { it.monthlyKopecks }) }
                 .sortedByDescending { it.kopecks },
+            dismissedCount = dismissed.size,
             isLoading = false,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SubscriptionsState())
+
+    fun dismiss(key: String) = viewModelScope.launch { prefs.dismissSubscription(key) }
+
+    fun restoreDismissed() = viewModelScope.launch { prefs.restoreDismissedSubscriptions() }
 
     private companion object {
         const val WINDOW_DAYS = 800L

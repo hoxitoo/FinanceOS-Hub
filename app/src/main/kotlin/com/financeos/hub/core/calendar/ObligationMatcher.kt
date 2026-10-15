@@ -1,9 +1,12 @@
 package com.financeos.hub.core.calendar
 
+import com.financeos.hub.core.analytics.SubscriptionDetector
 import com.financeos.hub.core.database.entities.PaymentDirection
+import com.financeos.hub.core.database.entities.PaymentSchedule
 import com.financeos.hub.core.database.entities.PlannedPaymentEntity
 import com.financeos.hub.core.database.entities.TransactionEntity
 import com.financeos.hub.core.database.entities.TransactionType
+import com.financeos.hub.core.database.entities.matchKeyList
 import com.financeos.hub.core.parser.InvestmentTransfers
 import java.time.Instant
 import java.time.LocalDate
@@ -52,6 +55,16 @@ object ObligationMatcher {
      */
     private const val MIN_PART_SHARE = 0.20
 
+    /**
+     * Допуск по сумме, когда продавец УЗНАН (#56) и операция одна. Продавец — сильное свидетельство:
+     * подписка подорожала на четверть, а платёж всё тот же. Две и больше частей держатся обычного
+     * [AMOUNT_TOLERANCE]: иначе у счёта «телефон + интернет» одна оплаченная половина закрыла бы весь.
+     */
+    private const val KEYED_TOLERANCE = 0.35
+
+    /** Окно для узнанного продавца: дата платежа гуляет сильнее, а ошибиться продавцом трудно. */
+    private const val KEYED_DAYS = 10L
+
     data class Match(
         val payment     : PlannedPaymentEntity,
         /**
@@ -92,6 +105,16 @@ object ObligationMatcher {
 
         for (payment in ordered) {
             val due = dueDates[payment.id] ?: continue
+
+            // Сначала — по продавцу (#56): обязательство, выросшее из подписки или выученное на
+            // ручной отметке, знает, КОМУ оно платится. Части могут прийти в разные дни.
+            val keyed = keyedParts(payment, due, transactions.filter { it.id !in used }, zone)
+            if (keyed.isNotEmpty()) {
+                keyed.forEach { used += it.id }
+                out += Match(payment, keyed, due)
+                continue
+            }
+
             val free = transactions.filter {
                 it.id !in used && it.id != payment.rejectedTxId && fitsApartFromAmount(payment, due, it, zone)
             }
@@ -114,6 +137,47 @@ object ObligationMatcher {
         }
         return out
     }
+
+    /** Ключ продавца операции — тот же, что у найденной подписки. */
+    fun keyOf(tx: TransactionEntity): String? = SubscriptionDetector.keyOf(tx.merchant, tx.description, tx.currency)
+
+    /**
+     * Оплата по УЗНАННЫМ продавцам (#56). По одной операции на продавца — ближайшей к сроку; их сумма
+     * обязана сойтись с обязательством. Одна часть при единственном продавце — с допуском
+     * [KEYED_TOLERANCE] (подорожание), иначе — обычным: оплаченный наполовину счёт остаётся открытым.
+     * Отвергнутая «Отвязать» операция не берётся, как и везде.
+     */
+    private fun keyedParts(
+        payment     : PlannedPaymentEntity,
+        due         : LocalDate,
+        transactions: List<TransactionEntity>,
+        zone        : ZoneId,
+    ): List<TransactionEntity> {
+        val keys = payment.matchKeyList.toSet()
+        if (keys.isEmpty() || payment.amountKopecks <= 0L) return emptyList()
+        // У недельного платежа окно шире недели захватило бы соседний период.
+        val days = if (payment.schedule == PaymentSchedule.WEEKLY) null else KEYED_DAYS
+        val parts = transactions
+            .filter { it.id != payment.rejectedTxId }
+            .filter { fitsApartFromAmount(payment, due, it, zone, days ?: DAYS_BEFORE, days ?: DAYS_AFTER) }
+            .mapNotNull { tx -> keyOf(tx)?.takeIf { it in keys }?.let { it to tx } }
+            .groupBy({ it.first }, { it.second })
+            .map { (_, txs) -> txs.minBy { abs(ChronoUnit.DAYS.between(due, dateOf(it, zone))) } }
+        if (parts.isEmpty()) return emptyList()
+        val sum = parts.sumOf { abs(it.amountKopecks) }
+        val tolerance = if (parts.size == 1 && keys.size == 1) KEYED_TOLERANCE else AMOUNT_TOLERANCE
+        return if (abs(sum - payment.amountKopecks).toDouble() <= payment.amountKopecks * tolerance) parts
+            else emptyList()
+    }
+
+    /**
+     * Может ли операция в принципе быть оплатой обязательства — направление, валюта, счёт, без
+     * даты и суммы. Для списка «чем оплачено» (#56): человек выбирает сам, но предлагать ему зарплату
+     * в оплату аренды незачем.
+     */
+    fun couldPay(payment: PlannedPaymentEntity, tx: TransactionEntity): Boolean =
+        !tx.isDeleted && tx.currency == payment.currency && directionFits(payment, tx) &&
+            (payment.accountId == null || tx.accountId == payment.accountId)
 
     /**
      * Счёт, оплаченный НЕСКОЛЬКИМИ операциями: телефон отдельно, интернет отдельно.
@@ -251,10 +315,21 @@ object ObligationMatcher {
         dueDate: LocalDate,
         tx     : TransactionEntity,
         zone   : ZoneId,
+        before : Long = DAYS_BEFORE,
+        after  : Long = DAYS_AFTER,
     ): Boolean {
         if (tx.isDeleted) return false
         if (tx.currency != payment.currency) return false
+        if (!directionFits(payment, tx)) return false
 
+        if (payment.accountId != null && tx.accountId != payment.accountId) return false
+        if (payment.amountKopecks <= 0L) return false
+
+        val delta = ChronoUnit.DAYS.between(dueDate, dateOf(tx, zone))
+        return delta in -before..after
+    }
+
+    private fun directionFits(payment: PlannedPaymentEntity, tx: TransactionEntity): Boolean {
         // Направление. Перевод между своими счетами исключён намеренно: он не тратит деньги, а
         // перекладывает, и закрывать им обязательство нельзя.
         //
@@ -268,13 +343,7 @@ object ObligationMatcher {
             out  -> tx.type == TransactionType.EXPENSE
             else -> tx.type == TransactionType.INCOME
         }
-        if (!fitsDirection) return false
-
-        if (payment.accountId != null && tx.accountId != payment.accountId) return false
-        if (payment.amountKopecks <= 0L) return false
-
-        val delta = ChronoUnit.DAYS.between(dueDate, dateOf(tx, zone))
-        return delta in -DAYS_BEFORE..DAYS_AFTER
+        return fitsDirection
     }
 
     /** Укладывается ли [amount] в допуск вокруг суммы обязательства. */

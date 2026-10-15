@@ -107,6 +107,12 @@ class UserPreferences @Inject constructor(
         val DISMISSED_BROKER_LEGS        = stringSetPreferencesKey("dismissed_broker_legs")
 
         /**
+         * Найденные «подписки», которые человек отметил «Не подписка» (#56): ключи
+         * `SubscriptionDetector`. Пропадают из календаря, предложений и экрана подписок.
+         */
+        val DISMISSED_SUBSCRIPTIONS      = stringSetPreferencesKey("dismissed_subscriptions")
+
+        /**
          * Котировки Мосбиржи (#55). Выключено по умолчанию: это первый выход приложения в сеть за
          * данными, а не за обновлением, и включает его человек.
          */
@@ -295,6 +301,18 @@ class UserPreferences @Inject constructor(
 
     suspend fun dismissBrokerLeg(txId: String) {
         context.dataStore.edit { it[DISMISSED_BROKER_LEGS] = (it[DISMISSED_BROKER_LEGS] ?: emptySet()) + txId }
+    }
+
+    val dismissedSubscriptions: Flow<Set<String>> = prefs
+        .map { it[DISMISSED_SUBSCRIPTIONS] ?: emptySet() }
+
+    suspend fun dismissSubscription(key: String) {
+        context.dataStore.edit { it[DISMISSED_SUBSCRIPTIONS] = (it[DISMISSED_SUBSCRIPTIONS] ?: emptySet()) + key }
+    }
+
+    /** Вернуть всё скрытое кнопкой «Не подписка» — ошибочное нажатие иначе не отменить. */
+    suspend fun restoreDismissedSubscriptions() {
+        context.dataStore.edit { it.remove(DISMISSED_SUBSCRIPTIONS) }
     }
 
     val marketQuotesEnabled: Flow<Boolean> = prefs

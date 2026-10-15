@@ -85,6 +85,7 @@ fun CalendarScreen(
     vm    : CalendarViewModel = hiltViewModel(),
 ) {
     val state   by vm.state.collectAsState()
+    val settleRequest by vm.settleRequest.collectAsState()
     val shimmer = LocalShimmer.current
 
     var editing     by remember { mutableStateOf<PlannedPaymentEntity?>(null) }
@@ -202,7 +203,14 @@ fun CalendarScreen(
                             // Закрыть период руками можно только у объявленного платежа: платёж по
                             // кредитке и конец беспроцентного периода приложение считает само, и
                             // «оплачено» там означало бы спор с банком.
-                            onSettle = editable?.let { p -> { vm.settle(p, event.date) } },
+                            // «оплачено» открывает «Чем оплачено» (#56): выбранные операции учат
+                            // обязательство, и следующий период закроется сам.
+                            onSettle = editable?.let { p -> { vm.openSettle(p, event.date) } },
+                            // Найденная подписка — догадка приложения, и у человека должно быть
+                            // право сказать «это не подписка» (#56).
+                            onDismiss = event.sourceId
+                                ?.takeIf { event.kind == EventKind.SUBSCRIPTION }
+                                ?.let { key -> { vm.dismissSubscription(key) } },
                         )
                     }
                 }
@@ -244,7 +252,28 @@ fun CalendarScreen(
                         amount   = FosFormatter.compact(sub.typicalKopecks, FosFormatter.currencySymbol(sub.currency)),
                         subtitle = sub.period?.label ?: "промежуток пока неизвестен",
                         onAdd    = { vm.confirmSubscription(sub) },
+                        onDismiss = { vm.dismissSubscription(sub.key) },
                     )
+                }
+            }
+
+            if (state.dismissedCount > 0) {
+                item(key = "dismissed") {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth().fosInset(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Скрыто как «не подписка»: ${state.dismissedCount}",
+                            style    = FosType.Micro,
+                            color    = FosColors.TextMuted,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = vm::restoreDismissed) {
+                            Text("Вернуть", style = FosType.Micro, color = FosColors.Info)
+                        }
+                    }
                 }
             }
 
@@ -296,6 +325,14 @@ fun CalendarScreen(
             current   = state.free?.reserveKopecks ?: 0L,
             onDismiss = { reserveOpen = false },
             onSave    = { vm.setReserve(it); reserveOpen = false },
+        )
+    }
+
+    settleRequest?.let { request ->
+        SettleSheet(
+            request   = request,
+            onDismiss = vm::closeSettle,
+            onSettle  = { chosen -> vm.settleWith(request, chosen) },
         )
     }
 
@@ -505,6 +542,8 @@ private fun EventRow(
      * узнало мой платёж» остаётся вечная просрочка, которую нечем снять.
      */
     onSettle: (() -> Unit)? = null,
+    /** «Не подписка» — только у события, которое приложение вывело само (#56). */
+    onDismiss: (() -> Unit)? = null,
 ) {
     val tone = when {
         !event.affectsFree            -> FosTone.Info
@@ -558,13 +597,26 @@ private fun EventRow(
                 ) {
                     Text("оплачено", style = FosType.Micro, color = FosColors.Positive)
                 }
+            } else if (onDismiss != null) {
+                TextButton(
+                    onClick        = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                ) {
+                    Text("не подписка", style = FosType.Micro, color = FosColors.TextMuted)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SuggestionRow(title: String, amount: String, subtitle: String, onAdd: () -> Unit) {
+private fun SuggestionRow(
+    title    : String,
+    amount   : String,
+    subtitle : String,
+    onAdd    : () -> Unit,
+    onDismiss: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -577,8 +629,13 @@ private fun SuggestionRow(title: String, amount: String, subtitle: String, onAdd
             Text(title, style = FosType.BodySemi, color = FosColors.TextPrimary, maxLines = 1)
             Text("$amount · $subtitle", style = FosType.MicroNum, color = FosColors.TextSecondary, maxLines = 1)
         }
-        TextButton(onClick = onAdd) {
-            Text("В календарь", style = FosType.Label, color = FosColors.Info)
+        Column(horizontalAlignment = Alignment.End) {
+            TextButton(onClick = onAdd) {
+                Text("В календарь", style = FosType.Label, color = FosColors.Info)
+            }
+            TextButton(onClick = onDismiss, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text("Не подписка", style = FosType.Micro, color = FosColors.TextMuted)
+            }
         }
     }
 }

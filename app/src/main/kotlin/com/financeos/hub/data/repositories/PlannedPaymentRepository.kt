@@ -46,4 +46,8 @@ class PlannedPaymentRepository @Inject constructor(
      * запоминается — иначе сборщик тут же вернул бы её на место.
      */
     suspend fun unmatch(id: String) = dao.unmatch(id, System.currentTimeMillis())
+
+    /** Запомнить продавцов, которыми оплачено обязательство (#56). Пустой список — забыть всех. */
+    suspend fun setMatchKeys(id: String, keys: Collection<String>) =
+        dao.setMatchKeys(id, keys.distinct().takeIf { it.isNotEmpty() }?.joinToString(","), System.currentTimeMillis())
 }
