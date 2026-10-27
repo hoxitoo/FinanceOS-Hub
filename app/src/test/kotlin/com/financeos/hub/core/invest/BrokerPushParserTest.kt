@@ -25,6 +25,19 @@ class BrokerPushParserTest {
     }
 
     @Test
+    fun `a confirmed withdrawal takes money out, the pending one is not recorded (#57)`() {
+        // Сняты с устройства 27 октября, тот же порядок: сначала «в обработке», через 8 минут — подтверждение.
+        assertNull(BrokerPushParser.parse(
+            "Вывод денег в обработке 15 000 RUB со счета №580922/19-м на счет в АО \"АЛЬФА-БАНК\"", ts))
+        val e = BrokerPushParser.parse(
+            "Подтвержден вывод денег 15 000 RUB со счета №580922/19-м на счет в АО \"АЛЬФА-БАНК\"", ts) as BrokerCashMove
+        assertEquals(-1_500_000L, e.amountKopecks)
+        assertEquals("RUB", e.currency)
+        assertEquals("580922/19-м", e.contract)
+        assertEquals(BrokerPushParser.BKS, e.broker)
+    }
+
+    @Test
     fun `order placed, cancelled and filled`() {
         val active = BrokerPushParser.parse(
             "LQDT: заявка активна Лимитная заявка на покупку 4760 лотов LQDT по 2.0984", ts) as BrokerOrder
