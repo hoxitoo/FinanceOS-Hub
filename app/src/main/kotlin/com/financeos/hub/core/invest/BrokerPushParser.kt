@@ -12,9 +12,10 @@ import com.financeos.hub.core.parser.ciRegex
  * - «LQDT: заявка исполнена Рыночная заявка на покупку 20 лотов LQDT» — БЕЗ цены (#52)
  * - «Перевод между счетами 189 RUB. Со счета №580922/19-м на счет 3468071/25 (Облигации)»
  * - «Критично низкий баланс счета 3468071/25 (Облигации) Пополните … на сумму от 188.02. …»
+ * - «Подтвержден вывод денег 15 000 RUB со счета №580922/19-м на счет в АО "АЛЬФА-БАНК"» (#57)
  *
  * Тексты склеены так же, как их собирает `PushNotificationListener`: заголовок, затем текст.
- * Форматы, которых не видели (вывод денег, частичное исполнение, продажа), НЕ угадываются: неверно
+ * Форматы, которых не видели (частичное исполнение, продажа), НЕ угадываются: неверно
  * разобранная сделка хуже пропущенной — она молча врёт в стоимости портфеля.
  *
  * Кириллица — только через [ciRegex] (инвариант #13).
@@ -25,6 +26,14 @@ object BrokerPushParser {
 
     private val deposit = ciRegex(
         """пополнили\s+сч[её]т\s+№\s*([^\s,;]+)\s+на\s+([\d\s]+(?:[.,]\d{1,2})?)\s*(RUB|USD|EUR|CNY|₽)"""
+    )
+
+    // «Подтвержден вывод денег 15 000 RUB со счета №580922/19-м на счет в АО "АЛЬФА-БАНК"». Только
+    // ПОДТВЕРЖДЁННЫЙ: перед ним приходит «Вывод денег в обработке …» с той же суммой, и запиши мы оба,
+    // вывод посчитался бы дважды. «В обработке» деньги ещё могут вернуться — не разбирается вовсе.
+    private val withdrawal = ciRegex(
+        """Подтвержд[её]н\s+вывод\s+денег\s+([\d\s]+(?:[.,]\d{1,2})?)\s*(RUB|USD|EUR|CNY|HKD|₽)\s+""" +
+            """со\s+сч[её]та\s+№?\s*([^\s,;]+)"""
     )
 
     private val orderHeader = ciRegex("""([A-Z0-9.]{1,12}):\s*заявка\s+(активна|отменена|исполнена)(?![А-Яа-яёЁ])""")
@@ -51,6 +60,7 @@ object BrokerPushParser {
 
     fun parse(body: String, timestamp: Long, broker: String = BKS): BrokerEvent? =
         parseDeposit(body, timestamp, broker)
+            ?: parseWithdrawal(body, timestamp, broker)
             ?: parseInternalTransfer(body, timestamp, broker)
             ?: parseMarginAlert(body, timestamp, broker)
             ?: parseOrder(body, timestamp, broker)
@@ -100,6 +110,20 @@ object BrokerPushParser {
             contract      = m.groupValues[1].trimEnd('.', ','),
             amountKopecks = kopecks,
             currency      = currency,
+        )
+    }
+
+    /** Вывод — то же движение денег, что пополнение, со знаком минус (как у ручного вывода, #49). */
+    private fun parseWithdrawal(body: String, ts: Long, broker: String): BrokerCashMove? {
+        val m = withdrawal.find(body) ?: return null
+        val kopecks = AmountParser.toKopecks(m.groupValues[1])
+        if (kopecks <= 0L) return null
+        return BrokerCashMove(
+            broker        = broker,
+            timestamp     = ts,
+            contract      = m.groupValues[3].trimEnd('.', ','),
+            amountKopecks = -kopecks,
+            currency      = m.groupValues[2].uppercase().let { if (it == "₽") "RUB" else it },
         )
     }
 
